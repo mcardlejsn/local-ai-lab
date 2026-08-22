@@ -1,15 +1,13 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_gemma/flutter_gemma.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../models/summary_record.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
 import '../services/llama_gguf_service.dart';
-import 'summarizer_screen.dart';
+import '../services/model_manager_service.dart';
 
 class BenchmarkModelResult {
   final String modelName;
@@ -41,6 +39,7 @@ class BenchmarkScreen extends StatefulWidget {
 }
 
 class _BenchmarkScreenState extends State<BenchmarkScreen> {
+  final ModelManagerService _modelManager = ModelManagerService();
   final TextEditingController _promptController = TextEditingController(
     text:
         'Client arrived at 08:30 for morning medication (Metformin 500mg, Lisinopril 10mg) with full glass of water. Refused breakfast initially citing mild nausea, but ate half a banana at 09:15. Blood glucose reading at 09:30 was 128 mg/dL. Attended physical therapy session from 10:00 to 10:45 with good mobility and no complaints of pain. Returned to common area for lunch at 12:00.',
@@ -49,108 +48,49 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     text: 'Extract all timestamps, vitals, and medication events chronologically:',
   );
 
-  List<ModelOption> _availableModels = [];
   final List<BenchmarkModelResult> _results = [];
-
-  bool _isScanning = true;
   bool _isRunning = false;
   int _currentRunningIndex = -1;
-  String _currentStatus = 'Scanning available models...';
+  String _currentStatus = 'Ready to benchmark.';
 
   @override
   void initState() {
     super.initState();
-    _scanModels();
+    _modelManager.addListener(_onModelManagerStateChanged);
+    _modelManager.scanModels();
   }
 
   @override
   void dispose() {
+    _modelManager.removeListener(_onModelManagerStateChanged);
     _promptController.dispose();
     _instructionController.dispose();
     super.dispose();
   }
 
-  Future<void> _scanModels() async {
-    setState(() {
-      _isScanning = true;
-      _currentStatus = 'Scanning for models...';
-    });
-
-    final List<ModelOption> options = [];
-
-    try {
-      final bool isNanoReady = await GeminiNanoService.isAvailable();
-      if (isNanoReady) {
-        options.add(
-          ModelOption(
-            id: 'system_gemini_nano',
-            displayName: 'Gemini Nano (AICore NPU)',
-            engine: ModelEngine.nano,
-          ),
-        );
-      }
-
-      final Directory? extDir = await getExternalStorageDirectory();
-      if (extDir != null) {
-        final List<Directory> searchDirs = [
-          Directory('${extDir.path}/models'),
-          extDir,
-        ];
-
-        for (final dir in searchDirs) {
-          if (await dir.exists()) {
-            try {
-              final entities = dir.listSync(recursive: false);
-              for (final entity in entities) {
-                if (entity is File) {
-                  final path = entity.path.toLowerCase();
-                  if (path.endsWith('.bin') || path.endsWith('.task')) {
-                    if (!options.any((o) => o.id == entity.path)) {
-                      options.add(
-                        ModelOption(
-                          id: entity.path,
-                          displayName: entity.path.split('/').last,
-                          engine: ModelEngine.mediapipe,
-                          file: entity,
-                        ),
-                      );
-                    }
-                  } else if (path.endsWith('.gguf')) {
-                    if (!options.any((o) => o.id == entity.path)) {
-                      options.add(
-                        ModelOption(
-                          id: entity.path,
-                          displayName: entity.path.split('/').last,
-                          engine: ModelEngine.gguf,
-                          file: entity,
-                        ),
-                      );
-                    }
-                  }
-                }
-              }
-            } catch (_) {}
-          }
+  void _onModelManagerStateChanged() {
+    if (mounted) {
+      setState(() {
+        if (!_isRunning) {
+          final models = _modelManager.availableModels;
+          _currentStatus = models.isEmpty
+              ? 'No models found to benchmark.'
+              : 'Found ${models.length} models ready for testing.';
         }
-      }
-
-      setState(() {
-        _availableModels = options;
-        _isScanning = false;
-        _currentStatus = options.isEmpty
-            ? 'No models found to benchmark.'
-            : 'Found ${options.length} models ready for testing.';
-      });
-    } catch (e) {
-      setState(() {
-        _isScanning = false;
-        _currentStatus = 'Scan error: $e';
       });
     }
   }
 
+  String _buildFormattedPrompt(ModelEngine engine, String instruction, String rawText) {
+    if (engine == ModelEngine.nano) {
+      return '$instruction\n\n"""\n$rawText\n"""';
+    }
+    return '<start_of_turn>user\n$instruction\n\n"""\n$rawText\n"""<end_of_turn>\n<start_of_turn>model\n';
+  }
+
   Future<void> _runBenchmarkSuite() async {
-    if (_availableModels.isEmpty || _isRunning) return;
+    final models = _modelManager.availableModels;
+    if (models.isEmpty || _isRunning) return;
 
     setState(() {
       _isRunning = true;
@@ -159,35 +99,41 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
 
     final String rawText = _promptController.text.trim();
     final String instruction = _instructionController.text.trim();
-    final String fullPrompt =
-        '<start_of_turn>user\n$instruction\n\n"""\n$rawText\n"""<end_of_turn>\n<start_of_turn>model\n';
 
-    for (int i = 0; i < _availableModels.length; i++) {
-      final model = _availableModels[i];
+    for (int i = 0; i < models.length; i++) {
+      if (!mounted) return;
+
+      final model = models[i];
 
       setState(() {
         _currentRunningIndex = i;
         _currentStatus =
-            'Benchmarking (${i + 1}/${_availableModels.length}): ${model.displayName}...';
+            'Benchmarking (${i + 1}/${models.length}): ${model.name}...';
       });
 
-      await Future.delayed(const Duration(milliseconds: 300));
+      await Future.delayed(const Duration(milliseconds: 250));
 
+      final fullPrompt = _buildFormattedPrompt(model.engine, instruction, rawText);
       final result = await _executeSingleBenchmark(model, fullPrompt, rawText, instruction);
-      setState(() {
-        _results.add(result);
-      });
+
+      if (mounted) {
+        setState(() {
+          _results.add(result);
+        });
+      }
     }
 
-    setState(() {
-      _isRunning = false;
-      _currentRunningIndex = -1;
-      _currentStatus = 'Benchmark suite completed across ${_results.length} models.';
-    });
+    if (mounted) {
+      setState(() {
+        _isRunning = false;
+        _currentRunningIndex = -1;
+        _currentStatus = 'Benchmark suite completed across ${_results.length} models.';
+      });
+    }
   }
 
   Future<BenchmarkModelResult> _executeSingleBenchmark(
-    ModelOption model,
+    ModelInfo model,
     String fullPrompt,
     String originalText,
     String taskType,
@@ -200,6 +146,9 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     int tokenCount = 0;
 
     try {
+      // Release any previously resident engine to prevent multi-GB memory pileup
+      await _modelManager.unloadAllEngines();
+
       // 1. GEMINI NANO
       if (model.engine == ModelEngine.nano) {
         totalStopwatch.start();
@@ -215,7 +164,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         final double speed = totalSec > 0 ? (estTokens / totalSec) : 0;
 
         final res = BenchmarkModelResult(
-          modelName: model.displayName,
+          modelName: model.name,
           engine: model.engine,
           ttftSeconds: totalSec,
           totalLatencySeconds: totalSec,
@@ -231,7 +180,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
       // 2. GGUF (llama.cpp)
       if (model.engine == ModelEngine.gguf) {
         await LlamaGgufService.loadModel(
-          modelPath: model.id,
+          modelPath: model.path,
           threads: 4,
           contextSize: 2048,
         );
@@ -279,7 +228,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         final double speed = totalSec > 0 ? (tokenCount / totalSec) : 0;
 
         final res = BenchmarkModelResult(
-          modelName: model.displayName,
+          modelName: model.name,
           engine: model.engine,
           ttftSeconds: timeToFirstToken,
           totalLatencySeconds: totalSec,
@@ -292,11 +241,11 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         return res;
       }
 
-      // 3. MEDIAPIPE
+      // 3. MEDIAPIPE (Gemma)
       if (model.engine == ModelEngine.mediapipe) {
         await FlutterGemma.installModel(
           modelType: ModelType.gemmaIt,
-        ).fromFile(model.id).install();
+        ).fromFile(model.path).install();
 
         final gemmaModel = await FlutterGemma.getActiveModel();
         final session = await gemmaModel.createSession(
@@ -314,15 +263,16 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         ttftStopwatch.start();
 
         final subscription = stream.listen(
-          (chunk) {
-            if (chunk.isNotEmpty) {
+          (dynamic chunk) {
+            final String textChunk = chunk?.toString() ?? '';
+            if (textChunk.isNotEmpty) {
               if (isFirstChunk) {
                 ttftStopwatch.stop();
                 timeToFirstToken = ttftStopwatch.elapsedMilliseconds / 1000.0;
                 isFirstChunk = false;
               }
-              output += chunk;
-              final int inc = (chunk.length / 4.0).ceil();
+              output += textChunk;
+              final int inc = (textChunk.length / 4.0).ceil();
               tokenCount += (inc > 0 ? inc : 1);
             }
           },
@@ -343,7 +293,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         final double speed = totalSec > 0 ? (tokenCount / totalSec) : 0;
 
         final res = BenchmarkModelResult(
-          modelName: model.displayName,
+          modelName: model.name,
           engine: model.engine,
           ttftSeconds: timeToFirstToken,
           totalLatencySeconds: totalSec,
@@ -360,10 +310,10 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     } catch (e) {
       totalStopwatch.stop();
       ttftStopwatch.stop();
-      await LlamaGgufService.unloadModel();
+      await _modelManager.unloadAllEngines();
 
       return BenchmarkModelResult(
-        modelName: model.displayName,
+        modelName: model.name,
         engine: model.engine,
         ttftSeconds: null,
         totalLatencySeconds: totalStopwatch.elapsedMilliseconds / 1000.0,
@@ -463,6 +413,9 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     const surfaceColor = Color(0xFF1E1E1E);
     const accentBlue = Color(0xFF90CAF9);
 
+    final models = _modelManager.availableModels;
+    final isScanning = _modelManager.isLoading;
+
     return Scaffold(
       backgroundColor: bgColor,
       appBar: AppBar(
@@ -493,7 +446,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                   Icon(
                     _isRunning
                         ? Icons.hourglass_top_rounded
-                        : (_availableModels.isEmpty
+                        : (models.isEmpty
                             ? Icons.error_outline_rounded
                             : Icons.check_circle_outline_rounded),
                     color: _isRunning ? accentBlue : const Color(0xFF81C784),
@@ -510,7 +463,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                     IconButton(
                       icon: const Icon(Icons.refresh_rounded, color: Colors.white70, size: 20),
                       tooltip: 'Rescan',
-                      onPressed: _scanModels,
+                      onPressed: _modelManager.scanModels,
                     ),
                 ],
               ),
@@ -562,7 +515,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
-              onPressed: (_isScanning || _isRunning || _availableModels.isEmpty)
+              onPressed: (isScanning || _isRunning || models.isEmpty)
                   ? null
                   : _runBenchmarkSuite,
               icon: _isRunning
@@ -574,7 +527,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                   : const Icon(Icons.play_arrow_rounded, color: Colors.black),
               label: Text(
                 _isRunning
-                    ? 'Running Suite (${_currentRunningIndex + 1}/${_availableModels.length})...'
+                    ? 'Running Suite (${_currentRunningIndex + 1}/${models.length})...'
                     : 'Run Automated Benchmark Suite',
                 style: const TextStyle(
                   color: Colors.black,
@@ -673,9 +626,11 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                           ),
                           DataCell(
                             Text(
-                              r.ttftSeconds != null
-                                  ? '${r.ttftSeconds!.toStringAsFixed(2)}s'
-                                  : '--',
+                              r.engine == ModelEngine.nano
+                                  ? '${r.totalLatencySeconds.toStringAsFixed(2)}s*'
+                                  : (r.ttftSeconds != null
+                                      ? '${r.ttftSeconds!.toStringAsFixed(2)}s'
+                                      : '--'),
                               style: const TextStyle(color: Colors.white70),
                             ),
                           ),

@@ -20,7 +20,7 @@ class DatabaseService {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _createDB,
       onUpgrade: _upgradeDB,
     );
@@ -36,7 +36,10 @@ class DatabaseService {
         created_at TEXT NOT NULL,
         latency_seconds REAL,
         ttft_seconds REAL,
-        tokens_per_sec REAL
+        tokens_per_sec REAL,
+        engine_type TEXT,
+        model_name TEXT,
+        token_count INTEGER
       )
     ''');
   }
@@ -46,6 +49,11 @@ class DatabaseService {
       await db.execute('ALTER TABLE summaries ADD COLUMN latency_seconds REAL;');
       await db.execute('ALTER TABLE summaries ADD COLUMN ttft_seconds REAL;');
       await db.execute('ALTER TABLE summaries ADD COLUMN tokens_per_sec REAL;');
+    }
+    if (oldVersion < 3) {
+      await db.execute('ALTER TABLE summaries ADD COLUMN engine_type TEXT;');
+      await db.execute('ALTER TABLE summaries ADD COLUMN model_name TEXT;');
+      await db.execute('ALTER TABLE summaries ADD COLUMN token_count INTEGER;');
     }
   }
 

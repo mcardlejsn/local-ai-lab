@@ -1,32 +1,15 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_gemma/flutter_gemma.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../models/summary_record.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
 import '../services/llama_gguf_service.dart';
+import '../services/model_manager_service.dart';
 import 'benchmark_screen.dart';
 import 'history_screen.dart';
-
-enum ModelEngine { nano, mediapipe, gguf }
-
-class ModelOption {
-  final String id;
-  final String displayName;
-  final ModelEngine engine;
-  final File? file;
-
-  ModelOption({
-    required this.id,
-    required this.displayName,
-    required this.engine,
-    this.file,
-  });
-}
 
 class SummarizerScreen extends StatefulWidget {
   const SummarizerScreen({super.key});
@@ -36,21 +19,18 @@ class SummarizerScreen extends StatefulWidget {
 }
 
 class _SummarizerScreenState extends State<SummarizerScreen> {
+  final ModelManagerService _modelManager = ModelManagerService();
   final TextEditingController _inputController = TextEditingController();
   final TextEditingController _customPromptController = TextEditingController(
     text: 'Extract the 3 most critical points',
   );
   final ScrollController _scrollController = ScrollController();
 
-  // Model & State Management
-  List<ModelOption> _availableModels = [];
-  String? _selectedModelId;
-  bool _isModelInitialized = false;
+  // Inference State
   bool _isStreaming = false;
-  String _statusMessage = 'Scanning for models...';
   String _generatedOutput = '';
 
-  // Runtime Model Hyperparameters
+  // Hyperparameters
   double _temperature = 0.20;
   int _topK = 40;
   int _maxTokens = 256;
@@ -67,189 +47,34 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     'Custom': '',
   };
 
-  // Inference Benchmarking Metrics
+  // Inference Telemetry Metrics
   final Stopwatch _inferenceStopwatch = Stopwatch();
   final Stopwatch _ttftStopwatch = Stopwatch();
   double? _timeToFirstTokenSeconds;
   double? _totalLatencySeconds;
   int _estimatedTokenCount = 0;
   double? _tokensPerSecond;
-  StreamSubscription<String?>? _streamSubscription;
+  StreamSubscription<dynamic>? _streamSubscription;
 
   @override
   void initState() {
     super.initState();
-    _scanAndInitializeModels();
+    _modelManager.addListener(_onModelManagerStateChanged);
+    _modelManager.scanModels();
   }
 
   @override
   void dispose() {
+    _modelManager.removeListener(_onModelManagerStateChanged);
     _streamSubscription?.cancel();
-    LlamaGgufService.unloadModel();
     _inputController.dispose();
     _customPromptController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
-  Future<void> _scanAndInitializeModels() async {
-    setState(() {
-      _statusMessage = 'Scanning models...';
-      _isModelInitialized = false;
-    });
-
-    try {
-      final List<ModelOption> options = [];
-
-      // 1. Check Gemini Nano AICore System Availability
-      final bool isNanoReady = await GeminiNanoService.isAvailable();
-      if (isNanoReady) {
-        options.add(
-          ModelOption(
-            id: 'system_gemini_nano',
-            displayName: 'Gemini Nano (AICore NPU)',
-            engine: ModelEngine.nano,
-          ),
-        );
-      }
-
-      // 2. Scan sandbox storage for .bin, .task, and .gguf files
-      final Directory? extDir = await getExternalStorageDirectory();
-      if (extDir != null) {
-        final List<Directory> searchDirs = [
-          Directory('${extDir.path}/models'),
-          extDir,
-        ];
-
-        for (final dir in searchDirs) {
-          if (await dir.exists()) {
-            try {
-              final entities = dir.listSync(recursive: false);
-              for (final entity in entities) {
-                if (entity is File) {
-                  final path = entity.path.toLowerCase();
-                  if (path.endsWith('.bin') || path.endsWith('.task')) {
-                    if (!options.any((o) => o.id == entity.path)) {
-                      options.add(
-                        ModelOption(
-                          id: entity.path,
-                          displayName: entity.path.split('/').last,
-                          engine: ModelEngine.mediapipe,
-                          file: entity,
-                        ),
-                      );
-                    }
-                  } else if (path.endsWith('.gguf')) {
-                    if (!options.any((o) => o.id == entity.path)) {
-                      options.add(
-                        ModelOption(
-                          id: entity.path,
-                          displayName: entity.path.split('/').last,
-                          engine: ModelEngine.gguf,
-                          file: entity,
-                        ),
-                      );
-                    }
-                  }
-                }
-              }
-            } catch (_) {}
-          }
-        }
-      }
-
-      setState(() {
-        _availableModels = options;
-      });
-
-      if (options.isEmpty) {
-        setState(() {
-          _isModelInitialized = false;
-          _selectedModelId = null;
-          _statusMessage = 'No models found (Sandbox or System)';
-        });
-        return;
-      }
-
-      final String targetId = (_selectedModelId != null &&
-              options.any((o) => o.id == _selectedModelId))
-          ? _selectedModelId!
-          : options.first.id;
-
-      await _activateModel(targetId);
-    } catch (e) {
-      setState(() {
-        _isModelInitialized = false;
-        _statusMessage = 'Scan Error: $e';
-      });
-    }
-  }
-
-  Future<void> _activateModel(String modelId) async {
-    await _streamSubscription?.cancel();
-    _streamSubscription = null;
-    _stopTimers();
-
-    final modelOption = _availableModels.firstWhere((o) => o.id == modelId);
-
-    setState(() {
-      _selectedModelId = modelId;
-      _isModelInitialized = false;
-      _isStreaming = false;
-      _statusMessage = 'Initializing ${modelOption.displayName}...';
-    });
-
-    if (modelOption.engine != ModelEngine.gguf) {
-      await LlamaGgufService.unloadModel();
-    }
-
-    if (modelOption.engine == ModelEngine.nano) {
-      setState(() {
-        _isModelInitialized = true;
-        _statusMessage = 'Nano Ready (System NPU)';
-      });
-      return;
-    }
-
-    if (modelOption.engine == ModelEngine.mediapipe) {
-      try {
-        await FlutterGemma.installModel(
-          modelType: ModelType.gemmaIt,
-        ).fromFile(modelOption.id).install();
-
-        setState(() {
-          _isModelInitialized = true;
-          _statusMessage = 'MediaPipe Ready (100% Offline)';
-        });
-      } catch (e) {
-        setState(() {
-          _isModelInitialized = false;
-          _statusMessage = 'MediaPipe Load Error: $e';
-        });
-      }
-      return;
-    }
-
-    if (modelOption.engine == ModelEngine.gguf) {
-      try {
-        await LlamaGgufService.loadModel(
-          modelPath: modelOption.id,
-          threads: 4,
-          contextSize: 2048,
-        );
-
-        setState(() {
-          _isModelInitialized = true;
-          _statusMessage = 'GGUF Engine Ready (llama.cpp)';
-        });
-      } catch (e) {
-        setState(() {
-          _isModelInitialized = false;
-          _statusMessage = 'GGUF Load Error: $e';
-        });
-      }
-      return;
-    }
+  void _onModelManagerStateChanged() {
+    if (mounted) setState(() {});
   }
 
   void _resetMetrics() {
@@ -261,13 +86,41 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     _tokensPerSecond = null;
   }
 
-  Future<void> _pasteFromClipboard() async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    if (data != null && data.text != null) {
+  void _stopTimers() {
+    if (_inferenceStopwatch.isRunning) _inferenceStopwatch.stop();
+    if (_ttftStopwatch.isRunning) _ttftStopwatch.stop();
+  }
+
+  Future<void> _stopGeneration() async {
+    await _streamSubscription?.cancel();
+    _streamSubscription = null;
+    await LlamaGgufService.stop();
+    _stopTimers();
+
+    if (mounted) {
       setState(() {
-        _inputController.text = data.text!;
+        _isStreaming = false;
+        _totalLatencySeconds =
+            _inferenceStopwatch.elapsedMilliseconds / 1000.0;
+        if (_totalLatencySeconds != null && _totalLatencySeconds! > 0) {
+          _tokensPerSecond = _estimatedTokenCount / _totalLatencySeconds!;
+        }
       });
-      _showSnackBar('Pasted from clipboard.');
+      _showSnackBar('Generation stopped by user.');
+    }
+  }
+
+  Future<void> _pasteFromClipboard() async {
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      if (data != null && data.text != null) {
+        setState(() {
+          _inputController.text = data.text!;
+        });
+        _showSnackBar('Pasted from clipboard.');
+      }
+    } catch (e) {
+      _showSnackBar('Failed to read clipboard: $e');
     }
   }
 
@@ -279,10 +132,24 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     });
   }
 
+  String _buildFormattedPrompt(ModelEngine engine, String instruction, String rawText) {
+    if (engine == ModelEngine.nano) {
+      return '$instruction\n\n"""\n$rawText\n"""';
+    }
+    // MediaPipe & GGUF (turn-based chat format)
+    return '<start_of_turn>user\n$instruction\n\n"""\n$rawText\n"""<end_of_turn>\n<start_of_turn>model\n';
+  }
+
   Future<void> _runInference() async {
     final rawText = _inputController.text.trim();
     if (rawText.isEmpty) {
       _showSnackBar('Please enter or paste text to summarize.');
+      return;
+    }
+
+    final activeModel = _modelManager.activeModel;
+    if (activeModel == null || _modelManager.isLoading) {
+      _showSnackBar('No active model loaded.');
       return;
     }
 
@@ -297,8 +164,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
       }
     }
 
-    final fullPrompt =
-        '<start_of_turn>user\n$instruction\n\n"""\n$rawText\n"""<end_of_turn>\n<start_of_turn>model\n';
+    final fullPrompt = _buildFormattedPrompt(activeModel.engine, instruction, rawText);
 
     setState(() {
       _isStreaming = true;
@@ -308,9 +174,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     _inferenceStopwatch.start();
     _ttftStopwatch.start();
 
-    final activeOption = _availableModels.firstWhere((o) => o.id == _selectedModelId);
-
-    if (activeOption.engine == ModelEngine.nano) {
+    // 1. Gemini Nano Engine (AICore NPU)
+    if (activeModel.engine == ModelEngine.nano) {
       try {
         final resultText = await GeminiNanoService.generateText(
           prompt: fullPrompt,
@@ -319,29 +184,33 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
         );
 
         _stopTimers();
-
-        final double totalSec = _inferenceStopwatch.elapsedMilliseconds / 1000.0;
+        final double totalSec =
+            _inferenceStopwatch.elapsedMilliseconds / 1000.0;
         final int estTokens = (resultText.length / 4.0).ceil();
 
-        setState(() {
-          _isStreaming = false;
-          _generatedOutput = resultText;
-          _timeToFirstTokenSeconds = totalSec;
-          _totalLatencySeconds = totalSec;
-          _estimatedTokenCount = estTokens;
-          _tokensPerSecond = totalSec > 0 ? (estTokens / totalSec) : 0;
-        });
-
-        _autoScroll();
+        if (mounted) {
+          setState(() {
+            _isStreaming = false;
+            _generatedOutput = resultText;
+            _timeToFirstTokenSeconds = totalSec;
+            _totalLatencySeconds = totalSec;
+            _estimatedTokenCount = estTokens;
+            _tokensPerSecond = totalSec > 0 ? (estTokens / totalSec) : 0;
+          });
+          _autoScroll();
+        }
       } catch (e) {
         _stopTimers();
-        setState(() => _isStreaming = false);
-        _showSnackBar('Nano Inference Failed: $e');
+        if (mounted) {
+          setState(() => _isStreaming = false);
+          _showSnackBar('Nano Inference Failed: $e');
+        }
       }
       return;
     }
 
-    if (activeOption.engine == ModelEngine.gguf) {
+    // 2. GGUF Engine (llama.cpp)
+    if (activeModel.engine == ModelEngine.gguf) {
       try {
         final stream = LlamaGgufService.generate(
           prompt: fullPrompt,
@@ -362,117 +231,135 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 isFirstChunk = false;
               }
 
-              final int tokenIncrement = (chunk.length / 4.0).ceil();
-              final int increment = tokenIncrement > 0 ? tokenIncrement : 1;
+              final int inc = (chunk.length / 4.0).ceil();
+              final int increment = inc > 0 ? inc : 1;
 
-              setState(() {
-                _generatedOutput += chunk;
-                _estimatedTokenCount += increment;
+              if (mounted) {
+                setState(() {
+                  _generatedOutput += chunk;
+                  _estimatedTokenCount += increment;
 
-                final double currentElapsedSec =
-                    _inferenceStopwatch.elapsedMilliseconds / 1000.0;
-                if (currentElapsedSec > 0) {
-                  _tokensPerSecond = _estimatedTokenCount / currentElapsedSec;
-                }
-              });
-
-              _autoScroll();
+                  final double currentSec =
+                      _inferenceStopwatch.elapsedMilliseconds / 1000.0;
+                  if (currentSec > 0) {
+                    _tokensPerSecond = _estimatedTokenCount / currentSec;
+                  }
+                });
+                _autoScroll();
+              }
             }
           },
           onError: (error) {
             _stopTimers();
-            setState(() => _isStreaming = false);
-            _showSnackBar('GGUF Stream Error: $error');
+            if (mounted) {
+              setState(() => _isStreaming = false);
+              _showSnackBar('GGUF Stream Error: $error');
+            }
           },
           onDone: () {
             _stopTimers();
-            setState(() {
-              _isStreaming = false;
-              _totalLatencySeconds =
-                  _inferenceStopwatch.elapsedMilliseconds / 1000.0;
-              if (_totalLatencySeconds! > 0) {
-                _tokensPerSecond = _estimatedTokenCount / _totalLatencySeconds!;
-              }
-            });
+            if (mounted) {
+              setState(() {
+                _isStreaming = false;
+                _totalLatencySeconds =
+                    _inferenceStopwatch.elapsedMilliseconds / 1000.0;
+                if (_totalLatencySeconds! > 0) {
+                  _tokensPerSecond =
+                      _estimatedTokenCount / _totalLatencySeconds!;
+                }
+              });
+            }
           },
           cancelOnError: true,
         );
       } catch (e) {
         _stopTimers();
-        setState(() => _isStreaming = false);
-        _showSnackBar('GGUF Inference Failed: $e');
+        if (mounted) {
+          setState(() => _isStreaming = false);
+          _showSnackBar('GGUF Inference Failed: $e');
+        }
       }
       return;
     }
 
-    try {
-      final model = await FlutterGemma.getActiveModel();
-      final session = await model.createSession(
-        temperature: _temperature,
-        topK: _topK,
-        randomSeed: 1,
-      );
+    // 3. MediaPipe Engine (Gemma .task / .bin)
+    if (activeModel.engine == ModelEngine.mediapipe) {
+      try {
+        await _modelManager.recreateMediaPipeSession(
+          temperature: _temperature,
+          topK: _topK,
+        );
 
-      await session.addQueryChunk(Message(text: fullPrompt, isUser: true));
-      final stream = session.getResponseAsync();
+        final dynamic session = _modelManager.activeMediaPipeSession;
+        if (session == null) {
+          throw Exception('MediaPipe session is not initialized.');
+        }
 
-      bool isFirstChunk = true;
+        await session.addQueryChunk(Message(text: fullPrompt, isUser: true));
+        final stream = session.getResponseAsync();
 
-      _streamSubscription = stream.listen(
-        (chunk) {
-          if (chunk.isNotEmpty) {
-            if (isFirstChunk) {
-              _ttftStopwatch.stop();
-              _timeToFirstTokenSeconds =
-                  _ttftStopwatch.elapsedMilliseconds / 1000.0;
-              isFirstChunk = false;
-            }
+        bool isFirstChunk = true;
 
-            final int tokenIncrement = (chunk.length / 4.0).ceil();
-            final int increment = tokenIncrement > 0 ? tokenIncrement : 1;
-
-            setState(() {
-              _generatedOutput += chunk;
-              _estimatedTokenCount += increment;
-
-              final double currentElapsedSec =
-                  _inferenceStopwatch.elapsedMilliseconds / 1000.0;
-              if (currentElapsedSec > 0) {
-                _tokensPerSecond = _estimatedTokenCount / currentElapsedSec;
+        _streamSubscription = stream.listen(
+          (dynamic chunk) {
+            final String textChunk = chunk?.toString() ?? '';
+            if (textChunk.isNotEmpty) {
+              if (isFirstChunk) {
+                _ttftStopwatch.stop();
+                _timeToFirstTokenSeconds =
+                    _ttftStopwatch.elapsedMilliseconds / 1000.0;
+                isFirstChunk = false;
               }
-            });
 
-            _autoScroll();
-          }
-        },
-        onError: (error) {
-          _stopTimers();
-          setState(() => _isStreaming = false);
-          _showSnackBar('Inference Stream Error: $error');
-        },
-        onDone: () {
-          _stopTimers();
-          setState(() {
-            _isStreaming = false;
-            _totalLatencySeconds =
-                _inferenceStopwatch.elapsedMilliseconds / 1000.0;
-            if (_totalLatencySeconds! > 0) {
-              _tokensPerSecond = _estimatedTokenCount / _totalLatencySeconds!;
+              final int inc = (textChunk.length / 4.0).ceil();
+              final int increment = inc > 0 ? inc : 1;
+
+              if (mounted) {
+                setState(() {
+                  _generatedOutput += textChunk;
+                  _estimatedTokenCount += increment;
+
+                  final double currentSec =
+                      _inferenceStopwatch.elapsedMilliseconds / 1000.0;
+                  if (currentSec > 0) {
+                    _tokensPerSecond = _estimatedTokenCount / currentSec;
+                  }
+                });
+                _autoScroll();
+              }
             }
-          });
-        },
-        cancelOnError: true,
-      );
-    } catch (e) {
-      _stopTimers();
-      setState(() => _isStreaming = false);
-      _showSnackBar('Inference Failed: $e');
+          },
+          onError: (error) {
+            _stopTimers();
+            if (mounted) {
+              setState(() => _isStreaming = false);
+              _showSnackBar('MediaPipe Stream Error: $error');
+            }
+          },
+          onDone: () {
+            _stopTimers();
+            if (mounted) {
+              setState(() {
+                _isStreaming = false;
+                _totalLatencySeconds =
+                    _inferenceStopwatch.elapsedMilliseconds / 1000.0;
+                if (_totalLatencySeconds! > 0) {
+                  _tokensPerSecond =
+                      _estimatedTokenCount / _totalLatencySeconds!;
+                }
+              });
+            }
+          },
+          cancelOnError: true,
+        );
+      } catch (e) {
+        _stopTimers();
+        if (mounted) {
+          setState(() => _isStreaming = false);
+          _showSnackBar('MediaPipe Inference Failed: $e');
+        }
+      }
     }
-  }
-
-  void _stopTimers() {
-    if (_inferenceStopwatch.isRunning) _inferenceStopwatch.stop();
-    if (_ttftStopwatch.isRunning) _ttftStopwatch.stop();
   }
 
   void _autoScroll() {
@@ -480,7 +367,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
           _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 100),
+          duration: const Duration(milliseconds: 80),
           curve: Curves.easeOut,
         );
       }
@@ -493,6 +380,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
       return;
     }
 
+    final activeModel = _modelManager.activeModel;
+
     final record = SummaryRecord(
       originalText: _inputController.text.trim(),
       generatedSummary: _generatedOutput.trim(),
@@ -501,6 +390,9 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
       latencySeconds: _totalLatencySeconds,
       ttftSeconds: _timeToFirstTokenSeconds,
       tokensPerSecond: _tokensPerSecond,
+      engineType: activeModel?.engine.name ?? 'unknown',
+      modelName: activeModel?.name ?? 'Unknown Model',
+      tokenCount: _estimatedTokenCount > 0 ? _estimatedTokenCount : null,
     );
 
     await DatabaseService.instance.insertSummary(record);
@@ -524,6 +416,9 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     const surfaceColor = Color(0xFF1E1E1E);
     const accentBlue = Color(0xFF90CAF9);
     const successGreen = Color(0xFF81C784);
+
+    final activeModel = _modelManager.activeModel;
+    final isReady = activeModel != null && !_modelManager.isLoading;
 
     return Scaffold(
       backgroundColor: bgColor,
@@ -608,147 +503,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: surfaceColor,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.white12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Runtime Model Controls',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: bgColor,
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: Colors.white12),
-                        ),
-                        child: Text(
-                          'T: ${_temperature.toStringAsFixed(2)} | K: $_topK | Max: $_maxTokens',
-                          style: const TextStyle(
-                            color: accentBlue,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Temperature', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                      Text(
-                        _temperature.toStringAsFixed(2),
-                        style: const TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                  SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      activeTrackColor: accentBlue,
-                      inactiveTrackColor: Colors.white24,
-                      thumbColor: accentBlue,
-                    ),
-                    child: Slider(
-                      value: _temperature,
-                      min: 0.0,
-                      max: 1.0,
-                      divisions: 20,
-                      onChanged: _isStreaming ? null : (v) => setState(() => _temperature = v),
-                    ),
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Top-K Sampling', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                      Text(
-                        '$_topK',
-                        style: const TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                  SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      activeTrackColor: accentBlue,
-                      inactiveTrackColor: Colors.white24,
-                      thumbColor: accentBlue,
-                    ),
-                    child: Slider(
-                      value: _topK.toDouble(),
-                      min: 1,
-                      max: 40,
-                      divisions: 39,
-                      onChanged: _isStreaming ? null : (v) => setState(() => _topK = v.round()),
-                    ),
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Max Output Tokens', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                      Text(
-                        '$_maxTokens',
-                        style: const TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                  SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      activeTrackColor: accentBlue,
-                      inactiveTrackColor: Colors.white24,
-                      thumbColor: accentBlue,
-                    ),
-                    child: Slider(
-                      value: _maxTokens.toDouble(),
-                      min: 64,
-                      max: 1024,
-                      divisions: 15,
-                      onChanged: _isStreaming ? null : (v) => setState(() => _maxTokens = v.round()),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Custom Preset Instruction:',
-                    style: TextStyle(color: Colors.white70, fontSize: 13),
-                  ),
-                  const SizedBox(height: 6),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: bgColor,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Colors.white24),
-                    ),
-                    child: TextField(
-                      controller: _customPromptController,
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
-                      decoration: const InputDecoration(
-                        hintText: 'e.g., Extract the 3 most critical points',
-                        hintStyle: TextStyle(color: Colors.white38),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                        border: InputBorder.none,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            _buildControlsCard(surfaceColor, bgColor, accentBlue),
             const SizedBox(height: 16),
             const Text(
               'Select AI Action:',
@@ -787,24 +542,22 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
             ),
             const SizedBox(height: 14),
             ElevatedButton.icon(
-              onPressed: (!_isModelInitialized || _isStreaming) ? null : _runInference,
+              onPressed: !isReady
+                  ? null
+                  : (_isStreaming ? _stopGeneration : _runInference),
               icon: _isStreaming
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
-                    )
+                  ? const Icon(Icons.stop_circle_rounded, color: Colors.white)
                   : const Icon(Icons.bolt_rounded, color: Colors.black),
               label: Text(
-                _isStreaming ? 'Generating...' : 'Summarize On-Device',
-                style: const TextStyle(
-                  color: Colors.black,
+                _isStreaming ? 'Stop Generation' : 'Summarize On-Device',
+                style: TextStyle(
+                  color: _isStreaming ? Colors.white : Colors.black,
                   fontWeight: FontWeight.bold,
                   fontSize: 15,
                 ),
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: accentBlue,
+                backgroundColor: _isStreaming ? Colors.redAccent.shade700 : accentBlue,
                 disabledBackgroundColor: Colors.white24,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -813,64 +566,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
             const SizedBox(height: 14),
             _buildBenchmarkTelemetryBar(surfaceColor, accentBlue),
             const SizedBox(height: 14),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: surfaceColor,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.white12),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'OUTPUT',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.1,
-                          color: Colors.white70,
-                        ),
-                      ),
-                      if (_generatedOutput.isNotEmpty)
-                        Row(
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.copy_rounded, size: 18, color: accentBlue),
-                              tooltip: 'Copy Output',
-                              onPressed: () {
-                                Clipboard.setData(ClipboardData(text: _generatedOutput));
-                                _showSnackBar('Copied to clipboard.');
-                              },
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.bookmark_add_rounded, size: 18, color: accentBlue),
-                              tooltip: 'Save Summary',
-                              onPressed: _saveCurrentSummary,
-                            ),
-                          ],
-                        ),
-                    ],
-                  ),
-                  const Divider(color: Colors.white12),
-                  const SizedBox(height: 6),
-                  SelectableText(
-                    _generatedOutput.isEmpty
-                        ? (_isStreaming ? 'Generating initial tokens...' : 'No summary generated yet.')
-                        : _generatedOutput,
-                    style: TextStyle(
-                      fontSize: 14,
-                      height: 1.5,
-                      color: _generatedOutput.isEmpty ? Colors.white38 : Colors.white,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            _buildOutputCard(surfaceColor, accentBlue),
             const SizedBox(height: 16),
           ],
         ),
@@ -879,7 +575,12 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
   }
 
   Widget _buildModelSelectorCard(Color surfaceColor, Color accentBlue, Color successGreen) {
-    if (_availableModels.isEmpty) {
+    final available = _modelManager.availableModels;
+    final active = _modelManager.activeModel;
+    final isLoading = _modelManager.isLoading;
+    final status = _modelManager.statusMessage ?? 'Ready';
+
+    if (available.isEmpty && !isLoading) {
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -894,7 +595,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                _statusMessage,
+                status,
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -905,10 +606,10 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
             ),
             IconButton(
               icon: const Icon(Icons.refresh_rounded, color: Colors.white70, size: 20),
-              tooltip: 'Rescan Sandbox',
+              tooltip: 'Rescan Directory',
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
-              onPressed: _scanAndInitializeModels,
+              onPressed: _modelManager.scanModels,
             ),
           ],
         ),
@@ -922,7 +623,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
         color: surfaceColor,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: _isModelInitialized ? successGreen : accentBlue,
+          color: active != null && !isLoading ? successGreen : accentBlue,
           width: 1.2,
         ),
       ),
@@ -932,15 +633,17 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
           Row(
             children: [
               Icon(
-                _isModelInitialized ? Icons.bolt_rounded : Icons.sync_rounded,
-                color: _isModelInitialized ? successGreen : accentBlue,
+                isLoading
+                    ? Icons.sync_rounded
+                    : (active != null ? Icons.bolt_rounded : Icons.info_outline_rounded),
+                color: active != null && !isLoading ? successGreen : accentBlue,
                 size: 20,
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
-                    value: _selectedModelId,
+                    value: active?.id,
                     isExpanded: true,
                     dropdownColor: surfaceColor,
                     icon: Icon(Icons.arrow_drop_down_rounded, color: accentBlue),
@@ -949,17 +652,18 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
                     ),
-                    items: _availableModels.map((opt) {
+                    items: available.map((m) {
                       return DropdownMenuItem<String>(
-                        value: opt.id,
-                        child: Text(opt.displayName, overflow: TextOverflow.ellipsis),
+                        value: m.id,
+                        child: Text('${m.name} (${m.formattedSize})', overflow: TextOverflow.ellipsis),
                       );
                     }).toList(),
-                    onChanged: _isStreaming
+                    onChanged: (_isStreaming || isLoading)
                         ? null
                         : (newId) {
-                            if (newId != null && newId != _selectedModelId) {
-                              _activateModel(newId);
+                            if (newId != null && newId != active?.id) {
+                              final target = available.firstWhere((m) => m.id == newId);
+                              _modelManager.loadModel(target);
                             }
                           },
                   ),
@@ -970,19 +674,163 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 tooltip: 'Rescan Models',
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
-                onPressed: _isStreaming ? null : _scanAndInitializeModels,
+                onPressed: (_isStreaming || isLoading) ? null : _modelManager.scanModels,
               ),
             ],
           ),
           const SizedBox(height: 2),
           Text(
-            _statusMessage,
+            status,
             style: TextStyle(
-              color: _isModelInitialized ? successGreen : Colors.white60,
+              color: active != null && !isLoading ? successGreen : Colors.white60,
               fontSize: 12,
               fontWeight: FontWeight.w500,
             ),
             overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildControlsCard(Color surfaceColor, Color bgColor, Color accentBlue) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Runtime Model Controls',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: Text(
+                  'T: ${_temperature.toStringAsFixed(2)} | K: $_topK | Max: $_maxTokens',
+                  style: TextStyle(
+                    color: accentBlue,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Temperature', style: TextStyle(color: Colors.white70, fontSize: 13)),
+              Text(
+                _temperature.toStringAsFixed(2),
+                style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: accentBlue,
+              inactiveTrackColor: Colors.white24,
+              thumbColor: accentBlue,
+            ),
+            child: Slider(
+              value: _temperature,
+              min: 0.0,
+              max: 1.0,
+              divisions: 20,
+              onChanged: _isStreaming ? null : (v) => setState(() => _temperature = v),
+            ),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Top-K Sampling', style: TextStyle(color: Colors.white70, fontSize: 13)),
+              Text(
+                '$_topK',
+                style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: accentBlue,
+              inactiveTrackColor: Colors.white24,
+              thumbColor: accentBlue,
+            ),
+            child: Slider(
+              value: _topK.toDouble(),
+              min: 1,
+              max: 40,
+              divisions: 39,
+              onChanged: _isStreaming ? null : (v) => setState(() => _topK = v.round()),
+            ),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Max Output Tokens', style: TextStyle(color: Colors.white70, fontSize: 13)),
+              Text(
+                '$_maxTokens',
+                style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: accentBlue,
+              inactiveTrackColor: Colors.white24,
+              thumbColor: accentBlue,
+            ),
+            child: Slider(
+              value: _maxTokens.toDouble(),
+              min: 64,
+              max: 1024,
+              divisions: 15,
+              onChanged: _isStreaming ? null : (v) => setState(() => _maxTokens = v.round()),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Custom Preset Instruction:',
+            style: TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.white24),
+            ),
+            child: TextField(
+              controller: _customPromptController,
+              style: const TextStyle(color: Colors.white, fontSize: 13),
+              decoration: const InputDecoration(
+                hintText: 'e.g., Extract the 3 most critical points',
+                hintStyle: TextStyle(color: Colors.white38),
+                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                border: InputBorder.none,
+              ),
+            ),
           ),
         ],
       ),
@@ -1022,6 +870,67 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
           _buildMetricColumn('SPEED', speedText),
           _buildVerticalDivider(),
           _buildMetricColumn('TOKENS', tokensText),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOutputCard(Color surfaceColor, Color accentBlue) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'OUTPUT',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.1,
+                  color: Colors.white70,
+                ),
+              ),
+              if (_generatedOutput.isNotEmpty)
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.copy_rounded, size: 18, color: Color(0xFF90CAF9)),
+                      tooltip: 'Copy Output',
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: _generatedOutput));
+                        _showSnackBar('Copied to clipboard.');
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.bookmark_add_rounded, size: 18, color: Color(0xFF90CAF9)),
+                      tooltip: 'Save Summary',
+                      onPressed: _saveCurrentSummary,
+                    ),
+                  ],
+                ),
+            ],
+          ),
+          const Divider(color: Colors.white12),
+          const SizedBox(height: 6),
+          SelectableText(
+            _generatedOutput.isEmpty
+                ? (_isStreaming ? 'Generating initial tokens...' : 'No summary generated yet.')
+                : _generatedOutput,
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.5,
+              color: _generatedOutput.isEmpty ? Colors.white38 : Colors.white,
+            ),
+          ),
         ],
       ),
     );

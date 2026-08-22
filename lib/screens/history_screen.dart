@@ -61,7 +61,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
         final matchesQuery = query.isEmpty ||
             record.generatedSummary.toLowerCase().contains(query) ||
             record.originalText.toLowerCase().contains(query) ||
-            record.taskType.toLowerCase().contains(query);
+            record.taskType.toLowerCase().contains(query) ||
+            (record.modelName?.toLowerCase().contains(query) ?? false) ||
+            (record.engineType?.toLowerCase().contains(query) ?? false);
 
         return matchesFilter && matchesQuery;
       }).toList();
@@ -112,7 +114,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // Search Input
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
               child: Container(
@@ -125,7 +126,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   controller: _searchController,
                   style: const TextStyle(color: Colors.white, fontSize: 14),
                   decoration: const InputDecoration(
-                    hintText: 'Search summaries or source text...',
+                    hintText: 'Search summaries, models, or text...',
                     hintStyle: TextStyle(color: Colors.white38),
                     prefixIcon: Icon(Icons.search_rounded, color: Colors.white38),
                     border: InputBorder.none,
@@ -134,8 +135,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
               ),
             ),
-
-            // Horizontal Filter Chips
             SizedBox(
               height: 44,
               child: ListView.separated(
@@ -170,8 +169,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
               ),
             ),
             const SizedBox(height: 8),
-
-            // Results List
             Expanded(
               child: _isLoading
                   ? const Center(
@@ -205,6 +202,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     Color accentBlue,
   ) {
     return Container(
+      key: PageStorageKey('history_tile_${record.id}'),
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -215,27 +213,51 @@ class _HistoryScreenState extends State<HistoryScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header Row: Safe tag constraint
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Flexible(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: accentBlue.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    record.taskType,
-                    style: TextStyle(
-                      color: accentBlue,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: accentBlue.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        record.taskType,
+                        style: TextStyle(
+                          color: accentBlue,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                    if (record.modelName != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.white10,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          record.modelName!,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(width: 8),
@@ -246,8 +268,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
             ],
           ),
           const SizedBox(height: 10),
-
-          // Generated Summary
           SelectableText(
             record.generatedSummary,
             style: const TextStyle(
@@ -257,8 +277,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
             ),
           ),
           const SizedBox(height: 10),
-
-          // Telemetry Row
           if (record.latencySeconds != null || record.tokensPerSecond != null) ...[
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -291,11 +309,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
             ),
             const SizedBox(height: 8),
           ],
-
-          // Collapsible Original Passage
           Theme(
             data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
             child: ExpansionTile(
+              key: PageStorageKey('exp_${record.id}'),
               tilePadding: EdgeInsets.zero,
               childrenPadding: const EdgeInsets.only(top: 6, bottom: 8),
               title: const Text(
@@ -325,10 +342,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               ],
             ),
           ),
-
           const Divider(color: Colors.white12, height: 12),
-
-          // Action Buttons
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
@@ -359,6 +373,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   String _formatDate(DateTime dt) {
-    return '${dt.month}/${dt.day} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    return '${dt.month}/${dt.day}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
   }
 }

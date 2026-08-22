@@ -7,6 +7,9 @@ class SummaryRecord {
   final double? latencySeconds;
   final double? ttftSeconds;
   final double? tokensPerSecond;
+  final String? engineType;
+  final String? modelName;
+  final int? tokenCount;
 
   SummaryRecord({
     this.id,
@@ -17,6 +20,9 @@ class SummaryRecord {
     this.latencySeconds,
     this.ttftSeconds,
     this.tokensPerSecond,
+    this.engineType,
+    this.modelName,
+    this.tokenCount,
   });
 
   Map<String, dynamic> toMap() {
@@ -29,6 +35,9 @@ class SummaryRecord {
       'latency_seconds': latencySeconds,
       'ttft_seconds': ttftSeconds,
       'tokens_per_sec': tokensPerSecond,
+      'engine_type': engineType,
+      'model_name': modelName,
+      'token_count': tokenCount,
     };
   }
 
@@ -42,6 +51,9 @@ class SummaryRecord {
       latencySeconds: (map['latency_seconds'] as num?)?.toDouble(),
       ttftSeconds: (map['ttft_seconds'] as num?)?.toDouble(),
       tokensPerSecond: (map['tokens_per_sec'] as num?)?.toDouble(),
+      engineType: map['engine_type'] as String?,
+      modelName: map['model_name'] as String?,
+      tokenCount: map['token_count'] as int?,
     );
   }
 }
