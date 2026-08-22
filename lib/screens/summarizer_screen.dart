@@ -84,14 +84,31 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
         throw Exception('Sandbox storage unavailable');
       }
 
-      final List<FileSystemEntity> entities = extDir.listSync();
-      final List<File> modelFiles = entities
-          .whereType<File>()
-          .where((file) {
-            final path = file.path.toLowerCase();
-            return path.endsWith('.bin') || path.endsWith('.task');
-          })
-          .toList();
+      final List<File> modelFiles = [];
+      final List<Directory> targetDirs = [
+        Directory('${extDir.path}/models'),
+        extDir,
+      ];
+
+      for (final dir in targetDirs) {
+        if (await dir.exists()) {
+          try {
+            final entities = dir.listSync(recursive: false);
+            for (final entity in entities) {
+              if (entity is File) {
+                final path = entity.path.toLowerCase();
+                if (path.endsWith('.bin') || path.endsWith('.task')) {
+                  if (!modelFiles.any((f) => f.path == entity.path)) {
+                    modelFiles.add(entity);
+                  }
+                }
+              }
+            }
+          } catch (_) {
+            // Ignore restricted subdirectory read errors safely
+          }
+        }
+      }
 
       setState(() {
         _availableModels = modelFiles;
@@ -106,7 +123,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
         return;
       }
 
-      // Preserve current selection if still valid; otherwise default to first available
+      // Preserve selection if valid; otherwise pick first found model
       final String targetPath = (_selectedModelPath != null &&
               modelFiles.any((f) => f.path == _selectedModelPath))
           ? _selectedModelPath!
@@ -122,7 +139,6 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
   }
 
   Future<void> _loadModel(String modelPath) async {
-    // Teardown active streams and reset benchmarking state
     await _streamSubscription?.cancel();
     _streamSubscription = null;
     _stopTimers();
@@ -135,7 +151,6 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     });
 
     try {
-      // Re-bind the selected model binary to the MediaPipe inference engine
       await FlutterGemma.installModel(
         modelType: ModelType.gemmaIt,
       ).fromFile(modelPath).install();
