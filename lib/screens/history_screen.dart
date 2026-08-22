@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import '../models/summary_record.dart';
 import '../services/database_service.dart';
 
@@ -12,21 +13,22 @@ class HistoryScreen extends StatefulWidget {
 
 class _HistoryScreenState extends State<HistoryScreen> {
   final TextEditingController _searchController = TextEditingController();
-  final List<String> _taskFilters = [
+  List<SummaryRecord> _records = [];
+  bool _isLoading = true;
+  String _selectedFilter = 'All';
+
+  final List<String> _filterCategories = [
     'All',
     '2-Sentence Summary',
     'Key Events',
     'Action Items',
+    'Custom',
   ];
-
-  String _selectedFilter = 'All';
-  List<SummaryRecord> _records = [];
-  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _fetchRecords();
+    _loadRecords();
   }
 
   @override
@@ -35,301 +37,341 @@ class _HistoryScreenState extends State<HistoryScreen> {
     super.dispose();
   }
 
-  Future<void> _fetchRecords() async {
+  Future<void> _loadRecords() async {
     setState(() => _isLoading = true);
-    final results = await DatabaseService.instance.searchSummaries(
-      query: _searchController.text,
-      taskType: _selectedFilter,
-    );
-    if (!mounted) return;
+    final query = _searchController.text.trim();
+    List<SummaryRecord> list;
+
+    if (query.isEmpty) {
+      if (_selectedFilter == 'All') {
+        list = await DatabaseService.instance.getAllSummaries();
+      } else {
+        list = await DatabaseService.instance.searchSummaries('', taskType: _selectedFilter);
+      }
+    } else {
+      list = await DatabaseService.instance.searchSummaries(query, taskType: _selectedFilter);
+    }
+
     setState(() {
-      _records = results;
+      _records = list;
       _isLoading = false;
     });
   }
 
   Future<void> _deleteRecord(int id) async {
-    final confirmed = await showDialog<bool>(
+    final bool? confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text(
-          'Delete Entry',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
+        title: const Text('Delete Summary', style: TextStyle(color: Colors.white)),
         content: const Text(
-          'Are you sure you want to delete this saved summary?',
-          style: TextStyle(color: Color(0xFFE0E0E0)),
+          'Are you sure you want to permanently delete this saved summary?',
+          style: TextStyle(color: Colors.white70),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
           ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Delete', style: TextStyle(color: Colors.redAccent)),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
     );
 
-    if (confirmed == true) {
+    if (confirm == true) {
       await DatabaseService.instance.deleteSummary(id);
-      _fetchRecords();
+      _loadRecords();
+      _showSnackBar('Summary deleted.');
     }
   }
 
-  void _copyToClipboard(String text, String label) {
-    Clipboard.setData(ClipboardData(text: text));
+  void _showSnackBar(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('$label copied to clipboard'),
+        content: Text(message, style: const TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFF1E1E1E),
-        behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 2),
       ),
     );
   }
 
+  String _formatTimestamp(DateTime dt) {
+    return '${dt.month}/${dt.day}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
+    const bgColor = Color(0xFF121212);
+    const surfaceColor = Color(0xFF1E1E1E);
+    const accentBlue = Color(0xFF90CAF9);
+
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor: bgColor,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E1E1E),
+        backgroundColor: surfaceColor,
+        elevation: 0,
         title: const Text(
           'Saved Summaries',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+            fontSize: 18,
+          ),
         ),
-        iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: TextField(
-              controller: _searchController,
-              onChanged: (_) => _fetchRecords(),
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                hintText: 'Search summaries or source text...',
-                hintStyle: const TextStyle(color: Colors.grey),
-                prefixIcon: const Icon(Icons.search, color: Color(0xFF90CAF9)),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, color: Colors.grey),
-                        onPressed: () {
-                          _searchController.clear();
-                          _fetchRecords();
-                        },
-                      )
-                    : null,
-                filled: true,
-                fillColor: const Color(0xFF1E1E1E),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFF333333)),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFF333333)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFF90CAF9), width: 2),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Search Input
+            Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: TextField(
+                controller: _searchController,
+                onChanged: (_) => _loadRecords(),
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'Search summaries or source text...',
+                  hintStyle: const TextStyle(color: Colors.white38),
+                  prefixIcon: const Icon(Icons.search_rounded, color: Colors.white54),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear_rounded, color: Colors.white54),
+                          onPressed: () {
+                            _searchController.clear();
+                            _loadRecords();
+                          },
+                        )
+                      : null,
+                  filled: true,
+                  fillColor: surfaceColor,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide.none,
+                  ),
                 ),
               ),
             ),
-          ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Row(
-              children: _taskFilters.map((filter) {
-                final isSelected = _selectedFilter == filter;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
-                    label: Text(
-                      filter,
-                      style: TextStyle(
-                        color: isSelected ? Colors.black : Colors.white,
-                        fontWeight:
-                            isSelected ? FontWeight.bold : FontWeight.normal,
-                      ),
-                    ),
+
+            // Task Filter Chips
+            SizedBox(
+              height: 38,
+              child: ListView.separated(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                scrollDirection: Axis.horizontal,
+                itemCount: _filterCategories.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (ctx, i) {
+                  final cat = _filterCategories[i];
+                  final isSelected = _selectedFilter == cat;
+                  return ChoiceChip(
+                    label: Text(cat),
                     selected: isSelected,
-                    selectedColor: const Color(0xFF90CAF9),
-                    backgroundColor: const Color(0xFF1E1E1E),
-                    checkmarkColor: Colors.black,
+                    selectedColor: accentBlue.withValues(alpha: 0.3),
+                    backgroundColor: surfaceColor,
+                    labelStyle: TextStyle(
+                      color: isSelected ? accentBlue : Colors.white70,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                      fontSize: 12,
+                    ),
                     side: BorderSide(
-                      color: isSelected
-                          ? const Color(0xFF90CAF9)
-                          : const Color(0xFF333333),
+                      color: isSelected ? accentBlue : Colors.white24,
                     ),
                     onSelected: (selected) {
-                      setState(() {
-                        _selectedFilter = filter;
-                      });
-                      _fetchRecords();
+                      if (selected) {
+                        setState(() => _selectedFilter = cat);
+                        _loadRecords();
+                      }
                     },
-                  ),
-                );
-              }).toList(),
+                  );
+                },
+              ),
             ),
-          ),
-          const Divider(color: Color(0xFF333333), height: 16),
-          Expanded(
-            child: _isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(color: Color(0xFF90CAF9)),
-                  )
-                : _records.isEmpty
-                    ? Center(
-                        child: Text(
-                          _searchController.text.isNotEmpty || _selectedFilter != 'All'
-                              ? 'No matching summaries found.'
-                              : 'No saved summaries yet.',
-                          style: const TextStyle(
-                            color: Colors.grey,
-                            fontSize: 16,
+            const SizedBox(height: 8),
+
+            // List of Saved Records
+            Expanded(
+              child: _isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(color: accentBlue),
+                    )
+                  : _records.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'No saved summaries found.',
+                            style: TextStyle(color: Colors.white38, fontSize: 14),
                           ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.all(12),
+                          itemCount: _records.length,
+                          itemBuilder: (ctx, i) {
+                            final record = _records[i];
+                            return _buildRecordCard(record, surfaceColor, accentBlue);
+                          },
                         ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        itemCount: _records.length,
-                        itemBuilder: (context, index) {
-                          final record = _records[index];
-                          return Card(
-                            color: const Color(0xFF1E1E1E),
-                            margin: const EdgeInsets.only(bottom: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              side: const BorderSide(color: Color(0xFF2A2A2A)),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 4,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF90CAF9)
-                                              .withValues(alpha: 0.15),
-                                          borderRadius: BorderRadius.circular(6),
-                                        ),
-                                        child: Text(
-                                          record.taskType,
-                                          style: const TextStyle(
-                                            color: Color(0xFF90CAF9),
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                      Row(
-                                        children: [
-                                          IconButton(
-                                            icon: const Icon(Icons.copy,
-                                                size: 20, color: Colors.grey),
-                                            tooltip: 'Copy Summary',
-                                            onPressed: () => _copyToClipboard(
-                                              record.generatedSummary,
-                                              'Summary',
-                                            ),
-                                          ),
-                                          if (record.id != null)
-                                            IconButton(
-                                              icon: const Icon(
-                                                Icons.delete_outline,
-                                                size: 20,
-                                                color: Colors.redAccent,
-                                              ),
-                                              tooltip: 'Delete Entry',
-                                              onPressed: () =>
-                                                  _deleteRecord(record.id!),
-                                            ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    record.generatedSummary,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 15,
-                                      height: 1.4,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Theme(
-                                    data: Theme.of(context).copyWith(
-                                      dividerColor: Colors.transparent,
-                                    ),
-                                    child: ExpansionTile(
-                                      tilePadding: EdgeInsets.zero,
-                                      title: const Text(
-                                        'View Original Text',
-                                        style: TextStyle(
-                                          color: Color(0xFF90CAF9),
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                      children: [
-                                        Container(
-                                          width: double.infinity,
-                                          padding: const EdgeInsets.all(12),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFF121212),
-                                            borderRadius:
-                                                BorderRadius.circular(8),
-                                            border: Border.all(
-                                              color: const Color(0xFF333333),
-                                            ),
-                                          ),
-                                          child: Text(
-                                            record.originalText,
-                                            style: const TextStyle(
-                                              color: Color(0xFFCCCCCC),
-                                              fontSize: 13,
-                                              height: 1.3,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: Text(
-                                      record.createdAt.toLocal().toString().substring(0, 16),
-                                      style: const TextStyle(
-                                        color: Colors.grey,
-                                        fontSize: 11,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecordCard(SummaryRecord record, Color surfaceColor, Color accentBlue) {
+    final bool hasTelemetry =
+        record.latencySeconds != null || record.tokensPerSecond != null;
+
+    final String latencyString = record.latencySeconds != null
+        ? '${record.latencySeconds!.toStringAsFixed(2)}s'
+        : '--';
+    final String ttftString = record.ttftSeconds != null
+        ? '${record.ttftSeconds!.toStringAsFixed(2)}s'
+        : '--';
+    final String speedString = record.tokensPerSecond != null
+        ? '${record.tokensPerSecond!.toStringAsFixed(1)} tok/s'
+        : '--';
+
+    return Card(
+      color: surfaceColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: Colors.white10),
+      ),
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(14.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Task Type & Date Row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: accentBlue.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    record.taskType,
+                    style: TextStyle(
+                      color: accentBlue,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+                Text(
+                  _formatTimestamp(record.createdAt),
+                  style: const TextStyle(color: Colors.white38, fontSize: 11),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+
+            // Summary Content
+            SelectableText(
+              record.generatedSummary,
+              style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
+            ),
+            const SizedBox(height: 10),
+
+            // Telemetry Badge Row
+            if (hasTelemetry) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF121212),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Latency: $latencyString',
+                      style: const TextStyle(color: Colors.white60, fontSize: 11),
+                    ),
+                    Text(
+                      'TTFT: $ttftString',
+                      style: const TextStyle(color: Colors.white60, fontSize: 11),
+                    ),
+                    Text(
+                      'Speed: $speedString',
+                      style: TextStyle(
+                        color: accentBlue,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
                       ),
-          ),
-        ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
+
+            // Expandable Original Text Viewer
+            Theme(
+              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: EdgeInsets.zero,
+                dense: true,
+                title: const Text(
+                  'View Original Passage',
+                  style: TextStyle(color: Colors.white60, fontSize: 12),
+                ),
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    margin: const EdgeInsets.only(top: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF121212),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: SelectableText(
+                      record.originalText,
+                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(color: Colors.white10),
+
+            // Card Action Buttons
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                IconButton(
+                  icon: Icon(Icons.copy_rounded, size: 18, color: accentBlue),
+                  tooltip: 'Copy Summary',
+                  onPressed: () {
+                    Clipboard.setData(ClipboardData(text: record.generatedSummary));
+                    _showSnackBar('Summary copied to clipboard.');
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Colors.redAccent),
+                  tooltip: 'Delete',
+                  onPressed: () {
+                    if (record.id != null) {
+                      _deleteRecord(record.id!);
+                    }
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
