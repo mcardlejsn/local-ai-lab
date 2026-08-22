@@ -9,6 +9,7 @@ import '../models/summary_record.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
 import '../services/llama_gguf_service.dart';
+import 'benchmark_screen.dart';
 import 'history_screen.dart';
 
 enum ModelEngine { nano, mediapipe, gguf }
@@ -538,6 +539,18 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
           ),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.speed_rounded, color: accentBlue),
+            tooltip: 'Run Benchmark Suite',
+            onPressed: _isStreaming
+                ? null
+                : () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const BenchmarkScreen()),
+                    );
+                  },
+          ),
           IconButton(
             icon: const Icon(Icons.content_paste_rounded, color: Colors.white70),
             tooltip: 'Paste from Clipboard',
