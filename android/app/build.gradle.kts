@@ -42,3 +42,8 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // Official ML Kit GenAI Prompt API for on-device Gemini Nano via AICore
+    implementation("com.google.mlkit:genai-prompt:1.0.0-beta2")
+}
