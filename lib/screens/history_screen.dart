@@ -11,201 +11,325 @@ class HistoryScreen extends StatefulWidget {
 }
 
 class _HistoryScreenState extends State<HistoryScreen> {
-  late Future<List<SummaryRecord>> _summariesFuture;
+  final TextEditingController _searchController = TextEditingController();
+  final List<String> _taskFilters = [
+    'All',
+    '2-Sentence Summary',
+    'Key Events',
+    'Action Items',
+  ];
+
+  String _selectedFilter = 'All';
+  List<SummaryRecord> _records = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadSummaries();
+    _fetchRecords();
   }
 
-  void _loadSummaries() {
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetchRecords() async {
+    setState(() => _isLoading = true);
+    final results = await DatabaseService.instance.searchSummaries(
+      query: _searchController.text,
+      taskType: _selectedFilter,
+    );
+    if (!mounted) return;
     setState(() {
-      _summariesFuture = DatabaseService.instance.getAllSummaries();
+      _records = results;
+      _isLoading = false;
     });
   }
 
   Future<void> _deleteRecord(int id) async {
-    await DatabaseService.instance.deleteSummary(id);
-    _loadSummaries();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Record deleted', style: TextStyle(fontSize: 16)),
-          duration: Duration(seconds: 2),
-          backgroundColor: Color(0xFFC62828),
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title: const Text(
+          'Delete Entry',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-      );
+        content: const Text(
+          'Are you sure you want to delete this saved summary?',
+          style: TextStyle(color: Color(0xFFE0E0E0)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete', style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await DatabaseService.instance.deleteSummary(id);
+      _fetchRecords();
     }
   }
 
-  Future<void> _copyText(String text, String label) async {
-    await Clipboard.setData(ClipboardData(text: text));
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$label copied to clipboard', style: const TextStyle(fontSize: 16)),
-          duration: const Duration(seconds: 2),
-          backgroundColor: const Color(0xFF2E7D32),
-        ),
-      );
-    }
-  }
-
-  String _formatDateTime(DateTime dt) {
-    return '${dt.month.toString().padLeft(2, '0')}/${dt.day.toString().padLeft(2, '0')}/${dt.year} '
-        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+  void _copyToClipboard(String text, String label) {
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$label copied to clipboard'),
+        backgroundColor: const Color(0xFF1E1E1E),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    const bgDark = Color(0xFF121212);
-    const surfaceDark = Color(0xFF1E1E1E);
-    const borderHighContrast = Color(0xFF888888);
-    const primaryAccent = Color(0xFF90CAF9);
-    const textHighContrast = Color(0xFFFFFFFF);
-
     return Scaffold(
-      backgroundColor: bgDark,
+      backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
+        backgroundColor: const Color(0xFF1E1E1E),
         title: const Text(
           'Saved Summaries',
-          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: textHighContrast),
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: surfaceDark,
-        elevation: 2,
-        iconTheme: const IconThemeData(color: textHighContrast),
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
-      body: SafeArea(
-        child: FutureBuilder<List<SummaryRecord>>(
-          future: _summariesFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(primaryAccent),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (_) => _fetchRecords(),
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'Search summaries or source text...',
+                hintStyle: const TextStyle(color: Colors.grey),
+                prefixIcon: const Icon(Icons.search, color: Color(0xFF90CAF9)),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, color: Colors.grey),
+                        onPressed: () {
+                          _searchController.clear();
+                          _fetchRecords();
+                        },
+                      )
+                    : null,
+                filled: true,
+                fillColor: const Color(0xFF1E1E1E),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFF333333)),
                 ),
-              );
-            }
-
-            final summaries = snapshot.data ?? [];
-            if (summaries.isEmpty) {
-              return const Center(
-                child: Text(
-                  'No saved summaries yet.',
-                  style: TextStyle(fontSize: 18, color: Color(0xFFAAAAAA)),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFF333333)),
                 ),
-              );
-            }
-
-            return ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: summaries.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 16),
-              itemBuilder: (context, index) {
-                final item = summaries[index];
-                return Container(
-                  decoration: BoxDecoration(
-                    color: surfaceDark,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: borderHighContrast, width: 1.5),
-                  ),
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Header Row
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF1565C0),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              item.taskType,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: textHighContrast,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            _formatDateTime(item.createdAt),
-                            style: const TextStyle(fontSize: 14, color: Color(0xFFAAAAAA)),
-                          ),
-                          Row(
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.copy, size: 20, color: primaryAccent),
-                                tooltip: 'Copy Summary',
-                                onPressed: () => _copyText(item.generatedSummary, 'Summary'),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline, size: 22, color: Color(0xFFFF8A80)),
-                                tooltip: 'Delete Record',
-                                onPressed: () => _deleteRecord(item.id!),
-                              ),
-                            ],
-                          ),
-                        ],
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFF90CAF9), width: 2),
+                ),
+              ),
+            ),
+          ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Row(
+              children: _taskFilters.map((filter) {
+                final isSelected = _selectedFilter == filter;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: FilterChip(
+                    label: Text(
+                      filter,
+                      style: TextStyle(
+                        color: isSelected ? Colors.black : Colors.white,
+                        fontWeight:
+                            isSelected ? FontWeight.bold : FontWeight.normal,
                       ),
-                      const Divider(color: borderHighContrast, height: 16),
-
-                      // Generated Output
-                      const Text(
-                        'SUMMARY',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: primaryAccent,
-                          letterSpacing: 1.1,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      SelectableText(
-                        item.generatedSummary,
-                        style: const TextStyle(fontSize: 16, color: textHighContrast, height: 1.4),
-                      ),
-                      const SizedBox(height: 12),
-
-                      // Original Text Preview (Expandable)
-                      Theme(
-                        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-                        child: ExpansionTile(
-                          tilePadding: EdgeInsets.zero,
-                          childrenPadding: EdgeInsets.zero,
-                          title: const Text(
-                            'View Original Notes',
-                            style: TextStyle(fontSize: 14, color: Color(0xFFAAAAAA)),
-                          ),
-                          children: [
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF121212),
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(color: const Color(0xFF444444)),
-                              ),
-                              child: SelectableText(
-                                item.originalText,
-                                style: const TextStyle(fontSize: 15, color: Color(0xFFCCCCCC), height: 1.4),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                    ),
+                    selected: isSelected,
+                    selectedColor: const Color(0xFF90CAF9),
+                    backgroundColor: const Color(0xFF1E1E1E),
+                    checkmarkColor: Colors.black,
+                    side: BorderSide(
+                      color: isSelected
+                          ? const Color(0xFF90CAF9)
+                          : const Color(0xFF333333),
+                    ),
+                    onSelected: (selected) {
+                      setState(() {
+                        _selectedFilter = filter;
+                      });
+                      _fetchRecords();
+                    },
                   ),
                 );
-              },
-            );
-          },
-        ),
+              }).toList(),
+            ),
+          ),
+          const Divider(color: Color(0xFF333333), height: 16),
+          Expanded(
+            child: _isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(color: Color(0xFF90CAF9)),
+                  )
+                : _records.isEmpty
+                    ? Center(
+                        child: Text(
+                          _searchController.text.isNotEmpty || _selectedFilter != 'All'
+                              ? 'No matching summaries found.'
+                              : 'No saved summaries yet.',
+                          style: const TextStyle(
+                            color: Colors.grey,
+                            fontSize: 16,
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        itemCount: _records.length,
+                        itemBuilder: (context, index) {
+                          final record = _records[index];
+                          return Card(
+                            color: const Color(0xFF1E1E1E),
+                            margin: const EdgeInsets.only(bottom: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: const BorderSide(color: Color(0xFF2A2A2A)),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF90CAF9)
+                                              .withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Text(
+                                          record.taskType,
+                                          style: const TextStyle(
+                                            color: Color(0xFF90CAF9),
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                      Row(
+                                        children: [
+                                          IconButton(
+                                            icon: const Icon(Icons.copy,
+                                                size: 20, color: Colors.grey),
+                                            tooltip: 'Copy Summary',
+                                            onPressed: () => _copyToClipboard(
+                                              record.generatedSummary,
+                                              'Summary',
+                                            ),
+                                          ),
+                                          if (record.id != null)
+                                            IconButton(
+                                              icon: const Icon(
+                                                Icons.delete_outline,
+                                                size: 20,
+                                                color: Colors.redAccent,
+                                              ),
+                                              tooltip: 'Delete Entry',
+                                              onPressed: () =>
+                                                  _deleteRecord(record.id!),
+                                            ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    record.generatedSummary,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Theme(
+                                    data: Theme.of(context).copyWith(
+                                      dividerColor: Colors.transparent,
+                                    ),
+                                    child: ExpansionTile(
+                                      tilePadding: EdgeInsets.zero,
+                                      title: const Text(
+                                        'View Original Text',
+                                        style: TextStyle(
+                                          color: Color(0xFF90CAF9),
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      children: [
+                                        Container(
+                                          width: double.infinity,
+                                          padding: const EdgeInsets.all(12),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF121212),
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                            border: Border.all(
+                                              color: const Color(0xFF333333),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            record.originalText,
+                                            style: const TextStyle(
+                                              color: Color(0xFFCCCCCC),
+                                              fontSize: 13,
+                                              height: 1.3,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: Text(
+                                      record.createdAt.toLocal().toString().substring(0, 16),
+                                      style: const TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+          ),
+        ],
       ),
     );
   }
