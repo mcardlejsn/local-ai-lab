@@ -8,18 +8,21 @@ import 'package:path_provider/path_provider.dart';
 import '../models/summary_record.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
+import '../services/llama_gguf_service.dart';
 import 'history_screen.dart';
+
+enum ModelEngine { nano, mediapipe, gguf }
 
 class ModelOption {
   final String id;
   final String displayName;
-  final bool isSystemNano;
+  final ModelEngine engine;
   final File? file;
 
   ModelOption({
     required this.id,
     required this.displayName,
-    required this.isSystemNano,
+    required this.engine,
     this.file,
   });
 }
@@ -81,6 +84,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
   @override
   void dispose() {
     _streamSubscription?.cancel();
+    LlamaGgufService.unloadModel();
     _inputController.dispose();
     _customPromptController.dispose();
     _scrollController.dispose();
@@ -103,12 +107,12 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
           ModelOption(
             id: 'system_gemini_nano',
             displayName: 'Gemini Nano (AICore NPU)',
-            isSystemNano: true,
+            engine: ModelEngine.nano,
           ),
         );
       }
 
-      // 2. Scan sandbox storage for .bin / .task files
+      // 2. Scan sandbox storage for .bin, .task, and .gguf files
       final Directory? extDir = await getExternalStorageDirectory();
       if (extDir != null) {
         final List<Directory> searchDirs = [
@@ -129,7 +133,18 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                         ModelOption(
                           id: entity.path,
                           displayName: entity.path.split('/').last,
-                          isSystemNano: false,
+                          engine: ModelEngine.mediapipe,
+                          file: entity,
+                        ),
+                      );
+                    }
+                  } else if (path.endsWith('.gguf')) {
+                    if (!options.any((o) => o.id == entity.path)) {
+                      options.add(
+                        ModelOption(
+                          id: entity.path,
+                          displayName: entity.path.split('/').last,
+                          engine: ModelEngine.gguf,
                           file: entity,
                         ),
                       );
@@ -155,7 +170,6 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
         return;
       }
 
-      // Preserve previous selection if valid; otherwise select the first available model
       final String targetId = (_selectedModelId != null &&
               options.any((o) => o.id == _selectedModelId))
           ? _selectedModelId!
@@ -184,7 +198,11 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
       _statusMessage = 'Initializing ${modelOption.displayName}...';
     });
 
-    if (modelOption.isSystemNano) {
+    if (modelOption.engine != ModelEngine.gguf) {
+      await LlamaGgufService.unloadModel();
+    }
+
+    if (modelOption.engine == ModelEngine.nano) {
       setState(() {
         _isModelInitialized = true;
         _statusMessage = 'Nano Ready (System NPU)';
@@ -192,20 +210,44 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
       return;
     }
 
-    try {
-      await FlutterGemma.installModel(
-        modelType: ModelType.gemmaIt,
-      ).fromFile(modelOption.id).install();
+    if (modelOption.engine == ModelEngine.mediapipe) {
+      try {
+        await FlutterGemma.installModel(
+          modelType: ModelType.gemmaIt,
+        ).fromFile(modelOption.id).install();
 
-      setState(() {
-        _isModelInitialized = true;
-        _statusMessage = 'Engine Ready (100% Offline)';
-      });
-    } catch (e) {
-      setState(() {
-        _isModelInitialized = false;
-        _statusMessage = 'Load Error: $e';
-      });
+        setState(() {
+          _isModelInitialized = true;
+          _statusMessage = 'MediaPipe Ready (100% Offline)';
+        });
+      } catch (e) {
+        setState(() {
+          _isModelInitialized = false;
+          _statusMessage = 'MediaPipe Load Error: $e';
+        });
+      }
+      return;
+    }
+
+    if (modelOption.engine == ModelEngine.gguf) {
+      try {
+        await LlamaGgufService.loadModel(
+          modelPath: modelOption.id,
+          threads: 4,
+          contextSize: 2048,
+        );
+
+        setState(() {
+          _isModelInitialized = true;
+          _statusMessage = 'GGUF Engine Ready (llama.cpp)';
+        });
+      } catch (e) {
+        setState(() {
+          _isModelInitialized = false;
+          _statusMessage = 'GGUF Load Error: $e';
+        });
+      }
+      return;
     }
   }
 
@@ -267,8 +309,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
 
     final activeOption = _availableModels.firstWhere((o) => o.id == _selectedModelId);
 
-    // 1. Gemini Nano AICore Path
-    if (activeOption.isSystemNano) {
+    if (activeOption.engine == ModelEngine.nano) {
       try {
         final resultText = await GeminiNanoService.generateText(
           prompt: fullPrompt,
@@ -299,7 +340,70 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
       return;
     }
 
-    // 2. FlutterGemma MediaPipe Sandbox Path
+    if (activeOption.engine == ModelEngine.gguf) {
+      try {
+        final stream = LlamaGgufService.generate(
+          prompt: fullPrompt,
+          temperature: _temperature,
+          topK: _topK,
+          maxTokens: _maxTokens,
+        );
+
+        bool isFirstChunk = true;
+
+        _streamSubscription = stream.listen(
+          (chunk) {
+            if (chunk.isNotEmpty) {
+              if (isFirstChunk) {
+                _ttftStopwatch.stop();
+                _timeToFirstTokenSeconds =
+                    _ttftStopwatch.elapsedMilliseconds / 1000.0;
+                isFirstChunk = false;
+              }
+
+              final int tokenIncrement = (chunk.length / 4.0).ceil();
+              final int increment = tokenIncrement > 0 ? tokenIncrement : 1;
+
+              setState(() {
+                _generatedOutput += chunk;
+                _estimatedTokenCount += increment;
+
+                final double currentElapsedSec =
+                    _inferenceStopwatch.elapsedMilliseconds / 1000.0;
+                if (currentElapsedSec > 0) {
+                  _tokensPerSecond = _estimatedTokenCount / currentElapsedSec;
+                }
+              });
+
+              _autoScroll();
+            }
+          },
+          onError: (error) {
+            _stopTimers();
+            setState(() => _isStreaming = false);
+            _showSnackBar('GGUF Stream Error: $error');
+          },
+          onDone: () {
+            _stopTimers();
+            setState(() {
+              _isStreaming = false;
+              _totalLatencySeconds =
+                  _inferenceStopwatch.elapsedMilliseconds / 1000.0;
+              if (_totalLatencySeconds! > 0) {
+                _tokensPerSecond = _estimatedTokenCount / _totalLatencySeconds!;
+              }
+            });
+          },
+          cancelOnError: true,
+        );
+      } catch (e) {
+        _stopTimers();
+        setState(() => _isStreaming = false);
+        _showSnackBar('GGUF Inference Failed: $e');
+      }
+      return;
+    }
+
     try {
       final model = await FlutterGemma.getActiveModel();
       final session = await model.createSession(
@@ -461,11 +565,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
           controller: _scrollController,
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
           children: [
-            // Model Selector & Engine Status Card
             _buildModelSelectorCard(surfaceColor, accentBlue, successGreen),
             const SizedBox(height: 16),
-
-            // Input Passage
             const Text(
               'Input Note / Passage:',
               style: TextStyle(
@@ -494,8 +595,6 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Runtime Controls
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -539,8 +638,6 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
-
-                  // Temperature Slider
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -565,8 +662,6 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                       onChanged: _isStreaming ? null : (v) => setState(() => _temperature = v),
                     ),
                   ),
-
-                  // Top-K Slider
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -591,8 +686,6 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                       onChanged: _isStreaming ? null : (v) => setState(() => _topK = v.round()),
                     ),
                   ),
-
-                  // Max Output Tokens Slider
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -617,10 +710,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                       onChanged: _isStreaming ? null : (v) => setState(() => _maxTokens = v.round()),
                     ),
                   ),
-
                   const SizedBox(height: 8),
-
-                  // Custom Preset Field
                   const Text(
                     'Custom Preset Instruction:',
                     style: TextStyle(color: Colors.white70, fontSize: 13),
@@ -647,8 +737,6 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Action Selection
             const Text(
               'Select AI Action:',
               style: TextStyle(
@@ -685,8 +773,6 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
               }).toList(),
             ),
             const SizedBox(height: 14),
-
-            // Summarize Button
             ElevatedButton.icon(
               onPressed: (!_isModelInitialized || _isStreaming) ? null : _runInference,
               icon: _isStreaming
@@ -712,12 +798,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
               ),
             ),
             const SizedBox(height: 14),
-
-            // Telemetry Bar
             _buildBenchmarkTelemetryBar(surfaceColor, accentBlue),
             const SizedBox(height: 14),
-
-            // Output Card
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(14),

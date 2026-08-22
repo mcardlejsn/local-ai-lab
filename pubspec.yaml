@@ -12,6 +12,7 @@ dependencies:
     sdk: flutter
   flutter_gemma: ^1.6.0
   flutter_gemma_mediapipe: ^1.0.5
+  llama_flutter_android: ^0.2.6
   path: ^1.9.1
   path_provider: ^2.1.6
   sqflite: ^2.4.3
