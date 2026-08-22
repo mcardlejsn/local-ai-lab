@@ -7,7 +7,22 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/summary_record.dart';
 import '../services/database_service.dart';
+import '../services/gemini_nano_service.dart';
 import 'history_screen.dart';
+
+class ModelOption {
+  final String id;
+  final String displayName;
+  final bool isSystemNano;
+  final File? file;
+
+  ModelOption({
+    required this.id,
+    required this.displayName,
+    required this.isSystemNano,
+    this.file,
+  });
+}
 
 class SummarizerScreen extends StatefulWidget {
   const SummarizerScreen({super.key});
@@ -24,11 +39,11 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
   final ScrollController _scrollController = ScrollController();
 
   // Model & State Management
-  List<File> _availableModels = [];
-  String? _selectedModelPath;
+  List<ModelOption> _availableModels = [];
+  String? _selectedModelId;
   bool _isModelInitialized = false;
   bool _isStreaming = false;
-  String _statusMessage = 'Scanning sandbox for models...';
+  String _statusMessage = 'Scanning for models...';
   String _generatedOutput = '';
 
   // Runtime Model Hyperparameters
@@ -74,62 +89,79 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
 
   Future<void> _scanAndInitializeModels() async {
     setState(() {
-      _statusMessage = 'Scanning sandbox for models...';
+      _statusMessage = 'Scanning models...';
       _isModelInitialized = false;
     });
 
     try {
-      final Directory? extDir = await getExternalStorageDirectory();
-      if (extDir == null) {
-        throw Exception('Sandbox storage unavailable');
+      final List<ModelOption> options = [];
+
+      // 1. Check Gemini Nano AICore System Availability
+      final bool isNanoReady = await GeminiNanoService.isAvailable();
+      if (isNanoReady) {
+        options.add(
+          ModelOption(
+            id: 'system_gemini_nano',
+            displayName: 'Gemini Nano (AICore NPU)',
+            isSystemNano: true,
+          ),
+        );
       }
 
-      final List<File> modelFiles = [];
-      final List<Directory> targetDirs = [
-        Directory('${extDir.path}/models'),
-        extDir,
-      ];
+      // 2. Scan sandbox storage for .bin / .task files
+      final Directory? extDir = await getExternalStorageDirectory();
+      if (extDir != null) {
+        final List<Directory> searchDirs = [
+          Directory('${extDir.path}/models'),
+          extDir,
+        ];
 
-      for (final dir in targetDirs) {
-        if (await dir.exists()) {
-          try {
-            final entities = dir.listSync(recursive: false);
-            for (final entity in entities) {
-              if (entity is File) {
-                final path = entity.path.toLowerCase();
-                if (path.endsWith('.bin') || path.endsWith('.task')) {
-                  if (!modelFiles.any((f) => f.path == entity.path)) {
-                    modelFiles.add(entity);
+        for (final dir in searchDirs) {
+          if (await dir.exists()) {
+            try {
+              final entities = dir.listSync(recursive: false);
+              for (final entity in entities) {
+                if (entity is File) {
+                  final path = entity.path.toLowerCase();
+                  if (path.endsWith('.bin') || path.endsWith('.task')) {
+                    if (!options.any((o) => o.id == entity.path)) {
+                      options.add(
+                        ModelOption(
+                          id: entity.path,
+                          displayName: entity.path.split('/').last,
+                          isSystemNano: false,
+                          file: entity,
+                        ),
+                      );
+                    }
                   }
                 }
               }
-            }
-          } catch (_) {
-            // Ignore restricted subdirectory read errors safely
+            } catch (_) {}
           }
         }
       }
 
       setState(() {
-        _availableModels = modelFiles;
+        _availableModels = options;
       });
 
-      if (modelFiles.isEmpty) {
+      if (options.isEmpty) {
         setState(() {
           _isModelInitialized = false;
-          _selectedModelPath = null;
-          _statusMessage = 'Model file missing in sandbox';
+          _selectedModelId = null;
+          _statusMessage = 'No models found (Sandbox or System)';
         });
         return;
       }
 
-      // Preserve selection if valid; otherwise pick first found model
-      final String targetPath = (_selectedModelPath != null &&
-              modelFiles.any((f) => f.path == _selectedModelPath))
-          ? _selectedModelPath!
-          : modelFiles.first.path;
+      // Preserve previous selection if valid; otherwise select the first available model
+      final String targetId = (_selectedModelId != null &&
+              options.any((o) => o.id == _selectedModelId))
+          ? _selectedModelId!
+          : options.first.id;
 
-      await _loadModel(targetPath);
+      await _activateModel(targetId);
     } catch (e) {
       setState(() {
         _isModelInitialized = false;
@@ -138,22 +170,32 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     }
   }
 
-  Future<void> _loadModel(String modelPath) async {
+  Future<void> _activateModel(String modelId) async {
     await _streamSubscription?.cancel();
     _streamSubscription = null;
     _stopTimers();
 
+    final modelOption = _availableModels.firstWhere((o) => o.id == modelId);
+
     setState(() {
-      _selectedModelPath = modelPath;
+      _selectedModelId = modelId;
       _isModelInitialized = false;
       _isStreaming = false;
-      _statusMessage = 'Loading ${modelPath.split('/').last}...';
+      _statusMessage = 'Initializing ${modelOption.displayName}...';
     });
+
+    if (modelOption.isSystemNano) {
+      setState(() {
+        _isModelInitialized = true;
+        _statusMessage = 'Nano Ready (System NPU)';
+      });
+      return;
+    }
 
     try {
       await FlutterGemma.installModel(
         modelType: ModelType.gemmaIt,
-      ).fromFile(modelPath).install();
+      ).fromFile(modelOption.id).install();
 
       setState(() {
         _isModelInitialized = true;
@@ -223,6 +265,41 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     _inferenceStopwatch.start();
     _ttftStopwatch.start();
 
+    final activeOption = _availableModels.firstWhere((o) => o.id == _selectedModelId);
+
+    // 1. Gemini Nano AICore Path
+    if (activeOption.isSystemNano) {
+      try {
+        final resultText = await GeminiNanoService.generateText(
+          prompt: fullPrompt,
+          temperature: _temperature,
+          topK: _topK,
+        );
+
+        _stopTimers();
+
+        final double totalSec = _inferenceStopwatch.elapsedMilliseconds / 1000.0;
+        final int estTokens = (resultText.length / 4.0).ceil();
+
+        setState(() {
+          _isStreaming = false;
+          _generatedOutput = resultText;
+          _timeToFirstTokenSeconds = totalSec;
+          _totalLatencySeconds = totalSec;
+          _estimatedTokenCount = estTokens;
+          _tokensPerSecond = totalSec > 0 ? (estTokens / totalSec) : 0;
+        });
+
+        _autoScroll();
+      } catch (e) {
+        _stopTimers();
+        setState(() => _isStreaming = false);
+        _showSnackBar('Nano Inference Failed: $e');
+      }
+      return;
+    }
+
+    // 2. FlutterGemma MediaPipe Sandbox Path
     try {
       final model = await FlutterGemma.getActiveModel();
       final session = await model.createSession(
@@ -768,7 +845,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
               Expanded(
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
-                    value: _selectedModelPath,
+                    value: _selectedModelId,
                     isExpanded: true,
                     dropdownColor: surfaceColor,
                     icon: Icon(Icons.arrow_drop_down_rounded, color: accentBlue),
@@ -777,18 +854,17 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
                     ),
-                    items: _availableModels.map((file) {
-                      final name = file.path.split('/').last;
+                    items: _availableModels.map((opt) {
                       return DropdownMenuItem<String>(
-                        value: file.path,
-                        child: Text(name, overflow: TextOverflow.ellipsis),
+                        value: opt.id,
+                        child: Text(opt.displayName, overflow: TextOverflow.ellipsis),
                       );
                     }).toList(),
                     onChanged: _isStreaming
                         ? null
-                        : (newPath) {
-                            if (newPath != null && newPath != _selectedModelPath) {
-                              _loadModel(newPath);
+                        : (newId) {
+                            if (newId != null && newId != _selectedModelId) {
+                              _activateModel(newId);
                             }
                           },
                   ),
@@ -796,7 +872,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
               ),
               IconButton(
                 icon: const Icon(Icons.refresh_rounded, color: Colors.white70, size: 20),
-                tooltip: 'Rescan Sandbox',
+                tooltip: 'Rescan Models',
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
                 onPressed: _isStreaming ? null : _scanAndInitializeModels,
