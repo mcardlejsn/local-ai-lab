@@ -2,6 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_gemma/flutter_gemma.dart';
+import '../models/summary_record.dart';
+import '../services/database_service.dart';
+import 'history_screen.dart';
 
 class SummarizerScreen extends StatefulWidget {
   const SummarizerScreen({super.key});
@@ -21,6 +24,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
   String _streamedOutput = '';
   bool _isGenerating = false;
   String _activeTask = '';
+  String _lastProcessedInput = '';
 
   @override
   void dispose() {
@@ -76,6 +80,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
       _isGenerating = true;
       _activeTask = taskName;
       _streamedOutput = '';
+      _lastProcessedInput = rawInput;
     });
 
     final prompt = '$systemPrompt\n\nText:\n$rawInput\n\nResponse:';
@@ -144,6 +149,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     setState(() {
       _inputController.clear();
       _streamedOutput = '';
+      _lastProcessedInput = '';
     });
   }
 
@@ -160,6 +166,36 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
         );
       }
     }
+  }
+
+  Future<void> _saveCurrentSummary() async {
+    if (_streamedOutput.isEmpty || _lastProcessedInput.isEmpty) return;
+
+    final record = SummaryRecord(
+      originalText: _lastProcessedInput,
+      generatedSummary: _streamedOutput,
+      taskType: _activeTask.isNotEmpty ? _activeTask : 'Summary',
+      createdAt: DateTime.now(),
+    );
+
+    await DatabaseService.instance.insertSummary(record);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Saved to offline storage', style: TextStyle(fontSize: 16)),
+          duration: Duration(seconds: 2),
+          backgroundColor: Color(0xFF2E7D32),
+        ),
+      );
+    }
+  }
+
+  void _navigateToHistory() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const HistoryScreen()),
+    );
   }
 
   @override
@@ -180,6 +216,11 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
         backgroundColor: surfaceDark,
         elevation: 2,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.history, size: 28, color: primaryAccent),
+            tooltip: 'Saved History',
+            onPressed: _navigateToHistory,
+          ),
           IconButton(
             icon: const Icon(Icons.delete_sweep, size: 28, color: Color(0xFFFF8A80)),
             tooltip: 'Clear All',
@@ -312,10 +353,19 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                             ],
                           ),
                           if (_streamedOutput.isNotEmpty && !_isGenerating)
-                            IconButton(
-                              icon: const Icon(Icons.copy, size: 22, color: primaryAccent),
-                              tooltip: 'Copy Output',
-                              onPressed: _copyOutput,
+                            Row(
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.bookmark_add, size: 24, color: Color(0xFF81C784)),
+                                  tooltip: 'Save Summary',
+                                  onPressed: _saveCurrentSummary,
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.copy, size: 22, color: primaryAccent),
+                                  tooltip: 'Copy Output',
+                                  onPressed: _copyOutput,
+                                ),
+                              ],
                             ),
                         ],
                       ),
