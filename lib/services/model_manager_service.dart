@@ -137,6 +137,12 @@ class ModelManagerService extends ChangeNotifier {
             !_availableModels.any((m) => m.id == _activeModel!.id)) {
           await loadModel(_availableModels.first);
           return;
+        } else {
+          // Sync existing model reference and clear loading status message
+          _activeModel = _availableModels.firstWhere((m) => m.id == _activeModel!.id);
+          _statusMessage = _activeModel!.engine == ModelEngine.nano
+              ? 'Gemini Nano Ready (AICore NPU)'
+              : 'Ready: ${_activeModel!.name}';
         }
       } else {
         _activeModel = null;
