@@ -100,8 +100,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     if (mounted) {
       setState(() {
         _isStreaming = false;
-        _totalLatencySeconds =
-            _inferenceStopwatch.elapsedMilliseconds / 1000.0;
+        _totalLatencySeconds = _inferenceStopwatch.elapsedMilliseconds / 1000.0;
         if (_totalLatencySeconds != null && _totalLatencySeconds! > 0) {
           _tokensPerSecond = _estimatedTokenCount / _totalLatencySeconds!;
         }
@@ -422,7 +421,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
         backgroundColor: surfaceColor,
         elevation: 0,
         title: const Text(
-          'Local AI Summarizer',
+          'Local AI Lab',
           style: TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.w600,
@@ -438,12 +437,14 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 : () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const BenchmarkScreen()),
+                      MaterialPageRoute(
+                          builder: (_) => const BenchmarkScreen()),
                     );
                   },
           ),
           IconButton(
-            icon: const Icon(Icons.content_paste_rounded, color: Colors.white70),
+            icon:
+                const Icon(Icons.content_paste_rounded, color: Colors.white70),
             tooltip: 'Paste from Clipboard',
             onPressed: _isStreaming ? null : _pasteFromClipboard,
           ),
@@ -484,7 +485,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
               child: TextField(
                 controller: _inputController,
                 maxLines: 6,
-                style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
+                style: const TextStyle(
+                    color: Colors.white, fontSize: 14, height: 1.4),
                 decoration: InputDecoration(
                   hintText: 'Enter or paste passage here...',
                   hintStyle: const TextStyle(color: Colors.white38),
@@ -495,7 +497,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                     builder: (_, value, __) {
                       if (value.text.isEmpty) return const SizedBox.shrink();
                       return IconButton(
-                        icon: const Icon(Icons.close_rounded, size: 18, color: Colors.white38),
+                        icon: const Icon(Icons.close_rounded,
+                            size: 18, color: Colors.white38),
                         tooltip: 'Clear Input',
                         onPressed: _isStreaming ? null : _clearInput,
                       );
@@ -526,7 +529,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                   backgroundColor: surfaceColor,
                   labelStyle: TextStyle(
                     color: isSelected ? accentBlue : Colors.white70,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    fontWeight:
+                        isSelected ? FontWeight.bold : FontWeight.normal,
                     fontSize: 13,
                   ),
                   side: BorderSide(
@@ -561,10 +565,12 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 ),
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: _isStreaming ? Colors.redAccent.shade700 : accentBlue,
+                backgroundColor:
+                    _isStreaming ? Colors.redAccent.shade700 : accentBlue,
                 disabledBackgroundColor: Colors.white24,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
               ),
             ),
             const SizedBox(height: 14),
@@ -580,7 +586,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     );
   }
 
-  Widget _buildModelSelectorCard(Color surfaceColor, Color accentBlue, Color successGreen) {
+  Widget _buildModelSelectorCard(
+      Color surfaceColor, Color accentBlue, Color successGreen) {
     final available = _modelManager.availableModels;
     final active = _modelManager.activeModel;
     final isLoading = _modelManager.isLoading;
@@ -597,7 +604,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
         ),
         child: Row(
           children: [
-            const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 20),
+            const Icon(Icons.error_outline_rounded,
+                color: Colors.redAccent, size: 20),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -611,7 +619,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
               ),
             ),
             IconButton(
-              icon: const Icon(Icons.refresh_rounded, color: Colors.white70, size: 20),
+              icon: const Icon(Icons.refresh_rounded,
+                  color: Colors.white70, size: 20),
               tooltip: 'Rescan Directory',
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
@@ -641,7 +650,9 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
               Icon(
                 isLoading
                     ? Icons.sync_rounded
-                    : (active != null ? Icons.bolt_rounded : Icons.info_outline_rounded),
+                    : (active != null
+                        ? Icons.bolt_rounded
+                        : Icons.info_outline_rounded),
                 color: active != null && !isLoading ? successGreen : accentBlue,
                 size: 20,
               ),
@@ -652,7 +663,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                     value: active?.id,
                     isExpanded: true,
                     dropdownColor: surfaceColor,
-                    icon: Icon(Icons.arrow_drop_down_rounded, color: accentBlue),
+                    icon:
+                        Icon(Icons.arrow_drop_down_rounded, color: accentBlue),
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
@@ -661,14 +673,16 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                     items: available.map((m) {
                       return DropdownMenuItem<String>(
                         value: m.id,
-                        child: Text('${m.name} (${m.formattedSize})', overflow: TextOverflow.ellipsis),
+                        child: Text('${m.name} (${m.formattedSize})',
+                            overflow: TextOverflow.ellipsis),
                       );
                     }).toList(),
                     onChanged: (_isStreaming || isLoading)
                         ? null
                         : (newId) {
                             if (newId != null && newId != active?.id) {
-                              final target = available.firstWhere((m) => m.id == newId);
+                              final target =
+                                  available.firstWhere((m) => m.id == newId);
                               _modelManager.loadModel(target);
                             }
                           },
@@ -676,11 +690,14 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.refresh_rounded, color: Colors.white70, size: 20),
+                icon: const Icon(Icons.refresh_rounded,
+                    color: Colors.white70, size: 20),
                 tooltip: 'Rescan Models',
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
-                onPressed: (_isStreaming || isLoading) ? null : _modelManager.scanModels,
+                onPressed: (_isStreaming || isLoading)
+                    ? null
+                    : _modelManager.scanModels,
               ),
             ],
           ),
@@ -688,7 +705,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
           Text(
             status,
             style: TextStyle(
-              color: active != null && !isLoading ? successGreen : Colors.white60,
+              color:
+                  active != null && !isLoading ? successGreen : Colors.white60,
               fontSize: 12,
               fontWeight: FontWeight.w500,
             ),
@@ -699,13 +717,15 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     );
   }
 
-  Widget _buildControlsCard(Color surfaceColor, Color bgColor, Color accentBlue) {
-    return Container(
-      decoration: BoxDecoration(
-        color: surfaceColor,
+  Widget _buildControlsCard(
+      Color surfaceColor, Color bgColor, Color accentBlue) {
+    return Material(
+      color: surfaceColor,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white12),
+        side: const BorderSide(color: Colors.white12),
       ),
+      clipBehavior: Clip.antiAlias,
       child: Theme(
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
@@ -750,10 +770,12 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Temperature', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                const Text('Temperature',
+                    style: TextStyle(color: Colors.white70, fontSize: 13)),
                 Text(
                   _temperature.toStringAsFixed(2),
-                  style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+                  style:
+                      TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -768,16 +790,20 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 min: 0.0,
                 max: 1.0,
                 divisions: 20,
-                onChanged: _isStreaming ? null : (v) => setState(() => _temperature = v),
+                onChanged: _isStreaming
+                    ? null
+                    : (v) => setState(() => _temperature = v),
               ),
             ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Top-K Sampling', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                const Text('Top-K Sampling',
+                    style: TextStyle(color: Colors.white70, fontSize: 13)),
                 Text(
                   '$_topK',
-                  style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+                  style:
+                      TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -792,16 +818,20 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 min: 1,
                 max: 40,
                 divisions: 39,
-                onChanged: _isStreaming ? null : (v) => setState(() => _topK = v.round()),
+                onChanged: _isStreaming
+                    ? null
+                    : (v) => setState(() => _topK = v.round()),
               ),
             ),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Max Output Tokens', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                const Text('Max Output Tokens',
+                    style: TextStyle(color: Colors.white70, fontSize: 13)),
                 Text(
                   '$_maxTokens',
-                  style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+                  style:
+                      TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -816,7 +846,9 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 min: 64,
                 max: 1024,
                 divisions: 15,
-                onChanged: _isStreaming ? null : (v) => setState(() => _maxTokens = v.round()),
+                onChanged: _isStreaming
+                    ? null
+                    : (v) => setState(() => _maxTokens = v.round()),
               ),
             ),
           ],
@@ -858,10 +890,12 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
         ? '${_timeToFirstTokenSeconds!.toStringAsFixed(2)}s'
         : '--';
 
-    final speedText =
-        _tokensPerSecond != null ? '${_tokensPerSecond!.toStringAsFixed(1)} tok/s' : '--';
+    final speedText = _tokensPerSecond != null
+        ? '${_tokensPerSecond!.toStringAsFixed(1)} tok/s'
+        : '--';
 
-    final tokensText = _estimatedTokenCount > 0 ? '$_estimatedTokenCount' : '--';
+    final tokensText =
+        _estimatedTokenCount > 0 ? '$_estimatedTokenCount' : '--';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -913,15 +947,18 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 Row(
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.copy_rounded, size: 18, color: Color(0xFF90CAF9)),
+                      icon: const Icon(Icons.copy_rounded,
+                          size: 18, color: Color(0xFF90CAF9)),
                       tooltip: 'Copy Output',
                       onPressed: () {
-                        Clipboard.setData(ClipboardData(text: _generatedOutput));
+                        Clipboard.setData(
+                            ClipboardData(text: _generatedOutput));
                         _showSnackBar('Copied to clipboard.');
                       },
                     ),
                     IconButton(
-                      icon: const Icon(Icons.bookmark_add_rounded, size: 18, color: Color(0xFF90CAF9)),
+                      icon: const Icon(Icons.bookmark_add_rounded,
+                          size: 18, color: Color(0xFF90CAF9)),
                       tooltip: 'Save Summary',
                       onPressed: _saveCurrentSummary,
                     ),
@@ -933,7 +970,9 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
           const SizedBox(height: 6),
           SelectableText(
             _generatedOutput.isEmpty
-                ? (_isStreaming ? 'Generating initial tokens...' : 'No summary generated yet.')
+                ? (_isStreaming
+                    ? 'Generating initial tokens...'
+                    : 'No summary generated yet.')
                 : _generatedOutput,
             style: TextStyle(
               fontSize: 14,

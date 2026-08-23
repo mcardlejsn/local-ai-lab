@@ -1,10 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:local_ai_summarizer/main.dart';
+import 'package:local_ai_summarizer/screens/summarizer_screen.dart';
 
 void main() {
-  testWidgets('Diagnostic screen renders headline', (WidgetTester tester) async {
+  testWidgets('Summarizer screen renders', (WidgetTester tester) async {
     await tester.pumpWidget(const LocalAiApp());
 
-    expect(find.text('On-Device AI Setup'), findsOneWidget);
+    expect(find.byType(SummarizerScreen), findsOneWidget);
   });
 }
