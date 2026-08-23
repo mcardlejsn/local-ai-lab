@@ -101,6 +101,84 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
+  void _showFullOutput(SummaryRecord record) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.7,
+          minChildSize: 0.4,
+          maxChildSize: 0.92,
+          builder: (context, scrollController) {
+            return Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 14, 8, 10),
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Full Output',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(
+                          Icons.copy_rounded,
+                          color: Color(0xFF90CAF9),
+                        ),
+                        tooltip: 'Copy Full Output',
+                        onPressed: () {
+                          Clipboard.setData(
+                            ClipboardData(text: record.generatedSummary),
+                          );
+                          _showSnackBar('Copied to clipboard.');
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          color: Colors.white70,
+                        ),
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(color: Colors.white12, height: 1),
+                Expanded(
+                  child: SingleChildScrollView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.all(18),
+                    child: Text(
+                      record.generatedSummary,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        height: 1.45,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     const bgColor = Color(0xFF121212);
@@ -196,11 +274,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           ),
                         )
                       : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
                           itemCount: _filteredRecords.length,
                           itemBuilder: (context, index) {
                             final record = _filteredRecords[index];
-                            return _buildRecordCard(record, surfaceColor, accentBlue);
+                            return _buildRecordCard(
+                              record,
+                              surfaceColor,
+                              accentBlue,
+                            );
                           },
                         ),
             ),
@@ -237,7 +322,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: accentBlue.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(4),
@@ -255,7 +343,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     ),
                     if (record.modelName != null)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.white10,
                           borderRadius: BorderRadius.circular(4),
@@ -282,36 +373,69 @@ class _HistoryScreenState extends State<HistoryScreen> {
             ],
           ),
           const SizedBox(height: 10),
-          SelectableText(
+          Text(
             record.generatedSummary,
+            maxLines: 6,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: Colors.white,
               fontSize: 14,
               height: 1.45,
             ),
           ),
-          const SizedBox(height: 10),
-          if (record.latencySeconds != null || record.tokensPerSecond != null) ...[
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => _showFullOutput(record),
+              icon: Icon(
+                Icons.open_in_full_rounded,
+                size: 16,
+                color: accentBlue,
+              ),
+              label: Text(
+                'View Full Output',
+                style: TextStyle(color: accentBlue, fontSize: 12),
+              ),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
+                minimumSize: const Size(0, 36),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          if (record.latencySeconds != null ||
+              record.tokensPerSecond != null) ...[
             Container(
+              width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: const Color(0xFF121212),
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(color: Colors.white10),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Wrap(
+                spacing: 14,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   Text(
                     'Latency: ${record.latencySeconds?.toStringAsFixed(2) ?? '--'}s',
-                    style: const TextStyle(color: Colors.white60, fontSize: 11),
+                    style: const TextStyle(
+                      color: Colors.white60,
+                      fontSize: 11,
+                    ),
                   ),
                   Text(
                     'TTFT: ${record.ttftSeconds?.toStringAsFixed(2) ?? '--'}s',
-                    style: const TextStyle(color: Colors.white60, fontSize: 11),
+                    style: const TextStyle(
+                      color: Colors.white60,
+                      fontSize: 11,
+                    ),
                   ),
                   Text(
-                    'Speed: ${record.tokensPerSecond?.toStringAsFixed(1) ?? '--'} tok/s',
+                    'Est. output rate: '
+                    '${record.tokensPerSecond?.toStringAsFixed(1) ?? '--'} tok/s',
                     style: TextStyle(
                       color: accentBlue,
                       fontSize: 11,
@@ -344,7 +468,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     borderRadius: BorderRadius.circular(6),
                     border: Border.all(color: Colors.white12),
                   ),
-                  child: SelectableText(
+                  child: Text(
                     record.originalText,
                     style: const TextStyle(
                       color: Colors.white70,
@@ -361,19 +485,29 @@ class _HistoryScreenState extends State<HistoryScreen> {
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
               IconButton(
-                icon: Icon(Icons.copy_rounded, size: 18, color: accentBlue),
+                icon: Icon(
+                  Icons.copy_rounded,
+                  size: 18,
+                  color: accentBlue,
+                ),
                 tooltip: 'Copy Summary',
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
                 onPressed: () {
-                  Clipboard.setData(ClipboardData(text: record.generatedSummary));
+                  Clipboard.setData(
+                    ClipboardData(text: record.generatedSummary),
+                  );
                   _showSnackBar('Copied to clipboard.');
                 },
               ),
               const SizedBox(width: 16),
               if (record.id != null)
                 IconButton(
-                  icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Colors.redAccent),
+                  icon: const Icon(
+                    Icons.delete_outline_rounded,
+                    size: 18,
+                    color: Colors.redAccent,
+                  ),
                   tooltip: 'Delete Record',
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
@@ -387,6 +521,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   String _formatDate(DateTime dt) {
-    return '${dt.month}/${dt.day}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    return '${dt.month}/${dt.day}/${dt.year} '
+        '${dt.hour.toString().padLeft(2, '0')}:'
+        '${dt.minute.toString().padLeft(2, '0')}';
   }
 }
