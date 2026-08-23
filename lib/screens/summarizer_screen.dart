@@ -448,11 +448,6 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
             onPressed: _isStreaming ? null : _pasteFromClipboard,
           ),
           IconButton(
-            icon: const Icon(Icons.close_rounded, color: Colors.white70),
-            tooltip: 'Clear Input',
-            onPressed: _isStreaming ? null : _clearInput,
-          ),
-          IconButton(
             icon: const Icon(Icons.history_rounded, color: accentBlue),
             tooltip: 'Saved Summaries',
             onPressed: () {
@@ -490,16 +485,25 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 controller: _inputController,
                 maxLines: 6,
                 style: const TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   hintText: 'Enter or paste passage here...',
-                  hintStyle: TextStyle(color: Colors.white38),
-                  contentPadding: EdgeInsets.all(12),
+                  hintStyle: const TextStyle(color: Colors.white38),
+                  contentPadding: const EdgeInsets.all(12),
                   border: InputBorder.none,
+                  suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: _inputController,
+                    builder: (_, value, __) {
+                      if (value.text.isEmpty) return const SizedBox.shrink();
+                      return IconButton(
+                        icon: const Icon(Icons.close_rounded, size: 18, color: Colors.white38),
+                        tooltip: 'Clear Input',
+                        onPressed: _isStreaming ? null : _clearInput,
+                      );
+                    },
+                  ),
                 ),
               ),
             ),
-            const SizedBox(height: 16),
-            _buildControlsCard(surfaceColor, bgColor, accentBlue),
             const SizedBox(height: 16),
             const Text(
               'Select AI Action:',
@@ -536,6 +540,10 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 );
               }).toList(),
             ),
+            if (_selectedAction == 'Custom') ...[
+              const SizedBox(height: 10),
+              _buildCustomInstructionField(surfaceColor, accentBlue),
+            ],
             const SizedBox(height: 14),
             ElevatedButton.icon(
               onPressed: !isReady
@@ -563,6 +571,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
             _buildBenchmarkTelemetryBar(surfaceColor, accentBlue),
             const SizedBox(height: 14),
             _buildOutputCard(surfaceColor, accentBlue),
+            const SizedBox(height: 16),
+            _buildControlsCard(surfaceColor, bgColor, accentBlue),
             const SizedBox(height: 16),
           ],
         ),
@@ -691,18 +701,22 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
 
   Widget _buildControlsCard(Color surfaceColor, Color bgColor, Color accentBlue) {
     return Container(
-      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: surfaceColor,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.white12),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          initiallyExpanded: false,
+          tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+          iconColor: accentBlue,
+          collapsedIconColor: Colors.white54,
+          title: Row(
             children: [
-              const Expanded(
+              const Flexible(
                 child: Text(
                   'Runtime Model Controls',
                   style: TextStyle(
@@ -732,103 +746,103 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Temperature', style: TextStyle(color: Colors.white70, fontSize: 13)),
-              Text(
-                _temperature.toStringAsFixed(2),
-                style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Temperature', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                Text(
+                  _temperature.toStringAsFixed(2),
+                  style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: accentBlue,
+                inactiveTrackColor: Colors.white24,
+                thumbColor: accentBlue,
               ),
-            ],
-          ),
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor: accentBlue,
-              inactiveTrackColor: Colors.white24,
-              thumbColor: accentBlue,
-            ),
-            child: Slider(
-              value: _temperature,
-              min: 0.0,
-              max: 1.0,
-              divisions: 20,
-              onChanged: _isStreaming ? null : (v) => setState(() => _temperature = v),
-            ),
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Top-K Sampling', style: TextStyle(color: Colors.white70, fontSize: 13)),
-              Text(
-                '$_topK',
-                style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor: accentBlue,
-              inactiveTrackColor: Colors.white24,
-              thumbColor: accentBlue,
-            ),
-            child: Slider(
-              value: _topK.toDouble(),
-              min: 1,
-              max: 40,
-              divisions: 39,
-              onChanged: _isStreaming ? null : (v) => setState(() => _topK = v.round()),
-            ),
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Max Output Tokens', style: TextStyle(color: Colors.white70, fontSize: 13)),
-              Text(
-                '$_maxTokens',
-                style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor: accentBlue,
-              inactiveTrackColor: Colors.white24,
-              thumbColor: accentBlue,
-            ),
-            child: Slider(
-              value: _maxTokens.toDouble(),
-              min: 64,
-              max: 1024,
-              divisions: 15,
-              onChanged: _isStreaming ? null : (v) => setState(() => _maxTokens = v.round()),
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Custom Preset Instruction:',
-            style: TextStyle(color: Colors.white70, fontSize: 13),
-          ),
-          const SizedBox(height: 6),
-          Container(
-            decoration: BoxDecoration(
-              color: bgColor,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: Colors.white24),
-            ),
-            child: TextField(
-              controller: _customPromptController,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
-              decoration: const InputDecoration(
-                hintText: 'e.g., Extract the 3 most critical points',
-                hintStyle: TextStyle(color: Colors.white38),
-                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                border: InputBorder.none,
+              child: Slider(
+                value: _temperature,
+                min: 0.0,
+                max: 1.0,
+                divisions: 20,
+                onChanged: _isStreaming ? null : (v) => setState(() => _temperature = v),
               ),
             ),
-          ),
-        ],
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Top-K Sampling', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                Text(
+                  '$_topK',
+                  style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: accentBlue,
+                inactiveTrackColor: Colors.white24,
+                thumbColor: accentBlue,
+              ),
+              child: Slider(
+                value: _topK.toDouble(),
+                min: 1,
+                max: 40,
+                divisions: 39,
+                onChanged: _isStreaming ? null : (v) => setState(() => _topK = v.round()),
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Max Output Tokens', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                Text(
+                  '$_maxTokens',
+                  style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: accentBlue,
+                inactiveTrackColor: Colors.white24,
+                thumbColor: accentBlue,
+              ),
+              child: Slider(
+                value: _maxTokens.toDouble(),
+                min: 64,
+                max: 1024,
+                divisions: 15,
+                onChanged: _isStreaming ? null : (v) => setState(() => _maxTokens = v.round()),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCustomInstructionField(Color surfaceColor, Color accentBlue) {
+    return Container(
+      decoration: BoxDecoration(
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: accentBlue.withValues(alpha: 0.5)),
+      ),
+      child: TextField(
+        controller: _customPromptController,
+        style: const TextStyle(color: Colors.white, fontSize: 13),
+        decoration: const InputDecoration(
+          labelText: 'Custom Instruction',
+          labelStyle: TextStyle(color: Colors.white54, fontSize: 12),
+          hintText: 'e.g., Extract the 3 most critical points',
+          hintStyle: TextStyle(color: Colors.white38),
+          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          border: InputBorder.none,
+        ),
       ),
     );
   }
