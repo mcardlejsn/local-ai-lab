@@ -31,6 +31,75 @@ class BenchmarkModelResult {
   });
 }
 
+class BenchmarkAggregate {
+  final String modelName;
+  final ModelEngine engine;
+  final List<BenchmarkModelResult> runs = [];
+
+  BenchmarkAggregate({required this.modelName, required this.engine});
+
+  List<BenchmarkModelResult> get successfulRuns =>
+      runs.where((r) => r.errorMessage == null).toList();
+
+  bool get hasAnySuccess => successfulRuns.isNotEmpty;
+
+  String? get firstError {
+    for (final r in runs) {
+      if (r.errorMessage != null) return r.errorMessage;
+    }
+    return null;
+  }
+
+  static double? _median(List<double> values) {
+    if (values.isEmpty) return null;
+    final sorted = [...values]..sort();
+    final int mid = sorted.length ~/ 2;
+    if (sorted.length.isOdd) return sorted[mid];
+    return (sorted[mid - 1] + sorted[mid]) / 2.0;
+  }
+
+  double? get medianTokensPerSecond =>
+      _median(successfulRuns.map((r) => r.tokensPerSecond).toList());
+
+  double? get medianTtftSeconds => _median(
+        successfulRuns
+            .where((r) => r.ttftSeconds != null)
+            .map((r) => r.ttftSeconds!)
+            .toList(),
+      );
+
+  double? get medianLatencySeconds =>
+      _median(successfulRuns.map((r) => r.totalLatencySeconds).toList());
+
+  double? get minLatencySeconds {
+    final s = successfulRuns;
+    if (s.isEmpty) return null;
+    return s.map((r) => r.totalLatencySeconds).reduce((a, b) => a < b ? a : b);
+  }
+
+  double? get maxLatencySeconds {
+    final s = successfulRuns;
+    if (s.isEmpty) return null;
+    return s.map((r) => r.totalLatencySeconds).reduce((a, b) => a > b ? a : b);
+  }
+
+  int? get medianTokenCount {
+    final value =
+        _median(successfulRuns.map((r) => r.tokenCount.toDouble()).toList());
+    return value?.round();
+  }
+
+  /// The run whose total latency sits at the median, used as the representative
+  /// output so the displayed text corresponds to the displayed timings.
+  BenchmarkModelResult? get medianRun {
+    final s = successfulRuns;
+    if (s.isEmpty) return null;
+    final sorted = [...s]
+      ..sort((a, b) => a.totalLatencySeconds.compareTo(b.totalLatencySeconds));
+    return sorted[(sorted.length - 1) ~/ 2];
+  }
+}
+
 class BenchmarkScreen extends StatefulWidget {
   const BenchmarkScreen({super.key});
 
@@ -48,7 +117,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     text: 'Extract all timestamps, vitals, and medication events chronologically:',
   );
 
-  final List<BenchmarkModelResult> _results = [];
+  final List<BenchmarkAggregate> _aggregates = [];
+  int _runsPerModel = 3;
   bool _isRunning = false;
   int _currentRunningIndex = -1;
   String _currentStatus = 'Ready to benchmark.';
@@ -94,32 +164,47 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
 
     setState(() {
       _isRunning = true;
-      _results.clear();
+      _aggregates.clear();
     });
 
     final String rawText = _promptController.text.trim();
     final String instruction = _instructionController.text.trim();
+    final int runsPerModel = _runsPerModel;
 
     for (int i = 0; i < models.length; i++) {
       if (!mounted) return;
 
       final model = models[i];
+      final aggregate = BenchmarkAggregate(
+        modelName: model.name,
+        engine: model.engine,
+      );
 
       setState(() {
         _currentRunningIndex = i;
-        _currentStatus =
-            'Benchmarking (${i + 1}/${models.length}): ${model.name}...';
+        _aggregates.add(aggregate);
       });
 
-      await Future.delayed(const Duration(milliseconds: 250));
-
       final fullPrompt = _buildFormattedPrompt(model.engine, instruction, rawText);
-      final result = await _executeSingleBenchmark(model, fullPrompt, rawText, instruction);
 
-      if (mounted) {
+      for (int run = 0; run < runsPerModel; run++) {
+        if (!mounted) return;
+
         setState(() {
-          _results.add(result);
+          _currentStatus =
+              'Benchmarking (${i + 1}/${models.length}) run ${run + 1}/$runsPerModel: ${model.name}...';
         });
+
+        await Future.delayed(const Duration(milliseconds: 250));
+
+        final result =
+            await _executeSingleBenchmark(model, fullPrompt, rawText, instruction);
+
+        if (mounted) {
+          setState(() {
+            aggregate.runs.add(result);
+          });
+        }
       }
     }
 
@@ -127,7 +212,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
       setState(() {
         _isRunning = false;
         _currentRunningIndex = -1;
-        _currentStatus = 'Benchmark suite completed across ${_results.length} models.';
+        _currentStatus =
+            'Benchmark suite completed: ${_aggregates.length} models × $runsPerModel runs.';
       });
     }
   }
@@ -335,18 +421,24 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
 
     final record = SummaryRecord(
       originalText: originalText,
-      generatedSummary: '[${res.modelName}]\n$summary',
+      generatedSummary: summary,
       taskType: 'Benchmark: $taskType',
       createdAt: DateTime.now(),
       latencySeconds: res.totalLatencySeconds,
       ttftSeconds: res.ttftSeconds,
       tokensPerSecond: res.tokensPerSecond,
+      engineType: res.engine.name,
+      modelName: res.modelName,
+      tokenCount: res.tokenCount > 0 ? res.tokenCount : null,
     );
 
     await DatabaseService.instance.insertSummary(record);
   }
 
-  void _showOutputModal(BenchmarkModelResult item) {
+  void _showOutputModal(BenchmarkAggregate item) {
+    final representative = item.medianRun;
+    final String outputText = representative?.outputText ?? '';
+
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF1E1E1E),
@@ -383,7 +475,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                       IconButton(
                         icon: const Icon(Icons.copy_rounded, color: Color(0xFF90CAF9), size: 20),
                         onPressed: () {
-                          Clipboard.setData(ClipboardData(text: item.outputText));
+                          Clipboard.setData(ClipboardData(text: outputText));
                           Navigator.pop(ctx);
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('Copied output to clipboard.')),
@@ -393,9 +485,46 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                     ],
                   ),
                   const Divider(color: Colors.white12),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Per-run latency:',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  ...List.generate(item.runs.length, (index) {
+                    final run = item.runs[index];
+                    final bool failed = run.errorMessage != null;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Text(
+                        failed
+                            ? 'Run ${index + 1}: failed — ${run.errorMessage}'
+                            : 'Run ${index + 1}: ${run.totalLatencySeconds.toStringAsFixed(2)}s'
+                                ' · ${run.tokensPerSecond.toStringAsFixed(1)} est. tok/s'
+                                ' · ${run.tokenCount} est. tokens',
+                        style: TextStyle(
+                          color: failed ? Colors.redAccent : Colors.white54,
+                          fontSize: 12,
+                        ),
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Output (median-latency run):',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
                   SelectableText(
-                    item.outputText.isEmpty ? '(No output generated)' : item.outputText,
+                    outputText.isEmpty ? '(No output generated)' : outputText,
                     style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
                   ),
                 ],
@@ -514,6 +643,40 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
               ),
             ),
             const SizedBox(height: 16),
+            Row(
+              children: [
+                const Text(
+                  'Runs per model:',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                const SizedBox(width: 12),
+                ...[1, 3, 5].map((n) {
+                  final bool selected = _runsPerModel == n;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text('$n'),
+                      selected: selected,
+                      onSelected: _isRunning
+                          ? null
+                          : (value) {
+                              if (value) setState(() => _runsPerModel = n);
+                            },
+                      backgroundColor: surfaceColor,
+                      selectedColor: accentBlue,
+                      side: const BorderSide(color: Colors.white24),
+                      labelStyle: TextStyle(
+                        color: selected ? Colors.black : Colors.white70,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                      showCheckmark: false,
+                    ),
+                  );
+                }),
+              ],
+            ),
+            const SizedBox(height: 16),
             ElevatedButton.icon(
               onPressed: (isScanning || _isRunning || models.isEmpty)
                   ? null
@@ -543,7 +706,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            if (_results.isNotEmpty) ...[
+            if (_aggregates.isNotEmpty) ...[
               const Text(
                 'Comparative Results:',
                 style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
@@ -559,6 +722,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                   scrollDirection: Axis.horizontal,
                   child: DataTable(
                     headingRowColor: WidgetStateProperty.all(Colors.black26),
+                    dataRowMinHeight: 48,
+                    dataRowMaxHeight: 64,
                     columns: const [
                       DataColumn(
                         label: Text(
@@ -568,7 +733,13 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                       ),
                       DataColumn(
                         label: Text(
-                          'Speed (tok/s)',
+                          'Runs',
+                          style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      DataColumn(
+                        label: Text(
+                          'Est. tok/s (chars÷4)',
                           style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
                         ),
                       ),
@@ -586,7 +757,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                       ),
                       DataColumn(
                         label: Text(
-                          'Tokens',
+                          'Est. tokens',
                           style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
                         ),
                       ),
@@ -597,15 +768,23 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                         ),
                       ),
                     ],
-                    rows: _results.map((r) {
-                      final bool isError = r.errorMessage != null;
+                    rows: _aggregates.map((agg) {
+                      final bool hasResults = agg.hasAnySuccess;
+                      final double? medianSpeed = agg.medianTokensPerSecond;
+                      final double? medianTtft = agg.medianTtftSeconds;
+                      final double? medianLatency = agg.medianLatencySeconds;
+                      final double? minLatency = agg.minLatencySeconds;
+                      final double? maxLatency = agg.maxLatencySeconds;
+                      final int? medianTokens = agg.medianTokenCount;
+                      final int successCount = agg.successfulRuns.length;
+
                       return DataRow(
                         cells: [
                           DataCell(
                             ConstrainedBox(
                               constraints: const BoxConstraints(maxWidth: 160),
                               child: Text(
-                                r.modelName,
+                                agg.modelName,
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w600,
@@ -617,32 +796,67 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                           ),
                           DataCell(
                             Text(
-                              isError ? 'ERR' : r.tokensPerSecond.toStringAsFixed(1),
+                              '$successCount/${agg.runs.length}',
                               style: TextStyle(
-                                color: isError ? Colors.redAccent : const Color(0xFF81C784),
+                                color: successCount == agg.runs.length
+                                    ? Colors.white70
+                                    : Colors.orangeAccent,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          DataCell(
+                            Text(
+                              medianSpeed != null
+                                  ? medianSpeed.toStringAsFixed(1)
+                                  : 'ERR',
+                              style: TextStyle(
+                                color: hasResults
+                                    ? const Color(0xFF81C784)
+                                    : Colors.redAccent,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                           ),
                           DataCell(
                             Text(
-                              r.engine == ModelEngine.nano
-                                  ? '${r.totalLatencySeconds.toStringAsFixed(2)}s*'
-                                  : (r.ttftSeconds != null
-                                      ? '${r.ttftSeconds!.toStringAsFixed(2)}s'
+                              agg.engine == ModelEngine.nano
+                                  ? (medianLatency != null
+                                      ? '${medianLatency.toStringAsFixed(2)}s*'
+                                      : '--')
+                                  : (medianTtft != null
+                                      ? '${medianTtft.toStringAsFixed(2)}s'
                                       : '--'),
                               style: const TextStyle(color: Colors.white70),
                             ),
                           ),
                           DataCell(
-                            Text(
-                              '${r.totalLatencySeconds.toStringAsFixed(2)}s',
-                              style: const TextStyle(color: Colors.white70),
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  medianLatency != null
+                                      ? '${medianLatency.toStringAsFixed(2)}s'
+                                      : '--',
+                                  style: const TextStyle(color: Colors.white70),
+                                ),
+                                if (successCount > 1 &&
+                                    minLatency != null &&
+                                    maxLatency != null)
+                                  Text(
+                                    '${minLatency.toStringAsFixed(2)}–${maxLatency.toStringAsFixed(2)}',
+                                    style: const TextStyle(
+                                      color: Colors.white38,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
                           DataCell(
                             Text(
-                              r.tokenCount.toString(),
+                              medianTokens?.toString() ?? '--',
                               style: const TextStyle(color: Colors.white70),
                             ),
                           ),
@@ -653,7 +867,9 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                                 size: 18,
                                 color: accentBlue,
                               ),
-                              onPressed: isError ? null : () => _showOutputModal(r),
+                              onPressed: agg.runs.isEmpty
+                                  ? null
+                                  : () => _showOutputModal(agg),
                             ),
                           ),
                         ],
@@ -661,6 +877,17 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                     }).toList(),
                   ),
                 ),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Timings are the median across the runs completed for each model; the '
+                'smaller figure under latency is the min–max range across those runs.\n'
+                'Token counts are estimated as output characters ÷ 4, not tokenizer '
+                'output. Each engine uses a different tokenizer, so tok/s is a relative '
+                'proxy for throughput rather than a true token rate.\n'
+                '* Gemini Nano\'s Prompt API is non-streaming — time to first token '
+                'cannot be measured, so total latency is shown in that column.',
+                style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.4),
               ),
             ],
           ],

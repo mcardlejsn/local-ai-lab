@@ -73,10 +73,15 @@ class ModelManagerService extends ChangeNotifier {
       // 1. Check Gemini Nano (AICore NPU)
       final bool isNanoReady = await GeminiNanoService.isAvailable();
       if (isNanoReady) {
+        // Capture which AICore build is serving Nano, so results recorded on
+        // different devices or dates can be attributed to a specific version.
+        final String? aiCoreVersion = await GeminiNanoService.getAiCoreVersion();
         discovered.add(
           ModelInfo(
             id: 'system_gemini_nano',
-            name: 'Gemini Nano (AICore NPU)',
+            name: aiCoreVersion == null
+                ? 'Gemini Nano (AICore NPU)'
+                : 'Gemini Nano (AICore $aiCoreVersion)',
             path: 'system://aicore/nano',
             engine: ModelEngine.nano,
             sizeBytes: 0,

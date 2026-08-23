@@ -13,6 +13,16 @@ class GeminiNanoService {
     }
   }
 
+  /// Version of the installed AICore package that serves Gemini Nano, as
+  /// "versionName (versionCode)". Null if AICore is absent or unreadable.
+  static Future<String?> getAiCoreVersion() async {
+    try {
+      return await _channel.invokeMethod<String>('getAiCoreVersion');
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<String> generateText({
     required String prompt,
     double temperature = 0.20,
