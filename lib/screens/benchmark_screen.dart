@@ -593,13 +593,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                           const TextStyle(color: Colors.white70, fontSize: 13),
                     ),
                   ),
-                  if (!_isRunning)
-                    IconButton(
-                      icon: const Icon(Icons.refresh_rounded,
-                          color: Colors.white70, size: 20),
-                      tooltip: 'Rescan',
-                      onPressed: _modelManager.scanModels,
-                    ),
                 ],
               ),
             ),

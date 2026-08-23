@@ -735,16 +735,6 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                   ),
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.refresh_rounded,
-                    color: Colors.white70, size: 20),
-                tooltip: 'Rescan Models',
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                onPressed: (_isStreaming || isLoading)
-                    ? null
-                    : _modelManager.scanModels,
-              ),
             ],
           ),
           const SizedBox(height: 2),
