@@ -32,11 +32,20 @@ class BenchmarkModelResult {
 }
 
 class BenchmarkAggregate {
+  final String modelId;
   final String modelName;
+  final String modelPath;
   final ModelEngine engine;
+  final PromptFormat promptFormat;
   final List<BenchmarkModelResult> runs = [];
 
-  BenchmarkAggregate({required this.modelName, required this.engine});
+  BenchmarkAggregate({
+    required this.modelId,
+    required this.modelName,
+    required this.modelPath,
+    required this.engine,
+    required this.promptFormat,
+  });
 
   List<BenchmarkModelResult> get successfulRuns =>
       runs.where((r) => r.errorMessage == null).toList();
@@ -121,6 +130,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   final List<BenchmarkAggregate> _aggregates = [];
   int _runsPerModel = 3;
   bool _isRunning = false;
+  bool _isRestoring = true;
+  bool _hasRestoredSession = false;
   int _currentRunningIndex = -1;
   int _currentRunNumber = 0;
   String _currentStatus = 'Ready to benchmark.';
@@ -129,7 +140,97 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   void initState() {
     super.initState();
     _modelManager.addListener(_onModelManagerStateChanged);
-    _modelManager.scanModels();
+    _initializeScreen();
+  }
+
+  Future<void> _initializeScreen() async {
+    try {
+      await _restoreLatestBenchmark();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _currentStatus = 'Could not restore the latest benchmark: $e';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRestoring = false;
+        });
+      }
+    }
+
+    if (mounted) {
+      await _modelManager.scanModels();
+    }
+  }
+
+  Future<void> _restoreLatestBenchmark() async {
+    final saved = await DatabaseService.instance.getLatestCompletedBenchmark();
+    if (saved == null || !mounted) return;
+
+    final runMaps = (saved['runs'] as List).cast<Map<String, Object?>>();
+    final aggregatesByOrder = <int, BenchmarkAggregate>{};
+
+    for (final runMap in runMaps) {
+      final modelOrder = runMap['model_order'] as int;
+      final aggregate = aggregatesByOrder.putIfAbsent(
+        modelOrder,
+        () => BenchmarkAggregate(
+          modelId: runMap['model_id'] as String,
+          modelName: runMap['model_name'] as String,
+          modelPath: runMap['model_path'] as String,
+          engine: ModelEngine.values.byName(
+            runMap['engine_type'] as String,
+          ),
+          promptFormat: PromptFormat.values.byName(
+            runMap['prompt_format'] as String,
+          ),
+        ),
+      );
+
+      final latencySeconds = (runMap['latency_seconds'] as num).toDouble();
+      final tokenCount = runMap['token_count'] as int;
+      aggregate.runs.add(
+        BenchmarkModelResult(
+          modelName: runMap['model_name'] as String,
+          engine: aggregate.engine,
+          ttftSeconds: (runMap['ttft_seconds'] as num?)?.toDouble(),
+          totalLatencySeconds: latencySeconds,
+          tokenCount: tokenCount,
+          tokensPerSecond: latencySeconds > 0 ? tokenCount / latencySeconds : 0,
+          outputText: runMap['output_text'] as String,
+          errorMessage: runMap['error_message'] as String?,
+        ),
+      );
+    }
+
+    final orderedEntries = aggregatesByOrder.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    final completedAt =
+        DateTime.parse(saved['completed_at'] as String).toLocal();
+
+    setState(() {
+      _promptController.text = saved['passage'] as String;
+      _instructionController.text = saved['instruction'] as String;
+      _runsPerModel = saved['runs_per_model'] as int;
+      _aggregates
+        ..clear()
+        ..addAll(orderedEntries.map((entry) => entry.value));
+      _hasRestoredSession = true;
+      _currentStatus =
+          'Restored benchmark completed ${_formatDateTime(completedAt)}.';
+    });
+  }
+
+  String _formatDateTime(DateTime value) {
+    final month = value.month.toString().padLeft(2, '0');
+    final day = value.day.toString().padLeft(2, '0');
+    final year = value.year.toString();
+    final minute = value.minute.toString().padLeft(2, '0');
+    final hour12 = value.hour % 12 == 0 ? 12 : value.hour % 12;
+    final period = value.hour < 12 ? 'AM' : 'PM';
+    return '$month/$day/$year $hour12:$minute $period';
   }
 
   @override
@@ -143,7 +244,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   void _onModelManagerStateChanged() {
     if (mounted) {
       setState(() {
-        if (!_isRunning) {
+        if (!_isRunning && !_isRestoring && !_hasRestoredSession) {
           final models = _modelManager.availableModels;
           _currentStatus = models.isEmpty
               ? 'No models found to benchmark.'
@@ -159,6 +260,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
 
     setState(() {
       _isRunning = true;
+      _hasRestoredSession = false;
       _currentRunningIndex = 0;
       _currentRunNumber = 1;
       _aggregates.clear();
@@ -173,8 +275,11 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
 
       final model = models[i];
       final aggregate = BenchmarkAggregate(
+        modelId: model.id,
         modelName: model.name,
+        modelPath: model.path,
         engine: model.engine,
+        promptFormat: model.promptFormat,
       );
 
       setState(() {
@@ -203,23 +308,82 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         final result = await _executeSingleBenchmark(
             model, fullPrompt, rawText, instruction);
 
-        if (mounted) {
-          setState(() {
-            aggregate.runs.add(result);
-          });
-        }
+        if (!mounted) return;
+        setState(() {
+          aggregate.runs.add(result);
+        });
       }
+    }
+
+    String? saveError;
+    try {
+      await _saveCompletedBenchmark(
+        passage: rawText,
+        instruction: instruction,
+        runsPerModel: runsPerModel,
+      );
+    } catch (e) {
+      saveError = e.toString();
     }
 
     if (mounted) {
       setState(() {
         _isRunning = false;
+        _hasRestoredSession = saveError == null;
         _currentRunningIndex = -1;
         _currentRunNumber = 0;
-        _currentStatus =
-            'Benchmark suite completed: ${_aggregates.length} models × $runsPerModel runs.';
+        _currentStatus = saveError == null
+            ? 'Benchmark suite completed and saved: '
+                '${_aggregates.length} models × $runsPerModel runs.'
+            : 'Benchmark suite completed, but the grouped session '
+                'could not be saved: $saveError';
       });
     }
+  }
+
+  Future<void> _saveCompletedBenchmark({
+    required String passage,
+    required String instruction,
+    required int runsPerModel,
+  }) async {
+    final runRows = <Map<String, Object?>>[];
+
+    for (int modelOrder = 0; modelOrder < _aggregates.length; modelOrder++) {
+      final aggregate = _aggregates[modelOrder];
+      for (int runIndex = 0; runIndex < aggregate.runs.length; runIndex++) {
+        final run = aggregate.runs[runIndex];
+        runRows.add({
+          'model_order': modelOrder,
+          'run_number': runIndex + 1,
+          'model_id': aggregate.modelId,
+          'model_name': aggregate.modelName,
+          'model_path': aggregate.modelPath,
+          'engine_type': aggregate.engine.name,
+          'prompt_format': aggregate.promptFormat.name,
+          'ttft_seconds': run.ttftSeconds,
+          'latency_seconds': run.totalLatencySeconds,
+          'token_count': run.tokenCount,
+          'output_text': run.outputText,
+          'error_message': run.errorMessage,
+        });
+      }
+    }
+
+    final expectedRunCount = _aggregates.length * runsPerModel;
+    if (runRows.length != expectedRunCount) {
+      throw StateError(
+        'Incomplete benchmark: expected $expectedRunCount run records, '
+        'but found ${runRows.length}.',
+      );
+    }
+
+    await DatabaseService.instance.insertCompletedBenchmark(
+      passage: passage,
+      instruction: instruction,
+      runsPerModel: runsPerModel,
+      modelCount: _aggregates.length,
+      runs: runRows,
+    );
   }
 
   Future<BenchmarkModelResult> _executeSingleBenchmark(
@@ -618,7 +782,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
               ),
               child: TextField(
                 controller: _instructionController,
-                enabled: !_isRunning,
+                enabled: !_isRunning && !_isRestoring,
                 style: const TextStyle(color: Colors.white, fontSize: 13),
                 decoration: const InputDecoration(
                   contentPadding: EdgeInsets.all(10),
@@ -644,7 +808,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
               child: TextField(
                 controller: _promptController,
                 maxLines: 4,
-                enabled: !_isRunning,
+                enabled: !_isRunning && !_isRestoring,
                 style: const TextStyle(
                     color: Colors.white, fontSize: 13, height: 1.4),
                 decoration: const InputDecoration(
@@ -671,7 +835,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                     child: ChoiceChip(
                       label: Text('$n'),
                       selected: selected,
-                      onSelected: _isRunning
+                      onSelected: (_isRunning || _isRestoring)
                           ? null
                           : (value) {
                               if (value) setState(() => _runsPerModel = n);
@@ -692,9 +856,10 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
-              onPressed: (isScanning || _isRunning || models.isEmpty)
-                  ? null
-                  : _runBenchmarkSuite,
+              onPressed:
+                  (isScanning || _isRunning || _isRestoring || models.isEmpty)
+                      ? null
+                      : _runBenchmarkSuite,
               icon: _isRunning
                   ? const SizedBox(
                       width: 16,
@@ -704,10 +869,12 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                     )
                   : const Icon(Icons.play_arrow_rounded, color: Colors.black),
               label: Text(
-                _isRunning
-                    ? 'Model ${_currentRunningIndex + 1}/${models.length} '
-                        '• Run $_currentRunNumber/$_runsPerModel'
-                    : 'Run Automated Benchmark Suite',
+                _isRestoring
+                    ? 'Restoring Last Benchmark...'
+                    : _isRunning
+                        ? 'Model ${_currentRunningIndex + 1}/${models.length} '
+                            '• Run $_currentRunNumber/$_runsPerModel'
+                        : 'Run Automated Benchmark Suite',
                 style: const TextStyle(
                   color: Colors.black,
                   fontWeight: FontWeight.bold,
