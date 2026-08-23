@@ -19,6 +19,13 @@ class SummarizerScreen extends StatefulWidget {
 }
 
 class _SummarizerScreenState extends State<SummarizerScreen> {
+  static const String _samplePassage =
+      "At Tuesday's 10:00 AM project meeting, Maya agreed to complete "
+      'the accessibility review by Friday, and Daniel agreed to update the '
+      'Android build. The current build passed its automated tests, but the '
+      'settings screen still needs a small layout correction. The team will '
+      'meet again Monday at 9:30 AM to review the release candidate.';
+
   final ModelManagerService _modelManager = ModelManagerService();
   final TextEditingController _inputController = TextEditingController();
   final TextEditingController _customPromptController = TextEditingController(
@@ -122,6 +129,20 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     } catch (e) {
       _showSnackBar('Failed to read clipboard: $e');
     }
+  }
+
+  void _loadSamplePassage() {
+    if (_isStreaming) return;
+
+    setState(() {
+      _inputController.text = _samplePassage;
+      _inputController.selection = TextSelection.collapsed(
+        offset: _inputController.text.length,
+      );
+      _generatedOutput = '';
+      _resetMetrics();
+    });
+    _showSnackBar('Sample passage loaded.');
   }
 
   void _clearInput() {
@@ -463,13 +484,42 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
           children: [
             _buildModelSelectorCard(surfaceColor, accentBlue, successGreen),
             const SizedBox(height: 16),
-            const Text(
-              'Input Note / Passage:',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 15,
-              ),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Input Note / Passage:',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+                ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _inputController,
+                  builder: (_, value, __) {
+                    if (value.text.isNotEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    return TextButton.icon(
+                      onPressed: _isStreaming ? null : _loadSamplePassage,
+                      icon: const Icon(Icons.article_outlined, size: 16),
+                      label: const Text('Load Sample'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: accentBlue,
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        minimumSize: const Size(0, 36),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        textStyle: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             Container(
