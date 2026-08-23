@@ -122,6 +122,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   int _runsPerModel = 3;
   bool _isRunning = false;
   int _currentRunningIndex = -1;
+  int _currentRunNumber = 0;
   String _currentStatus = 'Ready to benchmark.';
 
   @override
@@ -158,6 +159,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
 
     setState(() {
       _isRunning = true;
+      _currentRunningIndex = 0;
+      _currentRunNumber = 1;
       _aggregates.clear();
     });
 
@@ -190,6 +193,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         if (!mounted) return;
 
         setState(() {
+          _currentRunNumber = run + 1;
           _currentStatus =
               'Benchmarking (${i + 1}/${models.length}) run ${run + 1}/$runsPerModel: ${model.name}...';
         });
@@ -211,6 +215,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
       setState(() {
         _isRunning = false;
         _currentRunningIndex = -1;
+        _currentRunNumber = 0;
         _currentStatus =
             'Benchmark suite completed: ${_aggregates.length} models × $runsPerModel runs.';
       });
@@ -700,7 +705,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                   : const Icon(Icons.play_arrow_rounded, color: Colors.black),
               label: Text(
                 _isRunning
-                    ? 'Running Suite (${_currentRunningIndex + 1}/${models.length})...'
+                    ? 'Model ${_currentRunningIndex + 1}/${models.length} '
+                        '• Run $_currentRunNumber/$_runsPerModel'
                     : 'Run Automated Benchmark Suite',
                 style: const TextStyle(
                   color: Colors.black,
