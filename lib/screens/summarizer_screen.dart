@@ -101,6 +101,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
       setState(() {
         _isStreaming = false;
         _totalLatencySeconds = _inferenceStopwatch.elapsedMilliseconds / 1000.0;
+        _estimatedTokenCount = estimateOutputTokens(_generatedOutput);
         if (_totalLatencySeconds != null && _totalLatencySeconds! > 0) {
           _tokensPerSecond = _estimatedTokenCount / _totalLatencySeconds!;
         }
@@ -155,7 +156,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
       }
     }
 
-    final fullPrompt = buildPrompt(
+    final fullPrompt = buildInferencePrompt(
+      engine: activeModel.engine,
       format: activeModel.promptFormat,
       instruction: instruction,
       rawText: rawText,
@@ -181,7 +183,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
         _stopTimers();
         final double totalSec =
             _inferenceStopwatch.elapsedMilliseconds / 1000.0;
-        final int estTokens = (resultText.length / 4.0).ceil();
+        final int estTokens = estimateOutputTokens(resultText);
 
         if (mounted) {
           setState(() {
@@ -226,13 +228,10 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 isFirstChunk = false;
               }
 
-              final int inc = (chunk.length / 4.0).ceil();
-              final int increment = inc > 0 ? inc : 1;
-
               if (mounted) {
                 setState(() {
                   _generatedOutput += chunk;
-                  _estimatedTokenCount += increment;
+                  _estimatedTokenCount = estimateOutputTokens(_generatedOutput);
 
                   final double currentSec =
                       _inferenceStopwatch.elapsedMilliseconds / 1000.0;
@@ -306,13 +305,10 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 isFirstChunk = false;
               }
 
-              final int inc = (textChunk.length / 4.0).ceil();
-              final int increment = inc > 0 ? inc : 1;
-
               if (mounted) {
                 setState(() {
                   _generatedOutput += textChunk;
-                  _estimatedTokenCount += increment;
+                  _estimatedTokenCount = estimateOutputTokens(_generatedOutput);
 
                   final double currentSec =
                       _inferenceStopwatch.elapsedMilliseconds / 1000.0;
@@ -891,7 +887,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
         : '--';
 
     final speedText = _tokensPerSecond != null
-        ? '${_tokensPerSecond!.toStringAsFixed(1)} tok/s'
+        ? '${_tokensPerSecond!.toStringAsFixed(1)} est. tok/s'
         : '--';
 
     final tokensText =
@@ -911,7 +907,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
           _buildVerticalDivider(),
           _buildMetricColumn('TTFT', ttftText),
           _buildVerticalDivider(),
-          _buildMetricColumn('SPEED', speedText),
+          _buildMetricColumn('E2E RATE', speedText),
           _buildVerticalDivider(),
           _buildMetricColumn('TOKENS', tokensText),
         ],

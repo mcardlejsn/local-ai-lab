@@ -114,7 +114,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         'Client arrived at 08:30 for morning medication (Metformin 500mg, Lisinopril 10mg) with full glass of water. Refused breakfast initially citing mild nausea, but ate half a banana at 09:15. Blood glucose reading at 09:30 was 128 mg/dL. Attended physical therapy session from 10:00 to 10:45 with good mobility and no complaints of pain. Returned to common area for lunch at 12:00.',
   );
   final TextEditingController _instructionController = TextEditingController(
-    text: 'Extract all timestamps, vitals, and medication events chronologically:',
+    text:
+        'Extract all timestamps, vitals, and medication events chronologically:',
   );
 
   final List<BenchmarkAggregate> _aggregates = [];
@@ -178,7 +179,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         _aggregates.add(aggregate);
       });
 
-      final fullPrompt = buildPrompt(
+      final fullPrompt = buildInferencePrompt(
+        engine: model.engine,
         format: model.promptFormat,
         instruction: instruction,
         rawText: rawText,
@@ -194,8 +196,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
 
         await Future.delayed(const Duration(milliseconds: 250));
 
-        final result =
-            await _executeSingleBenchmark(model, fullPrompt, rawText, instruction);
+        final result = await _executeSingleBenchmark(
+            model, fullPrompt, rawText, instruction);
 
         if (mounted) {
           setState(() {
@@ -243,7 +245,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         totalStopwatch.stop();
 
         final double totalSec = totalStopwatch.elapsedMilliseconds / 1000.0;
-        final int estTokens = (resultText.length / 4.0).ceil();
+        final int estTokens = estimateOutputTokens(resultText);
         final double speed = totalSec > 0 ? (estTokens / totalSec) : 0;
 
         final res = BenchmarkModelResult(
@@ -289,12 +291,12 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                 isFirstChunk = false;
               }
               output += chunk;
-              final int inc = (chunk.length / 4.0).ceil();
-              tokenCount += (inc > 0 ? inc : 1);
             }
           },
           onError: (err) {
-            if (!streamCompleter.isCompleted) streamCompleter.completeError(err);
+            if (!streamCompleter.isCompleted) {
+              streamCompleter.completeError(err);
+            }
           },
           onDone: () {
             if (!streamCompleter.isCompleted) streamCompleter.complete();
@@ -307,6 +309,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         totalStopwatch.stop();
         await LlamaGgufService.unloadModel();
 
+        tokenCount = estimateOutputTokens(output);
         final double totalSec = totalStopwatch.elapsedMilliseconds / 1000.0;
         final double speed = totalSec > 0 ? (tokenCount / totalSec) : 0;
 
@@ -355,12 +358,12 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                 isFirstChunk = false;
               }
               output += textChunk;
-              final int inc = (textChunk.length / 4.0).ceil();
-              tokenCount += (inc > 0 ? inc : 1);
             }
           },
           onError: (err) {
-            if (!streamCompleter.isCompleted) streamCompleter.completeError(err);
+            if (!streamCompleter.isCompleted) {
+              streamCompleter.completeError(err);
+            }
           },
           onDone: () {
             if (!streamCompleter.isCompleted) streamCompleter.complete();
@@ -372,6 +375,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         await subscription.cancel();
         totalStopwatch.stop();
 
+        tokenCount = estimateOutputTokens(output);
         final double totalSec = totalStopwatch.elapsedMilliseconds / 1000.0;
         final double speed = totalSec > 0 ? (tokenCount / totalSec) : 0;
 
@@ -470,12 +474,14 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.copy_rounded, color: Color(0xFF90CAF9), size: 20),
+                        icon: const Icon(Icons.copy_rounded,
+                            color: Color(0xFF90CAF9), size: 20),
                         onPressed: () {
                           Clipboard.setData(ClipboardData(text: outputText));
                           Navigator.pop(ctx);
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Copied output to clipboard.')),
+                            const SnackBar(
+                                content: Text('Copied output to clipboard.')),
                           );
                         },
                       ),
@@ -522,7 +528,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                   const SizedBox(height: 6),
                   SelectableText(
                     outputText.isEmpty ? '(No output generated)' : outputText,
-                    style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
+                    style: const TextStyle(
+                        color: Colors.white70, fontSize: 14, height: 1.4),
                   ),
                 ],
               ),
@@ -582,12 +589,14 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                   Expanded(
                     child: Text(
                       _currentStatus,
-                      style: const TextStyle(color: Colors.white70, fontSize: 13),
+                      style:
+                          const TextStyle(color: Colors.white70, fontSize: 13),
                     ),
                   ),
                   if (!_isRunning)
                     IconButton(
-                      icon: const Icon(Icons.refresh_rounded, color: Colors.white70, size: 20),
+                      icon: const Icon(Icons.refresh_rounded,
+                          color: Colors.white70, size: 20),
                       tooltip: 'Rescan',
                       onPressed: _modelManager.scanModels,
                     ),
@@ -597,7 +606,10 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
             const SizedBox(height: 16),
             const Text(
               'Benchmark Instruction:',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+              style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14),
             ),
             const SizedBox(height: 6),
             Container(
@@ -619,7 +631,10 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
             const SizedBox(height: 12),
             const Text(
               'Standardized Passage (Shift Note):',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+              style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14),
             ),
             const SizedBox(height: 6),
             Container(
@@ -632,7 +647,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                 controller: _promptController,
                 maxLines: 4,
                 enabled: !_isRunning,
-                style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.4),
+                style: const TextStyle(
+                    color: Colors.white, fontSize: 13, height: 1.4),
                 decoration: const InputDecoration(
                   contentPadding: EdgeInsets.all(10),
                   border: InputBorder.none,
@@ -644,7 +660,10 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
               children: [
                 const Text(
                   'Runs per model:',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14),
                 ),
                 const SizedBox(width: 12),
                 ...[1, 3, 5].map((n) {
@@ -682,7 +701,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                   ? const SizedBox(
                       width: 16,
                       height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.black),
                     )
                   : const Icon(Icons.play_arrow_rounded, color: Colors.black),
               label: Text(
@@ -699,14 +719,18 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                 backgroundColor: accentBlue,
                 disabledBackgroundColor: Colors.white24,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
               ),
             ),
             const SizedBox(height: 20),
             if (_aggregates.isNotEmpty) ...[
               const Text(
                 'Comparative Results:',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15),
               ),
               const SizedBox(height: 8),
               Container(
@@ -725,43 +749,50 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                       DataColumn(
                         label: Text(
                           'Model / Engine',
-                          style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              color: accentBlue, fontWeight: FontWeight.bold),
                         ),
                       ),
                       DataColumn(
                         label: Text(
                           'Runs',
-                          style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              color: accentBlue, fontWeight: FontWeight.bold),
                         ),
                       ),
                       DataColumn(
                         label: Text(
                           'Est. tok/s (chars÷4)',
-                          style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              color: accentBlue, fontWeight: FontWeight.bold),
                         ),
                       ),
                       DataColumn(
                         label: Text(
                           'TTFT (s)',
-                          style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              color: accentBlue, fontWeight: FontWeight.bold),
                         ),
                       ),
                       DataColumn(
                         label: Text(
                           'Latency (s)',
-                          style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              color: accentBlue, fontWeight: FontWeight.bold),
                         ),
                       ),
                       DataColumn(
                         label: Text(
                           'Est. tokens',
-                          style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              color: accentBlue, fontWeight: FontWeight.bold),
                         ),
                       ),
                       DataColumn(
                         label: Text(
                           'Output',
-                          style: TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              color: accentBlue, fontWeight: FontWeight.bold),
                         ),
                       ),
                     ],
@@ -880,11 +911,13 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                 'Timings are the median across the runs completed for each model; the '
                 'smaller figure under latency is the min–max range across those runs.\n'
                 'Token counts are estimated as output characters ÷ 4, not tokenizer '
-                'output. Each engine uses a different tokenizer, so tok/s is a relative '
-                'proxy for throughput rather than a true token rate.\n'
+                'output. Each engine uses a different tokenizer, and the rate uses '
+                'total latency including prompt processing and TTFT. It is therefore '
+                'an end-to-end throughput proxy, not pure decode speed.\n'
                 '* Gemini Nano\'s Prompt API is non-streaming — time to first token '
                 'cannot be measured, so total latency is shown in that column.',
-                style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.4),
+                style:
+                    TextStyle(color: Colors.white38, fontSize: 11, height: 1.4),
               ),
             ],
           ],

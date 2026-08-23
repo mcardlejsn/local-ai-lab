@@ -80,6 +80,31 @@ String buildPrompt({
   }
 }
 
+/// Builds the prompt delivered to an inference runtime.
+///
+/// The current MediaPipe path installs Gemma models from `.bin` or `.task`
+/// files. MediaPipe `.bin` models require the Gemma conversation framing to be
+/// supplied manually. GGUF runtimes also receive a plain string and require
+/// their filename-selected instruction template to be applied here.
+String buildInferencePrompt({
+  required ModelEngine engine,
+  required PromptFormat format,
+  required String instruction,
+  required String rawText,
+}) {
+  return buildPrompt(
+    format: engine == ModelEngine.mediapipe ? PromptFormat.gemma : format,
+    instruction: instruction,
+    rawText: rawText,
+  );
+}
+
+/// Character-based output-token proxy used consistently across runtimes.
+///
+/// Estimate once from the accumulated output so streaming chunk boundaries do
+/// not inflate the result through repeated rounding.
+int estimateOutputTokens(String output) => (output.length / 4.0).ceil();
+
 class ModelInfo {
   final String id;
   final String name;

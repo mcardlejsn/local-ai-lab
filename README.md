@@ -69,8 +69,9 @@ Gemini Nano's Prompt API takes the instruction directly.
 Some things about the numbers this app produces are worth stating plainly:
 
 - **Token counts are estimated as output characters ÷ 4.** They are not tokenizer
-  output, and the three runtimes use different tokenizers, so throughput is a relative
-  proxy rather than a true token rate.
+  output, and the three runtimes use different tokenizers. The displayed rate divides
+  that estimate by total latency, including prompt processing and time to first token,
+  so it is an end-to-end throughput proxy rather than pure decode speed.
 - **Gemini Nano's Prompt API does not stream**, so time to first token cannot be
   measured for it. Total latency is shown in that column instead.
 - **Models run in discovery order**, so a model benchmarked later runs on a warmer
