@@ -9,12 +9,84 @@ import 'llama_gguf_service.dart';
 
 enum ModelEngine { nano, mediapipe, gguf }
 
+/// The instruction-tuning wrapper a model expects around a prompt. This is not
+/// conversational state — it is the framing each fine-tune was trained on, and
+/// sending the wrong one pushes the model off-distribution.
+enum PromptFormat { plain, gemma, chatml, llama3, mistral }
+
+extension PromptFormatLabel on PromptFormat {
+  String get label {
+    switch (this) {
+      case PromptFormat.plain:
+        return 'plain';
+      case PromptFormat.gemma:
+        return 'gemma';
+      case PromptFormat.chatml:
+        return 'chatml';
+      case PromptFormat.llama3:
+        return 'llama3';
+      case PromptFormat.mistral:
+        return 'mistral';
+    }
+  }
+}
+
+/// Resolves a prompt format from a model filename. Falls back to [PromptFormat.plain]
+/// for anything unrecognized, since an unwrapped instruction is safer than a
+/// confidently wrong wrapper.
+PromptFormat resolvePromptFormat(String fileName) {
+  final String name = fileName.toLowerCase();
+
+  if (name.contains('gemma')) return PromptFormat.gemma;
+  if (name.contains('llama-3') ||
+      name.contains('llama3') ||
+      name.contains('llama_3')) {
+    return PromptFormat.llama3;
+  }
+  if (name.contains('mistral') || name.contains('mixtral')) {
+    return PromptFormat.mistral;
+  }
+  if (name.contains('qwen') ||
+      name.contains('chatml') ||
+      name.contains('hermes')) {
+    return PromptFormat.chatml;
+  }
+
+  return PromptFormat.plain;
+}
+
+/// Wraps [instruction] and [rawText] in the framing [format] expects.
+String buildPrompt({
+  required PromptFormat format,
+  required String instruction,
+  required String rawText,
+}) {
+  final String body = '$instruction\n\n"""\n$rawText\n"""';
+
+  switch (format) {
+    case PromptFormat.plain:
+      return body;
+    case PromptFormat.gemma:
+      return '<start_of_turn>user\n$body<end_of_turn>\n<start_of_turn>model\n';
+    case PromptFormat.chatml:
+      return '<|im_start|>user\n$body<|im_end|>\n<|im_start|>assistant\n';
+    case PromptFormat.llama3:
+      // BOS is emitted by the runtime, so it is deliberately omitted here to
+      // avoid a duplicate begin-of-text token.
+      return '<|start_header_id|>user<|end_header_id|>\n\n$body<|eot_id|>'
+          '<|start_header_id|>assistant<|end_header_id|>\n\n';
+    case PromptFormat.mistral:
+      return '[INST] $body [/INST]';
+  }
+}
+
 class ModelInfo {
   final String id;
   final String name;
   final String path;
   final ModelEngine engine;
   final int sizeBytes;
+  final PromptFormat promptFormat;
 
   ModelInfo({
     required this.id,
@@ -22,6 +94,7 @@ class ModelInfo {
     required this.path,
     required this.engine,
     required this.sizeBytes,
+    required this.promptFormat,
   });
 
   String get formattedSize {
@@ -85,6 +158,7 @@ class ModelManagerService extends ChangeNotifier {
             path: 'system://aicore/nano',
             engine: ModelEngine.nano,
             sizeBytes: 0,
+            promptFormat: PromptFormat.plain,
           ),
         );
       }
@@ -110,6 +184,8 @@ class ModelManagerService extends ChangeNotifier {
                         path: entity.path,
                         engine: ModelEngine.mediapipe,
                         sizeBytes: stat.size,
+                        // installModel pins ModelType.gemmaIt, so these are Gemma builds.
+                        promptFormat: PromptFormat.gemma,
                       ),
                     );
                   }
@@ -123,6 +199,7 @@ class ModelManagerService extends ChangeNotifier {
                         path: entity.path,
                         engine: ModelEngine.gguf,
                         sizeBytes: stat.size,
+                        promptFormat: resolvePromptFormat(fileName),
                       ),
                     );
                   }
@@ -190,7 +267,8 @@ class ModelManagerService extends ChangeNotifier {
           contextSize: 2048,
         );
         _activeModel = model;
-        _statusMessage = 'GGUF Engine Ready: ${model.name}';
+        _statusMessage =
+            'GGUF Engine Ready: ${model.name} · ${model.promptFormat.label} prompt format';
       }
     } catch (e) {
       _statusMessage = 'Failed loading ${model.name}: $e';

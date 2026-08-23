@@ -132,14 +132,6 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     });
   }
 
-  String _buildFormattedPrompt(ModelEngine engine, String instruction, String rawText) {
-    if (engine == ModelEngine.nano) {
-      return '$instruction\n\n"""\n$rawText\n"""';
-    }
-    // MediaPipe & GGUF (turn-based chat format)
-    return '<start_of_turn>user\n$instruction\n\n"""\n$rawText\n"""<end_of_turn>\n<start_of_turn>model\n';
-  }
-
   Future<void> _runInference() async {
     final rawText = _inputController.text.trim();
     if (rawText.isEmpty) {
@@ -164,7 +156,11 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
       }
     }
 
-    final fullPrompt = _buildFormattedPrompt(activeModel.engine, instruction, rawText);
+    final fullPrompt = buildPrompt(
+      format: activeModel.promptFormat,
+      instruction: instruction,
+      rawText: rawText,
+    );
 
     setState(() {
       _isStreaming = true;

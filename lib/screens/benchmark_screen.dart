@@ -151,13 +151,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     }
   }
 
-  String _buildFormattedPrompt(ModelEngine engine, String instruction, String rawText) {
-    if (engine == ModelEngine.nano) {
-      return '$instruction\n\n"""\n$rawText\n"""';
-    }
-    return '<start_of_turn>user\n$instruction\n\n"""\n$rawText\n"""<end_of_turn>\n<start_of_turn>model\n';
-  }
-
   Future<void> _runBenchmarkSuite() async {
     final models = _modelManager.availableModels;
     if (models.isEmpty || _isRunning) return;
@@ -185,7 +178,11 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         _aggregates.add(aggregate);
       });
 
-      final fullPrompt = _buildFormattedPrompt(model.engine, instruction, rawText);
+      final fullPrompt = buildPrompt(
+        format: model.promptFormat,
+        instruction: instruction,
+        rawText: rawText,
+      );
 
       for (int run = 0; run < runsPerModel; run++) {
         if (!mounted) return;
