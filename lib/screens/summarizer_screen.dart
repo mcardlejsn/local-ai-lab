@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_gemma/flutter_gemma.dart';
 
 import '../models/summary_record.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
 import '../services/llama_gguf_service.dart';
+import '../services/mediapipe_gemma_service.dart';
 import '../services/model_manager_service.dart';
 import 'benchmark_screen.dart';
 import 'history_screen.dart';
@@ -300,45 +300,40 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     // 3. MediaPipe Engine (Gemma .task / .bin)
     if (activeModel.engine == ModelEngine.mediapipe) {
       try {
-        await _modelManager.recreateMediaPipeSession(
+        await MediaPipeGemmaService.recreateSession(
           temperature: _temperature,
           topK: _topK,
         );
 
-        final dynamic session = _modelManager.activeMediaPipeSession;
-        if (session == null) {
+        if (!MediaPipeGemmaService.hasSession) {
           throw Exception('MediaPipe session is not initialized.');
         }
 
-        await session.addQueryChunk(Message(text: fullPrompt, isUser: true));
-        final stream = session.getResponseAsync();
+        final stream = await MediaPipeGemmaService.generate(fullPrompt);
 
         bool isFirstChunk = true;
 
         _streamSubscription = stream.listen(
-          (dynamic chunk) {
-            final String textChunk = chunk?.toString() ?? '';
-            if (textChunk.isNotEmpty) {
-              if (isFirstChunk) {
-                _ttftStopwatch.stop();
-                _timeToFirstTokenSeconds =
-                    _ttftStopwatch.elapsedMilliseconds / 1000.0;
-                isFirstChunk = false;
-              }
+          (chunk) {
+            if (isFirstChunk) {
+              _ttftStopwatch.stop();
+              _timeToFirstTokenSeconds =
+                  _ttftStopwatch.elapsedMilliseconds / 1000.0;
+              isFirstChunk = false;
+            }
 
-              if (mounted) {
-                setState(() {
-                  _generatedOutput += textChunk;
-                  _estimatedTokenCount = estimateOutputTokens(_generatedOutput);
+            if (mounted) {
+              setState(() {
+                _generatedOutput += chunk;
+                _estimatedTokenCount = estimateOutputTokens(_generatedOutput);
 
-                  final double currentSec =
-                      _inferenceStopwatch.elapsedMilliseconds / 1000.0;
-                  if (currentSec > 0) {
-                    _tokensPerSecond = _estimatedTokenCount / currentSec;
-                  }
-                });
-                _autoScroll();
-              }
+                final double currentSec =
+                    _inferenceStopwatch.elapsedMilliseconds / 1000.0;
+                if (currentSec > 0) {
+                  _tokensPerSecond = _estimatedTokenCount / currentSec;
+                }
+              });
+              _autoScroll();
             }
           },
           onError: (error) {

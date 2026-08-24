@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_gemma/flutter_gemma.dart';
 
 import '../models/benchmark_session.dart';
 import '../models/summary_record.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
 import '../services/llama_gguf_service.dart';
+import '../services/mediapipe_gemma_service.dart';
 import '../services/model_manager_service.dart';
 import '../widgets/benchmark_results_table.dart';
 import 'saved_benchmark_sessions_screen.dart';
@@ -212,6 +212,18 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                 'could not be saved: $saveError';
       });
     }
+
+    // Restore the model the user has selected. The suite leaves whichever model
+    // ran last resident, so without this the summarizer would either find no
+    // engine or, for MediaPipe, silently run on the last benchmarked model.
+    // loadModel releases every engine before loading, so this also handles the
+    // cleanup of whatever the suite left behind.
+    final selectedModel = _modelManager.activeModel;
+    if (selectedModel == null) {
+      await _modelManager.unloadAllEngines();
+    } else {
+      await _modelManager.loadModel(selectedModel);
+    }
   }
 
   Future<void> _saveCompletedBenchmark({
@@ -371,19 +383,14 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
 
       // 3. MEDIAPIPE (Gemma)
       if (model.engine == ModelEngine.mediapipe) {
-        await FlutterGemma.installModel(
-          modelType: ModelType.gemmaIt,
-        ).fromFile(model.path).install();
-
-        final gemmaModel = await FlutterGemma.getActiveModel();
-        final session = await gemmaModel.createSession(
+        await MediaPipeGemmaService.install(model.path);
+        await MediaPipeGemmaService.createSession(
           temperature: 0.2,
           topK: 40,
           randomSeed: 1,
         );
 
-        await session.addQueryChunk(Message(text: fullPrompt, isUser: true));
-        final stream = session.getResponseAsync();
+        final stream = await MediaPipeGemmaService.generate(fullPrompt);
 
         final Completer<void> streamCompleter = Completer<void>();
         bool isFirstChunk = true;
@@ -391,16 +398,13 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         ttftStopwatch.start();
 
         final subscription = stream.listen(
-          (dynamic chunk) {
-            final String textChunk = chunk?.toString() ?? '';
-            if (textChunk.isNotEmpty) {
-              if (isFirstChunk) {
-                ttftStopwatch.stop();
-                timeToFirstToken = ttftStopwatch.elapsedMilliseconds / 1000.0;
-                isFirstChunk = false;
-              }
-              output += textChunk;
+          (chunk) {
+            if (isFirstChunk) {
+              ttftStopwatch.stop();
+              timeToFirstToken = ttftStopwatch.elapsedMilliseconds / 1000.0;
+              isFirstChunk = false;
             }
+            output += chunk;
           },
           onError: (err) {
             if (!streamCompleter.isCompleted) {

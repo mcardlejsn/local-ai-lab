@@ -1,11 +1,11 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_gemma/flutter_gemma.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'gemini_nano_service.dart';
 import 'llama_gguf_service.dart';
+import 'mediapipe_gemma_service.dart';
 
 enum ModelEngine { nano, mediapipe, gguf }
 
@@ -139,14 +139,11 @@ class ModelManagerService extends ChangeNotifier {
 
   List<ModelInfo> _availableModels = [];
   ModelInfo? _activeModel;
-  InferenceModel? _activeMediaPipeEngine;
-  dynamic _activeMediaPipeSession;
   bool _isLoading = false;
   String? _statusMessage;
 
   List<ModelInfo> get availableModels => List.unmodifiable(_availableModels);
   ModelInfo? get activeModel => _activeModel;
-  dynamic get activeMediaPipeSession => _activeMediaPipeSession;
   bool get isLoading => _isLoading;
   String? get statusMessage => _statusMessage;
 
@@ -277,12 +274,8 @@ class ModelManagerService extends ChangeNotifier {
         _activeModel = model;
         _statusMessage = 'Gemini Nano Ready (AICore NPU)';
       } else if (model.engine == ModelEngine.mediapipe) {
-        await FlutterGemma.installModel(
-          modelType: ModelType.gemmaIt,
-        ).fromFile(model.path).install();
-
-        _activeMediaPipeEngine = await FlutterGemma.getActiveModel();
-        _activeMediaPipeSession = await _activeMediaPipeEngine?.createSession();
+        await MediaPipeGemmaService.install(model.path);
+        await MediaPipeGemmaService.createSession();
         _activeModel = model;
         _statusMessage = 'MediaPipe Ready: ${model.name}';
       } else if (model.engine == ModelEngine.gguf) {
@@ -305,25 +298,9 @@ class ModelManagerService extends ChangeNotifier {
     }
   }
 
-  Future<void> recreateMediaPipeSession({
-    required double temperature,
-    required int topK,
-  }) async {
-    if (_activeMediaPipeEngine == null) return;
-    try {
-      _activeMediaPipeSession = await _activeMediaPipeEngine!.createSession(
-        temperature: temperature,
-        topK: topK,
-      );
-    } catch (e) {
-      debugPrint('Error recreating MediaPipe session: $e');
-    }
-  }
-
   Future<void> unloadAllEngines() async {
     // 1. Free MediaPipe references
-    _activeMediaPipeSession = null;
-    _activeMediaPipeEngine = null;
+    await MediaPipeGemmaService.release();
 
     // 2. Free GGUF / llama.cpp memory
     await LlamaGgufService.unloadModel();
