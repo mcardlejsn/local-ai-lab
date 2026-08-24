@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../services/model_manager_service.dart';
 
 class BenchmarkModelResult {
@@ -22,6 +24,16 @@ class BenchmarkModelResult {
   /// model fabricated or dropped.
   final String? scoreNote;
 
+  /// Expected facts this run's output kept. Null when the run failed or the
+  /// passage had no checklist, which is not the same as zero.
+  final int? recallFound;
+
+  /// Expected facts the checklist contained.
+  final int? recallTotal;
+
+  /// Ids of the facts the output dropped, in checklist order.
+  final List<String> missedFactIds;
+
   BenchmarkModelResult({
     required this.modelName,
     required this.engine,
@@ -34,11 +46,16 @@ class BenchmarkModelResult {
     this.runId,
     this.accuracyScore,
     this.scoreNote,
+    this.recallFound,
+    this.recallTotal,
+    this.missedFactIds = const [],
   });
 
   bool get isScorable => runId != null;
 
   bool get isScored => accuracyScore != null;
+
+  bool get isRecallGraded => recallFound != null && recallTotal != null;
 
   /// Returns a copy with the score fields replaced outright. Both arguments are
   /// written as given, so passing null clears that field.
@@ -55,6 +72,9 @@ class BenchmarkModelResult {
       runId: runId,
       accuracyScore: accuracyScore,
       scoreNote: scoreNote,
+      recallFound: recallFound,
+      recallTotal: recallTotal,
+      missedFactIds: missedFactIds,
     );
   }
 }
@@ -126,6 +146,19 @@ class BenchmarkAggregate {
     return value?.round();
   }
 
+  List<BenchmarkModelResult> get recallGradedRuns =>
+      successfulRuns.where((r) => r.isRecallGraded).toList();
+
+  /// Median facts recalled across graded runs, or null when none were graded.
+  double? get medianRecallFound => _median(
+        recallGradedRuns.map((r) => r.recallFound!.toDouble()).toList(),
+      );
+
+  /// Checklist size for this model's graded runs. Taken from the first graded
+  /// run; every run in a session is graded against the same checklist.
+  int? get recallTotal =>
+      recallGradedRuns.isEmpty ? null : recallGradedRuns.first.recallTotal;
+
   List<BenchmarkModelResult> get scoredRuns =>
       successfulRuns.where((r) => r.isScored).toList();
 
@@ -149,6 +182,19 @@ class BenchmarkAggregate {
 /// Reconstructs the per-model aggregates from the saved `benchmark_runs` rows
 /// of one session, in their saved model order. Shared by the live benchmark
 /// screen's automatic restoration and the read-only archive.
+/// Reads the stored JSON array of missed fact ids, tolerating nulls and rows
+/// written before recall grading existed.
+List<String> _decodeMissedFactIds(Object? raw) {
+  if (raw is! String || raw.isEmpty) return const [];
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is List) return decoded.cast<String>();
+  } catch (_) {
+    // A malformed value is treated as no recorded misses rather than an error.
+  }
+  return const [];
+}
+
 List<BenchmarkAggregate> buildAggregatesFromSavedRuns(
   List<Map<String, Object?>> runMaps,
 ) {
@@ -186,6 +232,9 @@ List<BenchmarkAggregate> buildAggregatesFromSavedRuns(
         runId: runMap['id'] as int?,
         accuracyScore: runMap['accuracy_score'] as int?,
         scoreNote: runMap['score_note'] as String?,
+        recallFound: runMap['recall_found'] as int?,
+        recallTotal: runMap['recall_total'] as int?,
+        missedFactIds: _decodeMissedFactIds(runMap['missed_fact_ids']),
       ),
     );
   }

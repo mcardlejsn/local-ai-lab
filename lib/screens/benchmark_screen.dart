@@ -103,8 +103,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   }
 
   /// Re-reads the most recently saved session's runs into the displayed
-  /// results. Used after the suite saves and after a score is written, so the
-  /// in-memory results stay in step with the stored ones.
+  /// results, so the table shows the recall grades written at save time.
   Future<void> _reloadSavedRuns() async {
     final saved = await DatabaseService.instance.getLatestCompletedBenchmark();
     if (saved == null || !mounted) return;
@@ -117,31 +116,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         ..clear()
         ..addAll(restored);
     });
-  }
-
-  /// Persists a manual score for one run of the session on screen, then reloads
-  /// so the table's medians reflect it.
-  Future<void> _handleScoreRun(
-    BenchmarkModelResult run,
-    int? score,
-    String? note,
-  ) async {
-    final runId = run.runId;
-    if (runId == null) return;
-
-    try {
-      await DatabaseService.instance.updateBenchmarkRunScore(
-        runId: runId,
-        accuracyScore: score,
-        scoreNote: note,
-      );
-      await _reloadSavedRuns();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not save that score: $e')),
-      );
-    }
   }
 
   Future<void> _openSavedSessions() async {
@@ -244,8 +218,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         instruction: instruction,
         runsPerModel: runsPerModel,
       );
-      // Re-read what was just written so the displayed runs carry their saved
-      // row ids and can be scored without leaving this screen.
+      // Re-read what was just written so the displayed runs carry their
+      // stored recall grades.
       await _reloadSavedRuns();
     } catch (e) {
       saveError = e.toString();
@@ -717,7 +691,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
               const SizedBox(height: 8),
               BenchmarkResultsTable(
                 aggregates: _aggregates,
-                onScoreRun: _handleScoreRun,
+                showAccuracy: false,
               ),
             ],
           ],

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/benchmark_session.dart';
+import '../models/recall_checklist.dart';
 import '../services/model_manager_service.dart';
 
 /// Signature for persisting a manual accuracy score. [score] and [note] are
@@ -25,11 +26,18 @@ class BenchmarkResultsTable extends StatelessWidget {
     super.key,
     required this.aggregates,
     this.showFootnote = true,
+    this.showAccuracy = true,
     this.onScoreRun,
   });
 
   final List<BenchmarkAggregate> aggregates;
   final bool showFootnote;
+
+  /// Whether to show the manual accuracy column. The live benchmark screen
+  /// hides it: scoring is a sit-down-and-read-the-output job, done from the
+  /// archive. Automatic recall shows on both.
+  final bool showAccuracy;
+
   final BenchmarkRunScoreCallback? onScoreRun;
 
   static const Color _surfaceColor = Color(0xFF1E1E1E);
@@ -80,57 +88,65 @@ class BenchmarkResultsTable extends StatelessWidget {
               headingRowColor: WidgetStateProperty.all(Colors.black26),
               dataRowMinHeight: 48,
               dataRowMaxHeight: 64,
-              columns: const [
-                DataColumn(
+              columns: [
+                const DataColumn(
                   label: Text(
                     'Model / Engine',
                     style: TextStyle(
                         color: _accentBlue, fontWeight: FontWeight.bold),
                   ),
                 ),
-                DataColumn(
+                const DataColumn(
                   label: Text(
                     'Runs',
                     style: TextStyle(
                         color: _accentBlue, fontWeight: FontWeight.bold),
                   ),
                 ),
-                DataColumn(
+                const DataColumn(
                   label: Text(
                     'Est. tok/s (chars÷4)',
                     style: TextStyle(
                         color: _accentBlue, fontWeight: FontWeight.bold),
                   ),
                 ),
-                DataColumn(
+                const DataColumn(
                   label: Text(
                     'TTFT (s)',
                     style: TextStyle(
                         color: _accentBlue, fontWeight: FontWeight.bold),
                   ),
                 ),
-                DataColumn(
+                const DataColumn(
                   label: Text(
                     'Latency (s)',
                     style: TextStyle(
                         color: _accentBlue, fontWeight: FontWeight.bold),
                   ),
                 ),
-                DataColumn(
+                const DataColumn(
                   label: Text(
                     'Est. tokens',
                     style: TextStyle(
                         color: _accentBlue, fontWeight: FontWeight.bold),
                   ),
                 ),
-                DataColumn(
+                const DataColumn(
                   label: Text(
-                    'Accuracy',
+                    'Recall',
                     style: TextStyle(
                         color: _accentBlue, fontWeight: FontWeight.bold),
                   ),
                 ),
-                DataColumn(
+                if (showAccuracy)
+                  const DataColumn(
+                    label: Text(
+                      'Accuracy',
+                      style: TextStyle(
+                          color: _accentBlue, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                const DataColumn(
                   label: Text(
                     'Output',
                     style: TextStyle(
@@ -148,6 +164,9 @@ class BenchmarkResultsTable extends StatelessWidget {
                 final int? medianTokens = agg.medianTokenCount;
                 final int successCount = agg.successfulRuns.length;
                 final double? medianScore = agg.medianAccuracyScore;
+
+                final double? medianRecall = agg.medianRecallFound;
+                final int? recallTotal = agg.recallTotal;
 
                 return DataRow(
                   cells: [
@@ -232,36 +251,53 @@ class BenchmarkResultsTable extends StatelessWidget {
                       ),
                     ),
                     DataCell(
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            medianScore != null
-                                ? formatAccuracyScore(medianScore)
-                                : 'Unscored',
-                            style: TextStyle(
-                              color: medianScore != null
-                                  ? accuracyScoreColor(medianScore)
-                                  : Colors.white38,
-                              fontWeight: medianScore != null
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                              fontSize: medianScore != null ? 14 : 11,
+                      medianRecall != null && recallTotal != null
+                          ? Text(
+                              '${formatAccuracyScore(medianRecall)}'
+                              '/$recallTotal',
+                              style: TextStyle(
+                                color: recallColor(medianRecall, recallTotal),
+                                fontWeight: FontWeight.bold,
+                              ),
+                            )
+                          : const Text(
+                              'Not graded',
+                              style: TextStyle(
+                                  color: Colors.white38, fontSize: 11),
                             ),
-                          ),
-                          if (medianScore != null &&
-                              agg.scoredRunCount < successCount)
+                    ),
+                    if (showAccuracy)
+                      DataCell(
+                        Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
                             Text(
-                              '${agg.scoredRunCount}/$successCount scored',
-                              style: const TextStyle(
-                                color: Colors.white38,
-                                fontSize: 10,
+                              medianScore != null
+                                  ? formatAccuracyScore(medianScore)
+                                  : 'Unscored',
+                              style: TextStyle(
+                                color: medianScore != null
+                                    ? accuracyScoreColor(medianScore)
+                                    : Colors.white38,
+                                fontWeight: medianScore != null
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                                fontSize: medianScore != null ? 14 : 11,
                               ),
                             ),
-                        ],
+                            if (medianScore != null &&
+                                agg.scoredRunCount < successCount)
+                              Text(
+                                '${agg.scoredRunCount}/$successCount scored',
+                                style: const TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 10,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
-                    ),
                     DataCell(
                       IconButton(
                         icon: const Icon(
@@ -289,6 +325,9 @@ class BenchmarkResultsTable extends StatelessWidget {
             'output. Each engine uses a different tokenizer, and the rate uses '
             'total latency including prompt processing and TTFT. It is therefore '
             'an end-to-end throughput proxy, not pure decode speed.\n'
+            'Recall is graded automatically: the share of the passage\'s '
+            'expected facts that appear in the output, median across runs. It '
+            'counts what was kept and cannot see what was invented.\n'
             'Accuracy is a manual 0–5 score assigned per run against the source '
             'passage; the column shows the median across scored runs. It is a '
             'judgement, not a measurement.\n'
@@ -308,6 +347,15 @@ String formatAccuracyScore(double score) {
   return score == score.roundToDouble()
       ? score.round().toString()
       : score.toStringAsFixed(1);
+}
+
+/// Colors recall by how much of the checklist survived.
+Color recallColor(double found, int total) {
+  if (total == 0) return Colors.white38;
+  final fraction = found / total;
+  if (fraction >= 0.9) return const Color(0xFF81C784);
+  if (fraction >= 0.6) return Colors.orangeAccent;
+  return Colors.redAccent;
 }
 
 Color accuracyScoreColor(double score) {
@@ -483,6 +531,23 @@ class _OutputModalContentState extends State<_OutputModalContent> {
                       ),
                   ],
                 ),
+                if (!failed && run.isRecallGraded)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      run.missedFactIds.isEmpty
+                          ? 'Recall ${run.recallFound}/${run.recallTotal} — '
+                              'nothing dropped'
+                          : 'Recall ${run.recallFound}/${run.recallTotal} — '
+                              'dropped ${_describeMissedFacts(run.missedFactIds)}',
+                      style: TextStyle(
+                        color: run.missedFactIds.isEmpty
+                            ? Colors.white38
+                            : Colors.orangeAccent,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
                 if (!failed && (run.scoreNote?.trim().isNotEmpty ?? false))
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
@@ -527,6 +592,16 @@ class _OutputModalContentState extends State<_OutputModalContent> {
       ),
     );
   }
+}
+
+/// Turns stored fact ids into the checklist's human-readable labels, falling
+/// back to the raw id if a stored run references a fact the checklist no
+/// longer has.
+String _describeMissedFacts(List<String> ids) {
+  final checklist = benchmarkPassage.checklist;
+  return ids
+      .map((id) => checklist.factById(id)?.label ?? id)
+      .join('; ');
 }
 
 class _ScoreDialogResult {
