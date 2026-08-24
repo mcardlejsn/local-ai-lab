@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../models/benchmark_session.dart';
@@ -283,10 +285,18 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   }) async {
     final runRows = <Map<String, Object?>>[];
 
+    // Recall is graded once per suite against the checklist bound to this
+    // passage. A null checklist means the passage was edited, so the recall
+    // columns stay null rather than recording a score of zero.
+    final checklist = checklistForPassage(passage);
+
     for (int modelOrder = 0; modelOrder < _aggregates.length; modelOrder++) {
       final aggregate = _aggregates[modelOrder];
       for (int runIndex = 0; runIndex < aggregate.runs.length; runIndex++) {
         final run = aggregate.runs[runIndex];
+        final recall = (checklist == null || run.errorMessage != null)
+            ? null
+            : gradeRecall(run.outputText, checklist);
         runRows.add({
           'model_order': modelOrder,
           'run_number': runIndex + 1,
@@ -300,6 +310,10 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
           'token_count': run.tokenCount,
           'output_text': run.outputText,
           'error_message': run.errorMessage,
+          'recall_found': recall?.found,
+          'recall_total': recall?.total,
+          'missed_fact_ids':
+              recall == null ? null : jsonEncode(recall.missedIds),
         });
       }
     }

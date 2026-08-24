@@ -21,7 +21,7 @@ class DatabaseService {
 
     return openDatabase(
       path,
-      version: 5,
+      version: 6,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -80,6 +80,9 @@ class DatabaseService {
         error_message TEXT,
         accuracy_score INTEGER,
         score_note TEXT,
+        recall_found INTEGER,
+        recall_total INTEGER,
+        missed_fact_ids TEXT,
         FOREIGN KEY (session_id)
           REFERENCES benchmark_sessions (id)
           ON DELETE CASCADE,
@@ -117,16 +120,29 @@ class DatabaseService {
       );
     }
     if (oldVersion < 4) {
-      // Creates the benchmark tables at their current shape, scoring columns
-      // included, so no further migration is needed for this path.
+      // Creates the benchmark tables at their current shape, scoring and
+      // recall columns included, so neither migration below is needed here.
       await _createBenchmarkTables(db);
-    } else if (oldVersion < 5) {
-      await db.execute(
-        'ALTER TABLE benchmark_runs ADD COLUMN accuracy_score INTEGER;',
-      );
-      await db.execute(
-        'ALTER TABLE benchmark_runs ADD COLUMN score_note TEXT;',
-      );
+    } else {
+      if (oldVersion < 5) {
+        await db.execute(
+          'ALTER TABLE benchmark_runs ADD COLUMN accuracy_score INTEGER;',
+        );
+        await db.execute(
+          'ALTER TABLE benchmark_runs ADD COLUMN score_note TEXT;',
+        );
+      }
+      if (oldVersion < 6) {
+        await db.execute(
+          'ALTER TABLE benchmark_runs ADD COLUMN recall_found INTEGER;',
+        );
+        await db.execute(
+          'ALTER TABLE benchmark_runs ADD COLUMN recall_total INTEGER;',
+        );
+        await db.execute(
+          'ALTER TABLE benchmark_runs ADD COLUMN missed_fact_ids TEXT;',
+        );
+      }
     }
   }
 
