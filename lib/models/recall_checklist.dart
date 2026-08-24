@@ -60,6 +60,7 @@ class BenchmarkPassage {
     required this.id,
     required this.name,
     required this.text,
+    required this.instruction,
     required this.facts,
   });
 
@@ -69,6 +70,11 @@ class BenchmarkPassage {
   final String name;
 
   final String text;
+
+  /// The instruction this passage is meant to be run with. Travels with the
+  /// passage so the task always describes what the text actually contains.
+  final String instruction;
+
   final List<ExpectedFact> facts;
 
   RecallChecklist get checklist => RecallChecklist(
@@ -166,6 +172,8 @@ RecallResult gradeRecall(String output, RecallChecklist checklist) {
 const BenchmarkPassage deployIncidentPassage = BenchmarkPassage(
   id: 'deploy_incident',
   name: 'Deploy incident',
+  instruction:
+      'Extract all timestamps, metrics, and deployment events chronologically:',
   text: 'Deploy of build 4.2.1 started at 08:30. Error rate rose to 12% at '
       '09:15 after the cache layer was restarted. Response latency peaked at '
       '940 ms at 09:30. Rollback ran from 10:00 to 10:45 and restored the '
@@ -231,94 +239,28 @@ const BenchmarkPassage deployIncidentPassage = BenchmarkPassage(
   ],
 );
 
-/// Care shift note. Kept as an option because it is the workload the suite was
-/// originally built for, but no longer the default the app opens on.
-const BenchmarkPassage shiftNotePassage = BenchmarkPassage(
-  id: 'shift_note',
-  name: 'Shift note',
-  text: 'Client arrived at 08:30 for morning medication (Metformin 500mg, '
-      'Lisinopril 10mg) with full glass of water. Refused breakfast initially '
-      'citing mild nausea, but ate half a banana at 09:15. Blood glucose '
-      'reading at 09:30 was 128 mg/dL. Attended physical therapy session from '
-      '10:00 to 10:45 with good mobility and no complaints of pain. Returned '
-      'to common area for lunch at 12:00.',
-  facts: [
-    ExpectedFact(
-      id: 'time_0830',
-      label: '08:30 — arrival for morning medication',
-      anyOf: ['08:30', '8:30'],
-    ),
-    ExpectedFact(
-      id: 'med_metformin',
-      label: 'Metformin 500mg',
-      anyOf: ['metformin 500mg', 'metformin 500 mg'],
-    ),
-    ExpectedFact(
-      id: 'med_lisinopril',
-      label: 'Lisinopril 10mg',
-      anyOf: ['lisinopril 10mg', 'lisinopril 10 mg'],
-    ),
-    ExpectedFact(
-      id: 'time_0915',
-      label: '09:15 — ate half a banana',
-      anyOf: ['09:15', '9:15'],
-    ),
-    ExpectedFact(
-      id: 'food_banana',
-      label: 'Half a banana',
-      anyOf: ['half a banana', 'half banana', 'banana'],
-    ),
-    ExpectedFact(
-      id: 'time_0930',
-      label: '09:30 — blood glucose reading',
-      anyOf: ['09:30', '9:30'],
-    ),
-    ExpectedFact(
-      id: 'vital_glucose_128',
-      label: 'Blood glucose 128 mg/dL',
-      anyOf: ['128 mg/dl', '128mg/dl'],
-    ),
-    ExpectedFact(
-      id: 'event_physical_therapy',
-      label: 'Physical therapy session',
-      anyOf: ['physical therapy', 'pt session'],
-    ),
-    ExpectedFact(
-      id: 'time_1000_1045',
-      label: '10:00 to 10:45 — therapy window',
-      anyOf: ['10:00 to 10:45', '10:00-10:45', '10:00 - 10:45'],
-    ),
-    ExpectedFact(
-      id: 'time_1200',
-      label: '12:00 — returned for lunch',
-      anyOf: ['12:00'],
-    ),
-  ],
-);
+/// The passage every benchmark runs. Fixed on purpose: it is the control
+/// variable, so results stay comparable across sessions and devices.
+const BenchmarkPassage benchmarkPassage = deployIncidentPassage;
 
-/// Every passage the picker offers, in display order. The first is what the
-/// benchmark screen opens on.
-const List<BenchmarkPassage> builtInBenchmarkPassages = [
-  deployIncidentPassage,
-  shiftNotePassage,
-];
+/// Text the benchmark screen runs.
+String get defaultBenchmarkPassage => benchmarkPassage.text;
 
-/// Text the benchmark screen starts with.
-String get defaultBenchmarkPassage => builtInBenchmarkPassages.first.text;
+/// Instruction the benchmark screen runs it with.
+String get defaultBenchmarkInstruction => benchmarkPassage.instruction;
 
-/// The built-in passage matching [passage], or null if it has been edited or
-/// replaced with something custom.
+/// The built-in passage matching [passage], or null for anything else —
+/// including sessions saved before the passage was fixed.
 BenchmarkPassage? builtInPassageFor(String passage) {
-  final fingerprint = fingerprintPassage(passage);
-  for (final candidate in builtInBenchmarkPassages) {
-    if (fingerprintPassage(candidate.text) == fingerprint) return candidate;
-  }
-  return null;
+  return fingerprintPassage(passage) ==
+          fingerprintPassage(benchmarkPassage.text)
+      ? benchmarkPassage
+      : null;
 }
 
-/// The checklist for [passage], or null when the passage isn't one of the
-/// built-ins. A null result means recall grading is unavailable, not that the
-/// output scored zero.
+/// The checklist for [passage], or null when the passage isn't the built-in
+/// one. A null result means recall grading is unavailable, not that the output
+/// scored zero.
 RecallChecklist? checklistForPassage(String passage) {
   return builtInPassageFor(passage)?.checklist;
 }

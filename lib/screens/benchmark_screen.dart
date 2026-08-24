@@ -30,8 +30,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     text: defaultBenchmarkPassage,
   );
   final TextEditingController _instructionController = TextEditingController(
-    text:
-        'Extract all timestamps, vitals, and medication events chronologically:',
+    text: defaultBenchmarkInstruction,
   );
 
   final List<BenchmarkAggregate> _aggregates = [];
@@ -141,53 +140,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         SnackBar(content: Text('Could not save that score: $e')),
       );
     }
-  }
-
-  /// Swaps the passage field to a built-in passage. Editing the field
-  /// afterwards is allowed; it just means recall can no longer be graded.
-  void _selectPassage(BenchmarkPassage passage) {
-    if (_isRunning || _isRestoring) return;
-    setState(() {
-      _promptController.text = passage.text;
-    });
-  }
-
-  Widget _buildPassagePicker(Color accentBlue) {
-    final selected = builtInPassageFor(_promptController.text);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 6,
-          children: [
-            for (final passage in builtInBenchmarkPassages)
-              ChoiceChip(
-                label: Text(passage.name),
-                selected: selected?.id == passage.id,
-                onSelected: (_) => _selectPassage(passage),
-                backgroundColor: Colors.black26,
-                selectedColor: accentBlue,
-                labelStyle: TextStyle(
-                  color: selected?.id == passage.id
-                      ? Colors.black
-                      : Colors.white70,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-          ],
-        ),
-        if (selected == null) ...[
-          const SizedBox(height: 6),
-          const Text(
-            'Custom passage — recall cannot be graded against it.',
-            style: TextStyle(color: Colors.white38, fontSize: 11),
-          ),
-        ],
-      ],
-    );
   }
 
   Future<void> _openSavedSessions() async {
@@ -631,6 +583,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
               ),
               child: TextField(
                 controller: _instructionController,
+                maxLines: 2,
                 enabled: !_isRunning && !_isRestoring,
                 style: const TextStyle(color: Colors.white, fontSize: 13),
                 decoration: const InputDecoration(
@@ -648,8 +601,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                   fontSize: 14),
             ),
             const SizedBox(height: 6),
-            _buildPassagePicker(accentBlue),
-            const SizedBox(height: 8),
             Container(
               decoration: BoxDecoration(
                 color: surfaceColor,
