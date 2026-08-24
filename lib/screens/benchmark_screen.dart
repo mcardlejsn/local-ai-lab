@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/benchmark_session.dart';
-import '../models/summary_record.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
 import '../services/llama_gguf_service.dart';
@@ -178,8 +177,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
 
         await Future.delayed(const Duration(milliseconds: 250));
 
-        final result = await _executeSingleBenchmark(
-            model, fullPrompt, rawText, instruction);
+        final result = await _executeSingleBenchmark(model, fullPrompt);
 
         if (!mounted) return;
         setState(() {
@@ -274,8 +272,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   Future<BenchmarkModelResult> _executeSingleBenchmark(
     ModelInfo model,
     String fullPrompt,
-    String originalText,
-    String taskType,
   ) async {
     final Stopwatch totalStopwatch = Stopwatch();
     final Stopwatch ttftStopwatch = Stopwatch();
@@ -312,7 +308,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
           outputText: resultText,
         );
 
-        await _saveResultToDb(originalText, resultText, taskType, res);
         return res;
       }
 
@@ -377,7 +372,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
           outputText: output,
         );
 
-        await _saveResultToDb(originalText, output, taskType, res);
         return res;
       }
 
@@ -435,7 +429,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
           outputText: output,
         );
 
-        await _saveResultToDb(originalText, output, taskType, res);
         return res;
       }
 
@@ -456,30 +449,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         errorMessage: e.toString(),
       );
     }
-  }
-
-  Future<void> _saveResultToDb(
-    String originalText,
-    String summary,
-    String taskType,
-    BenchmarkModelResult res,
-  ) async {
-    if (summary.trim().isEmpty) return;
-
-    final record = SummaryRecord(
-      originalText: originalText,
-      generatedSummary: summary,
-      taskType: 'Benchmark: $taskType',
-      createdAt: DateTime.now(),
-      latencySeconds: res.totalLatencySeconds,
-      ttftSeconds: res.ttftSeconds,
-      tokensPerSecond: res.tokensPerSecond,
-      engineType: res.engine.name,
-      modelName: res.modelName,
-      tokenCount: res.tokenCount > 0 ? res.tokenCount : null,
-    );
-
-    await DatabaseService.instance.insertSummary(record);
   }
 
   @override

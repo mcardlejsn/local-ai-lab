@@ -10,6 +10,18 @@ class BenchmarkModelResult {
   final String outputText;
   final String? errorMessage;
 
+  /// Row id of the saved `benchmark_runs` record. Null for a run that is still
+  /// live in memory and has not been written to a session yet, which is what
+  /// makes a run scorable or not.
+  final int? runId;
+
+  /// Manual accuracy score for this run's output. Null means unscored.
+  final int? accuracyScore;
+
+  /// Optional free-text note recording why the score was given, e.g. what the
+  /// model fabricated or dropped.
+  final String? scoreNote;
+
   BenchmarkModelResult({
     required this.modelName,
     required this.engine,
@@ -19,7 +31,32 @@ class BenchmarkModelResult {
     required this.tokensPerSecond,
     required this.outputText,
     this.errorMessage,
+    this.runId,
+    this.accuracyScore,
+    this.scoreNote,
   });
+
+  bool get isScorable => runId != null;
+
+  bool get isScored => accuracyScore != null;
+
+  /// Returns a copy with the score fields replaced outright. Both arguments are
+  /// written as given, so passing null clears that field.
+  BenchmarkModelResult copyWithScore(int? accuracyScore, String? scoreNote) {
+    return BenchmarkModelResult(
+      modelName: modelName,
+      engine: engine,
+      ttftSeconds: ttftSeconds,
+      totalLatencySeconds: totalLatencySeconds,
+      tokenCount: tokenCount,
+      tokensPerSecond: tokensPerSecond,
+      outputText: outputText,
+      errorMessage: errorMessage,
+      runId: runId,
+      accuracyScore: accuracyScore,
+      scoreNote: scoreNote,
+    );
+  }
 }
 
 class BenchmarkAggregate {
@@ -89,6 +126,15 @@ class BenchmarkAggregate {
     return value?.round();
   }
 
+  List<BenchmarkModelResult> get scoredRuns =>
+      successfulRuns.where((r) => r.isScored).toList();
+
+  int get scoredRunCount => scoredRuns.length;
+
+  double? get medianAccuracyScore => _median(
+        scoredRuns.map((r) => r.accuracyScore!.toDouble()).toList(),
+      );
+
   /// The run whose total latency sits at the median, used as the representative
   /// output so the displayed text corresponds to the displayed timings.
   BenchmarkModelResult? get medianRun {
@@ -137,6 +183,9 @@ List<BenchmarkAggregate> buildAggregatesFromSavedRuns(
         tokensPerSecond: latencySeconds > 0 ? tokenCount / latencySeconds : 0,
         outputText: runMap['output_text'] as String,
         errorMessage: runMap['error_message'] as String?,
+        runId: runMap['id'] as int?,
+        accuracyScore: runMap['accuracy_score'] as int?,
+        scoreNote: runMap['score_note'] as String?,
       ),
     );
   }

@@ -21,7 +21,7 @@ class DatabaseService {
 
     return openDatabase(
       path,
-      version: 4,
+      version: 5,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -78,6 +78,8 @@ class DatabaseService {
         token_count INTEGER NOT NULL,
         output_text TEXT NOT NULL,
         error_message TEXT,
+        accuracy_score INTEGER,
+        score_note TEXT,
         FOREIGN KEY (session_id)
           REFERENCES benchmark_sessions (id)
           ON DELETE CASCADE,
@@ -115,8 +117,36 @@ class DatabaseService {
       );
     }
     if (oldVersion < 4) {
+      // Creates the benchmark tables at their current shape, scoring columns
+      // included, so no further migration is needed for this path.
       await _createBenchmarkTables(db);
+    } else if (oldVersion < 5) {
+      await db.execute(
+        'ALTER TABLE benchmark_runs ADD COLUMN accuracy_score INTEGER;',
+      );
+      await db.execute(
+        'ALTER TABLE benchmark_runs ADD COLUMN score_note TEXT;',
+      );
     }
+  }
+
+  /// Sets or clears the manual accuracy score on a single saved run.
+  /// Passing null for either field clears it.
+  Future<int> updateBenchmarkRunScore({
+    required int runId,
+    int? accuracyScore,
+    String? scoreNote,
+  }) async {
+    final db = await instance.database;
+    return db.update(
+      'benchmark_runs',
+      {
+        'accuracy_score': accuracyScore,
+        'score_note': scoreNote,
+      },
+      where: 'id = ?',
+      whereArgs: [runId],
+    );
   }
 
   Future<int> insertSummary(SummaryRecord record) async {

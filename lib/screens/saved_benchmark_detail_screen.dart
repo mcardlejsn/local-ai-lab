@@ -4,9 +4,10 @@ import '../models/benchmark_session.dart';
 import '../services/database_service.dart';
 import '../widgets/benchmark_results_table.dart';
 
-/// Read-only view of one saved benchmark session. Shows the session's passage,
+/// View of one saved benchmark session. Shows the session's passage,
 /// instruction, and comparative results exactly as recorded. Nothing here runs
-/// inference or edits saved data.
+/// inference or alters a recorded result; the only writable field is the manual
+/// accuracy score attached to a run.
 class SavedBenchmarkDetailScreen extends StatefulWidget {
   const SavedBenchmarkDetailScreen({
     super.key,
@@ -74,6 +75,31 @@ class _SavedBenchmarkDetailScreenState
         _isLoading = false;
         _errorMessage = 'Could not load this saved session: $e';
       });
+    }
+  }
+
+  /// Persists a manual score for one saved run, then reloads the session so the
+  /// table's medians reflect it.
+  Future<void> _handleScoreRun(
+    BenchmarkModelResult run,
+    int? score,
+    String? note,
+  ) async {
+    final runId = run.runId;
+    if (runId == null) return;
+
+    try {
+      await DatabaseService.instance.updateBenchmarkRunScore(
+        runId: runId,
+        accuracyScore: score,
+        scoreNote: note,
+      );
+      await _loadSession();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not save that score: $e')),
+      );
     }
   }
 
@@ -196,7 +222,10 @@ class _SavedBenchmarkDetailScreenState
             style: TextStyle(color: Colors.white38, fontSize: 12),
           )
         else
-          BenchmarkResultsTable(aggregates: _aggregates),
+          BenchmarkResultsTable(
+            aggregates: _aggregates,
+            onScoreRun: _handleScoreRun,
+          ),
       ],
     );
   }
