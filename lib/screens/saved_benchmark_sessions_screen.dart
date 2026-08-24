@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../models/benchmark_session.dart';
 import '../services/database_service.dart';
+import 'benchmark_comparison_screen.dart';
 import 'saved_benchmark_detail_screen.dart';
 
 /// Read-only archive of completed benchmark sessions. Tapping a session opens
 /// it in [SavedBenchmarkDetailScreen]; nothing here loads a session back into
-/// the live benchmark runner.
+/// the live benchmark runner. The compare action puts the list into a
+/// selection mode where picking two sessions opens
+/// [BenchmarkComparisonScreen].
 class SavedBenchmarkSessionsScreen extends StatefulWidget {
   const SavedBenchmarkSessionsScreen({super.key});
 
@@ -24,6 +27,12 @@ class _SavedBenchmarkSessionsScreenState
   List<Map<String, Object?>> _sessions = [];
   bool _isLoading = true;
   String? _errorMessage;
+
+  bool _selectionMode = false;
+
+  /// Selected session ids in tap order, capped at two; selecting a third drops
+  /// the earlier of the current pair.
+  final List<int> _selectedIds = [];
 
   @override
   void initState() {
@@ -51,6 +60,49 @@ class _SavedBenchmarkSessionsScreenState
     }
   }
 
+  void _toggleSelectionMode() {
+    setState(() {
+      _selectionMode = !_selectionMode;
+      _selectedIds.clear();
+    });
+  }
+
+  void _toggleSelection(int sessionId) {
+    setState(() {
+      if (_selectedIds.contains(sessionId)) {
+        _selectedIds.remove(sessionId);
+        return;
+      }
+      if (_selectedIds.length == 2) {
+        _selectedIds.removeAt(0);
+      }
+      _selectedIds.add(sessionId);
+    });
+  }
+
+  Future<void> _openComparison() async {
+    if (_selectedIds.length != 2) return;
+
+    final first = _selectedIds[0];
+    final second = _selectedIds[1];
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BenchmarkComparisonScreen(
+          sessionIdA: first,
+          sessionIdB: second,
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
   Future<void> _openSession(int sessionId) async {
     await Navigator.push(
       context,
@@ -75,16 +127,42 @@ class _SavedBenchmarkSessionsScreenState
         backgroundColor: _surfaceColor,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
-        title: const Text(
-          'Saved Benchmark Sessions',
-          style: TextStyle(
+        title: Text(
+          _selectionMode
+              ? 'Select 2 sessions'
+              : 'Saved Benchmark Sessions',
+          style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.w600,
             fontSize: 18,
           ),
         ),
+        actions: [
+          if (_sessions.length >= 2)
+            IconButton(
+              tooltip: _selectionMode ? 'Cancel' : 'Compare two sessions',
+              icon: Icon(
+                _selectionMode
+                    ? Icons.close_rounded
+                    : Icons.compare_arrows_rounded,
+                color: _accentBlue,
+              ),
+              onPressed: _toggleSelectionMode,
+            ),
+        ],
       ),
       body: SafeArea(child: _buildBody()),
+      floatingActionButton: _selectionMode
+          ? FloatingActionButton.extended(
+              backgroundColor:
+                  _selectedIds.length == 2 ? _accentBlue : Colors.white12,
+              foregroundColor:
+                  _selectedIds.length == 2 ? Colors.black : Colors.white38,
+              onPressed: _selectedIds.length == 2 ? _openComparison : null,
+              icon: const Icon(Icons.compare_arrows_rounded),
+              label: Text('Compare (${_selectedIds.length}/2)'),
+            )
+          : null,
     );
   }
 
@@ -150,27 +228,38 @@ class _SavedBenchmarkSessionsScreenState
             const <String>[];
         final modelCount = session['model_count'] as int? ?? modelNames.length;
         final runsPerModel = session['runs_per_model'] as int? ?? 0;
+        final bool selected = _selectedIds.contains(sessionId);
 
         return Material(
           color: _surfaceColor,
           borderRadius: BorderRadius.circular(8),
           child: InkWell(
             borderRadius: BorderRadius.circular(8),
-            onTap: () => _openSession(sessionId),
+            onTap: () => _selectionMode
+                ? _toggleSelection(sessionId)
+                : _openSession(sessionId),
             child: Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.white12),
+                border: Border.all(
+                  color: selected ? _accentBlue : Colors.white12,
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      const Icon(
-                        Icons.schedule_rounded,
-                        color: _accentBlue,
+                      Icon(
+                        _selectionMode
+                            ? (selected
+                                ? Icons.check_circle_rounded
+                                : Icons.radio_button_unchecked_rounded)
+                            : Icons.schedule_rounded,
+                        color: _selectionMode && !selected
+                            ? Colors.white38
+                            : _accentBlue,
                         size: 18,
                       ),
                       const SizedBox(width: 8),
@@ -184,11 +273,12 @@ class _SavedBenchmarkSessionsScreenState
                           ),
                         ),
                       ),
-                      const Icon(
-                        Icons.chevron_right_rounded,
-                        color: Colors.white38,
-                        size: 20,
-                      ),
+                      if (!_selectionMode)
+                        const Icon(
+                          Icons.chevron_right_rounded,
+                          color: Colors.white38,
+                          size: 20,
+                        ),
                     ],
                   ),
                   const SizedBox(height: 6),

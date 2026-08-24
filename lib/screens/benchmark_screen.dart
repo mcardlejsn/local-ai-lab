@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../models/benchmark_session.dart';
+import '../models/recall_checklist.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
 import '../services/llama_gguf_service.dart';
@@ -26,8 +27,7 @@ class BenchmarkScreen extends StatefulWidget {
 class _BenchmarkScreenState extends State<BenchmarkScreen> {
   final ModelManagerService _modelManager = ModelManagerService();
   final TextEditingController _promptController = TextEditingController(
-    text:
-        'Client arrived at 08:30 for morning medication (Metformin 500mg, Lisinopril 10mg) with full glass of water. Refused breakfast initially citing mild nausea, but ate half a banana at 09:15. Blood glucose reading at 09:30 was 128 mg/dL. Attended physical therapy session from 10:00 to 10:45 with good mobility and no complaints of pain. Returned to common area for lunch at 12:00.',
+    text: defaultBenchmarkPassage,
   );
   final TextEditingController _instructionController = TextEditingController(
     text:
@@ -47,7 +47,14 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   void initState() {
     super.initState();
     _modelManager.addListener(_onModelManagerStateChanged);
+    // The picker's selection is derived from the passage text, so edits typed
+    // straight into the field have to redraw it.
+    _promptController.addListener(_onPassageTextChanged);
     _initializeScreen();
+  }
+
+  void _onPassageTextChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _initializeScreen() async {
@@ -94,6 +101,95 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     });
   }
 
+  /// Re-reads the most recently saved session's runs into the displayed
+  /// results. Used after the suite saves and after a score is written, so the
+  /// in-memory results stay in step with the stored ones.
+  Future<void> _reloadSavedRuns() async {
+    final saved = await DatabaseService.instance.getLatestCompletedBenchmark();
+    if (saved == null || !mounted) return;
+
+    final runMaps = (saved['runs'] as List).cast<Map<String, Object?>>();
+    final restored = buildAggregatesFromSavedRuns(runMaps);
+
+    setState(() {
+      _aggregates
+        ..clear()
+        ..addAll(restored);
+    });
+  }
+
+  /// Persists a manual score for one run of the session on screen, then reloads
+  /// so the table's medians reflect it.
+  Future<void> _handleScoreRun(
+    BenchmarkModelResult run,
+    int? score,
+    String? note,
+  ) async {
+    final runId = run.runId;
+    if (runId == null) return;
+
+    try {
+      await DatabaseService.instance.updateBenchmarkRunScore(
+        runId: runId,
+        accuracyScore: score,
+        scoreNote: note,
+      );
+      await _reloadSavedRuns();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not save that score: $e')),
+      );
+    }
+  }
+
+  /// Swaps the passage field to a built-in passage. Editing the field
+  /// afterwards is allowed; it just means recall can no longer be graded.
+  void _selectPassage(BenchmarkPassage passage) {
+    if (_isRunning || _isRestoring) return;
+    setState(() {
+      _promptController.text = passage.text;
+    });
+  }
+
+  Widget _buildPassagePicker(Color accentBlue) {
+    final selected = builtInPassageFor(_promptController.text);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            for (final passage in builtInBenchmarkPassages)
+              ChoiceChip(
+                label: Text(passage.name),
+                selected: selected?.id == passage.id,
+                onSelected: (_) => _selectPassage(passage),
+                backgroundColor: Colors.black26,
+                selectedColor: accentBlue,
+                labelStyle: TextStyle(
+                  color: selected?.id == passage.id
+                      ? Colors.black
+                      : Colors.white70,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+          ],
+        ),
+        if (selected == null) ...[
+          const SizedBox(height: 6),
+          const Text(
+            'Custom passage — recall cannot be graded against it.',
+            style: TextStyle(color: Colors.white38, fontSize: 11),
+          ),
+        ],
+      ],
+    );
+  }
+
   Future<void> _openSavedSessions() async {
     if (_isRunning || _isRestoring) return;
 
@@ -108,6 +204,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   @override
   void dispose() {
     _modelManager.removeListener(_onModelManagerStateChanged);
+    _promptController.removeListener(_onPassageTextChanged);
     _promptController.dispose();
     _instructionController.dispose();
     super.dispose();
@@ -193,6 +290,9 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         instruction: instruction,
         runsPerModel: runsPerModel,
       );
+      // Re-read what was just written so the displayed runs carry their saved
+      // row ids and can be scored without leaving this screen.
+      await _reloadSavedRuns();
     } catch (e) {
       saveError = e.toString();
     }
@@ -541,13 +641,15 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
             ),
             const SizedBox(height: 12),
             const Text(
-              'Standardized Passage (Shift Note):',
+              'Standardized Passage:',
               style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
                   fontSize: 14),
             ),
             const SizedBox(height: 6),
+            _buildPassagePicker(accentBlue),
+            const SizedBox(height: 8),
             Container(
               decoration: BoxDecoration(
                 color: surfaceColor,
@@ -648,7 +750,10 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                     fontSize: 15),
               ),
               const SizedBox(height: 8),
-              BenchmarkResultsTable(aggregates: _aggregates),
+              BenchmarkResultsTable(
+                aggregates: _aggregates,
+                onScoreRun: _handleScoreRun,
+              ),
             ],
           ],
         ),
