@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../models/benchmark_session.dart';
 import '../services/database_service.dart';
+import 'saved_benchmark_detail_screen.dart';
 
-/// Read-only archive of completed benchmark sessions.
-///
-/// Pops with the selected session's id (an `int`), or with `null` if the user
-/// backs out. Loading the full session is left to the caller.
+/// Read-only archive of completed benchmark sessions. Tapping a session opens
+/// it in [SavedBenchmarkDetailScreen]; nothing here loads a session back into
+/// the live benchmark runner.
 class SavedBenchmarkSessionsScreen extends StatefulWidget {
   const SavedBenchmarkSessionsScreen({super.key});
 
@@ -50,21 +51,20 @@ class _SavedBenchmarkSessionsScreenState
     }
   }
 
-  String _formatDateTime(DateTime value) {
-    final month = value.month.toString().padLeft(2, '0');
-    final day = value.day.toString().padLeft(2, '0');
-    final year = value.year.toString();
-    final minute = value.minute.toString().padLeft(2, '0');
-    final hour12 = value.hour % 12 == 0 ? 12 : value.hour % 12;
-    final period = value.hour < 12 ? 'AM' : 'PM';
-    return '$month/$day/$year $hour12:$minute $period';
+  Future<void> _openSession(int sessionId) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SavedBenchmarkDetailScreen(sessionId: sessionId),
+      ),
+    );
   }
 
   String _formatCompletedAt(Object? rawValue) {
     if (rawValue is! String) return 'Unknown date';
     final parsed = DateTime.tryParse(rawValue);
     if (parsed == null) return 'Unknown date';
-    return _formatDateTime(parsed.toLocal());
+    return formatBenchmarkDateTime(parsed.toLocal());
   }
 
   @override
@@ -146,8 +146,8 @@ class _SavedBenchmarkSessionsScreenState
       itemBuilder: (context, index) {
         final session = _sessions[index];
         final sessionId = session['id'] as int;
-        final modelNames =
-            (session['model_names'] as List?)?.cast<String>() ?? const <String>[];
+        final modelNames = (session['model_names'] as List?)?.cast<String>() ??
+            const <String>[];
         final modelCount = session['model_count'] as int? ?? modelNames.length;
         final runsPerModel = session['runs_per_model'] as int? ?? 0;
 
@@ -156,7 +156,7 @@ class _SavedBenchmarkSessionsScreenState
           borderRadius: BorderRadius.circular(8),
           child: InkWell(
             borderRadius: BorderRadius.circular(8),
-            onTap: () => Navigator.pop(context, sessionId),
+            onTap: () => _openSession(sessionId),
             child: Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(

@@ -1,114 +1,21 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_gemma/flutter_gemma.dart';
 
+import '../models/benchmark_session.dart';
 import '../models/summary_record.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
 import '../services/llama_gguf_service.dart';
 import '../services/model_manager_service.dart';
+import '../widgets/benchmark_results_table.dart';
 import 'saved_benchmark_sessions_screen.dart';
 
-class BenchmarkModelResult {
-  final String modelName;
-  final ModelEngine engine;
-  final double? ttftSeconds;
-  final double totalLatencySeconds;
-  final int tokenCount;
-  final double tokensPerSecond;
-  final String outputText;
-  final String? errorMessage;
-
-  BenchmarkModelResult({
-    required this.modelName,
-    required this.engine,
-    this.ttftSeconds,
-    required this.totalLatencySeconds,
-    required this.tokenCount,
-    required this.tokensPerSecond,
-    required this.outputText,
-    this.errorMessage,
-  });
-}
-
-class BenchmarkAggregate {
-  final String modelId;
-  final String modelName;
-  final String modelPath;
-  final ModelEngine engine;
-  final PromptFormat promptFormat;
-  final List<BenchmarkModelResult> runs = [];
-
-  BenchmarkAggregate({
-    required this.modelId,
-    required this.modelName,
-    required this.modelPath,
-    required this.engine,
-    required this.promptFormat,
-  });
-
-  List<BenchmarkModelResult> get successfulRuns =>
-      runs.where((r) => r.errorMessage == null).toList();
-
-  bool get hasAnySuccess => successfulRuns.isNotEmpty;
-
-  String? get firstError {
-    for (final r in runs) {
-      if (r.errorMessage != null) return r.errorMessage;
-    }
-    return null;
-  }
-
-  static double? _median(List<double> values) {
-    if (values.isEmpty) return null;
-    final sorted = [...values]..sort();
-    final int mid = sorted.length ~/ 2;
-    if (sorted.length.isOdd) return sorted[mid];
-    return (sorted[mid - 1] + sorted[mid]) / 2.0;
-  }
-
-  double? get medianTokensPerSecond =>
-      _median(successfulRuns.map((r) => r.tokensPerSecond).toList());
-
-  double? get medianTtftSeconds => _median(
-        successfulRuns
-            .where((r) => r.ttftSeconds != null)
-            .map((r) => r.ttftSeconds!)
-            .toList(),
-      );
-
-  double? get medianLatencySeconds =>
-      _median(successfulRuns.map((r) => r.totalLatencySeconds).toList());
-
-  double? get minLatencySeconds {
-    final s = successfulRuns;
-    if (s.isEmpty) return null;
-    return s.map((r) => r.totalLatencySeconds).reduce((a, b) => a < b ? a : b);
-  }
-
-  double? get maxLatencySeconds {
-    final s = successfulRuns;
-    if (s.isEmpty) return null;
-    return s.map((r) => r.totalLatencySeconds).reduce((a, b) => a > b ? a : b);
-  }
-
-  int? get medianTokenCount {
-    final value =
-        _median(successfulRuns.map((r) => r.tokenCount.toDouble()).toList());
-    return value?.round();
-  }
-
-  /// The run whose total latency sits at the median, used as the representative
-  /// output so the displayed text corresponds to the displayed timings.
-  BenchmarkModelResult? get medianRun {
-    final s = successfulRuns;
-    if (s.isEmpty) return null;
-    final sorted = [...s]
-      ..sort((a, b) => a.totalLatencySeconds.compareTo(b.totalLatencySeconds));
-    return sorted[(sorted.length - 1) ~/ 2];
-  }
-}
+// The result classes moved to lib/models/benchmark_session.dart so the archive
+// screens can share them. Re-exported here so existing imports of this file
+// continue to resolve them.
+export '../models/benchmark_session.dart'
+    show BenchmarkModelResult, BenchmarkAggregate;
 
 class BenchmarkScreen extends StatefulWidget {
   const BenchmarkScreen({super.key});
@@ -121,7 +28,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   final ModelManagerService _modelManager = ModelManagerService();
   final TextEditingController _promptController = TextEditingController(
     text:
-        'Client arrived at 08:30 for morning medication (Medication A 500mg, Medication B 10mg) with full glass of water. Refused breakfast initially citing mild nausea, but ate half a banana at 09:15. Blood glucose reading at 09:30 was 128 mg/dL. Attended physical therapy session from 10:00 to 10:45 with good mobility and no complaints of pain. Returned to common area for lunch at 12:00.',
+        'Client arrived at 08:30 for morning medication (Metformin 500mg, Lisinopril 10mg) with full glass of water. Refused breakfast initially citing mild nausea, but ate half a banana at 09:15. Blood glucose reading at 09:30 was 128 mg/dL. Attended physical therapy session from 10:00 to 10:45 with good mobility and no complaints of pain. Returned to common area for lunch at 12:00.',
   );
   final TextEditingController _instructionController = TextEditingController(
     text:
@@ -170,54 +77,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     final saved = await DatabaseService.instance.getLatestCompletedBenchmark();
     if (saved == null || !mounted) return;
 
-    _applySavedBenchmark(saved, statusVerb: 'Restored');
-  }
-
-  /// Rebuilds the comparison interface from a saved session record. Shared by
-  /// automatic latest-session restoration and manual archive selection so both
-  /// paths reconstruct results identically.
-  void _applySavedBenchmark(
-    Map<String, Object?> saved, {
-    required String statusVerb,
-  }) {
     final runMaps = (saved['runs'] as List).cast<Map<String, Object?>>();
-    final aggregatesByOrder = <int, BenchmarkAggregate>{};
-
-    for (final runMap in runMaps) {
-      final modelOrder = runMap['model_order'] as int;
-      final aggregate = aggregatesByOrder.putIfAbsent(
-        modelOrder,
-        () => BenchmarkAggregate(
-          modelId: runMap['model_id'] as String,
-          modelName: runMap['model_name'] as String,
-          modelPath: runMap['model_path'] as String,
-          engine: ModelEngine.values.byName(
-            runMap['engine_type'] as String,
-          ),
-          promptFormat: PromptFormat.values.byName(
-            runMap['prompt_format'] as String,
-          ),
-        ),
-      );
-
-      final latencySeconds = (runMap['latency_seconds'] as num).toDouble();
-      final tokenCount = runMap['token_count'] as int;
-      aggregate.runs.add(
-        BenchmarkModelResult(
-          modelName: runMap['model_name'] as String,
-          engine: aggregate.engine,
-          ttftSeconds: (runMap['ttft_seconds'] as num?)?.toDouble(),
-          totalLatencySeconds: latencySeconds,
-          tokenCount: tokenCount,
-          tokensPerSecond: latencySeconds > 0 ? tokenCount / latencySeconds : 0,
-          outputText: runMap['output_text'] as String,
-          errorMessage: runMap['error_message'] as String?,
-        ),
-      );
-    }
-
-    final orderedEntries = aggregatesByOrder.entries.toList()
-      ..sort((a, b) => a.key.compareTo(b.key));
+    final restored = buildAggregatesFromSavedRuns(runMaps);
     final completedAt =
         DateTime.parse(saved['completed_at'] as String).toLocal();
 
@@ -227,65 +88,22 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
       _runsPerModel = saved['runs_per_model'] as int;
       _aggregates
         ..clear()
-        ..addAll(orderedEntries.map((entry) => entry.value));
+        ..addAll(restored);
       _hasRestoredSession = true;
-      _currentStatus =
-          '$statusVerb benchmark completed ${_formatDateTime(completedAt)}.';
+      _currentStatus = 'Restored benchmark completed '
+          '${formatBenchmarkDateTime(completedAt)}.';
     });
   }
 
   Future<void> _openSavedSessions() async {
     if (_isRunning || _isRestoring) return;
 
-    final selectedId = await Navigator.push<int>(
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => const SavedBenchmarkSessionsScreen(),
       ),
     );
-
-    if (selectedId == null || !mounted) return;
-
-    setState(() {
-      _isRestoring = true;
-    });
-
-    try {
-      final saved =
-          await DatabaseService.instance.getCompletedBenchmarkById(selectedId);
-
-      if (!mounted) return;
-
-      if (saved == null) {
-        setState(() {
-          _currentStatus = 'That saved session could not be found.';
-        });
-      } else {
-        _applySavedBenchmark(saved, statusVerb: 'Loaded saved');
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _currentStatus = 'Could not load the saved benchmark: $e';
-        });
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isRestoring = false;
-        });
-      }
-    }
-  }
-
-  String _formatDateTime(DateTime value) {
-    final month = value.month.toString().padLeft(2, '0');
-    final day = value.day.toString().padLeft(2, '0');
-    final year = value.year.toString();
-    final minute = value.minute.toString().padLeft(2, '0');
-    final hour12 = value.hour % 12 == 0 ? 12 : value.hour % 12;
-    final period = value.hour < 12 ? 'AM' : 'PM';
-    return '$month/$day/$year $hour12:$minute $period';
   }
 
   @override
@@ -660,110 +478,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     await DatabaseService.instance.insertSummary(record);
   }
 
-  void _showOutputModal(BenchmarkAggregate item) {
-    final representative = item.medianRun;
-    final String outputText = representative?.outputText ?? '';
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1E1E1E),
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) {
-        return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.6,
-          maxChildSize: 0.9,
-          minChildSize: 0.4,
-          builder: (_, controller) {
-            return Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: ListView(
-                controller: controller,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          item.modelName,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.copy_rounded,
-                            color: Color(0xFF90CAF9), size: 20),
-                        onPressed: () {
-                          Clipboard.setData(ClipboardData(text: outputText));
-                          Navigator.pop(ctx);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                                content: Text('Copied output to clipboard.')),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                  const Divider(color: Colors.white12),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Per-run latency:',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  ...List.generate(item.runs.length, (index) {
-                    final run = item.runs[index];
-                    final bool failed = run.errorMessage != null;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 2),
-                      child: Text(
-                        failed
-                            ? 'Run ${index + 1}: failed — ${run.errorMessage}'
-                            : 'Run ${index + 1}: ${run.totalLatencySeconds.toStringAsFixed(2)}s'
-                                ' · ${run.tokensPerSecond.toStringAsFixed(1)} est. tok/s'
-                                ' · ${run.tokenCount} est. tokens',
-                        style: TextStyle(
-                          color: failed ? Colors.redAccent : Colors.white54,
-                          fontSize: 12,
-                        ),
-                      ),
-                    );
-                  }),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Output (median-latency run):',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  SelectableText(
-                    outputText.isEmpty ? '(No output generated)' : outputText,
-                    style: const TextStyle(
-                        color: Colors.white70, fontSize: 14, height: 1.4),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     const bgColor = Color(0xFF121212);
@@ -790,8 +504,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
           IconButton(
             icon: const Icon(Icons.folder_open_rounded, color: accentBlue),
             tooltip: 'Saved sessions',
-            onPressed:
-                (_isRunning || _isRestoring) ? null : _openSavedSessions,
+            onPressed: (_isRunning || _isRestoring) ? null : _openSavedSessions,
           ),
         ],
       ),
@@ -933,7 +646,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                   : const Icon(Icons.play_arrow_rounded, color: Colors.black),
               label: Text(
                 _isRestoring
-                    ? 'Loading Saved Benchmark...'
+                    ? 'Restoring Last Benchmark...'
                     : _isRunning
                         ? 'Model ${_currentRunningIndex + 1}/${models.length} '
                             '• Run $_currentRunNumber/$_runsPerModel'
@@ -962,192 +675,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                     fontSize: 15),
               ),
               const SizedBox(height: 8),
-              Container(
-                decoration: BoxDecoration(
-                  color: surfaceColor,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.white12),
-                ),
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: DataTable(
-                    headingRowColor: WidgetStateProperty.all(Colors.black26),
-                    dataRowMinHeight: 48,
-                    dataRowMaxHeight: 64,
-                    columns: const [
-                      DataColumn(
-                        label: Text(
-                          'Model / Engine',
-                          style: TextStyle(
-                              color: accentBlue, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      DataColumn(
-                        label: Text(
-                          'Runs',
-                          style: TextStyle(
-                              color: accentBlue, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      DataColumn(
-                        label: Text(
-                          'Est. tok/s (chars÷4)',
-                          style: TextStyle(
-                              color: accentBlue, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      DataColumn(
-                        label: Text(
-                          'TTFT (s)',
-                          style: TextStyle(
-                              color: accentBlue, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      DataColumn(
-                        label: Text(
-                          'Latency (s)',
-                          style: TextStyle(
-                              color: accentBlue, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      DataColumn(
-                        label: Text(
-                          'Est. tokens',
-                          style: TextStyle(
-                              color: accentBlue, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      DataColumn(
-                        label: Text(
-                          'Output',
-                          style: TextStyle(
-                              color: accentBlue, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ],
-                    rows: _aggregates.map((agg) {
-                      final bool hasResults = agg.hasAnySuccess;
-                      final double? medianSpeed = agg.medianTokensPerSecond;
-                      final double? medianTtft = agg.medianTtftSeconds;
-                      final double? medianLatency = agg.medianLatencySeconds;
-                      final double? minLatency = agg.minLatencySeconds;
-                      final double? maxLatency = agg.maxLatencySeconds;
-                      final int? medianTokens = agg.medianTokenCount;
-                      final int successCount = agg.successfulRuns.length;
-
-                      return DataRow(
-                        cells: [
-                          DataCell(
-                            ConstrainedBox(
-                              constraints: const BoxConstraints(maxWidth: 160),
-                              child: Text(
-                                agg.modelName,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 12,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ),
-                          DataCell(
-                            Text(
-                              '$successCount/${agg.runs.length}',
-                              style: TextStyle(
-                                color: successCount == agg.runs.length
-                                    ? Colors.white70
-                                    : Colors.orangeAccent,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                          DataCell(
-                            Text(
-                              medianSpeed != null
-                                  ? medianSpeed.toStringAsFixed(1)
-                                  : 'ERR',
-                              style: TextStyle(
-                                color: hasResults
-                                    ? const Color(0xFF81C784)
-                                    : Colors.redAccent,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          DataCell(
-                            Text(
-                              agg.engine == ModelEngine.nano
-                                  ? (medianLatency != null
-                                      ? '${medianLatency.toStringAsFixed(2)}s*'
-                                      : '--')
-                                  : (medianTtft != null
-                                      ? '${medianTtft.toStringAsFixed(2)}s'
-                                      : '--'),
-                              style: const TextStyle(color: Colors.white70),
-                            ),
-                          ),
-                          DataCell(
-                            Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  medianLatency != null
-                                      ? '${medianLatency.toStringAsFixed(2)}s'
-                                      : '--',
-                                  style: const TextStyle(color: Colors.white70),
-                                ),
-                                if (successCount > 1 &&
-                                    minLatency != null &&
-                                    maxLatency != null)
-                                  Text(
-                                    '${minLatency.toStringAsFixed(2)}–${maxLatency.toStringAsFixed(2)}',
-                                    style: const TextStyle(
-                                      color: Colors.white38,
-                                      fontSize: 10,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          DataCell(
-                            Text(
-                              medianTokens?.toString() ?? '--',
-                              style: const TextStyle(color: Colors.white70),
-                            ),
-                          ),
-                          DataCell(
-                            IconButton(
-                              icon: const Icon(
-                                Icons.visibility_rounded,
-                                size: 18,
-                                color: accentBlue,
-                              ),
-                              onPressed: agg.runs.isEmpty
-                                  ? null
-                                  : () => _showOutputModal(agg),
-                            ),
-                          ),
-                        ],
-                      );
-                    }).toList(),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                'Timings are the median across the runs completed for each model; the '
-                'smaller figure under latency is the min–max range across those runs.\n'
-                'Token counts are estimated as output characters ÷ 4, not tokenizer '
-                'output. Each engine uses a different tokenizer, and the rate uses '
-                'total latency including prompt processing and TTFT. It is therefore '
-                'an end-to-end throughput proxy, not pure decode speed.\n'
-                '* Gemini Nano\'s Prompt API is non-streaming — time to first token '
-                'cannot be measured, so total latency is shown in that column.',
-                style:
-                    TextStyle(color: Colors.white38, fontSize: 11, height: 1.4),
-              ),
+              BenchmarkResultsTable(aggregates: _aggregates),
             ],
           ],
         ),
