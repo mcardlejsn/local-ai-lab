@@ -8,6 +8,7 @@ import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
 import '../services/llama_gguf_service.dart';
 import '../services/model_manager_service.dart';
+import 'saved_benchmark_sessions_screen.dart';
 
 class BenchmarkModelResult {
   final String modelName;
@@ -120,7 +121,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   final ModelManagerService _modelManager = ModelManagerService();
   final TextEditingController _promptController = TextEditingController(
     text:
-        'Client arrived at 08:30 for morning medication (Metformin 500mg, Lisinopril 10mg) with full glass of water. Refused breakfast initially citing mild nausea, but ate half a banana at 09:15. Blood glucose reading at 09:30 was 128 mg/dL. Attended physical therapy session from 10:00 to 10:45 with good mobility and no complaints of pain. Returned to common area for lunch at 12:00.',
+        'Client arrived at 08:30 for morning medication (Medication A 500mg, Medication B 10mg) with full glass of water. Refused breakfast initially citing mild nausea, but ate half a banana at 09:15. Blood glucose reading at 09:30 was 128 mg/dL. Attended physical therapy session from 10:00 to 10:45 with good mobility and no complaints of pain. Returned to common area for lunch at 12:00.',
   );
   final TextEditingController _instructionController = TextEditingController(
     text:
@@ -169,6 +170,16 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     final saved = await DatabaseService.instance.getLatestCompletedBenchmark();
     if (saved == null || !mounted) return;
 
+    _applySavedBenchmark(saved, statusVerb: 'Restored');
+  }
+
+  /// Rebuilds the comparison interface from a saved session record. Shared by
+  /// automatic latest-session restoration and manual archive selection so both
+  /// paths reconstruct results identically.
+  void _applySavedBenchmark(
+    Map<String, Object?> saved, {
+    required String statusVerb,
+  }) {
     final runMaps = (saved['runs'] as List).cast<Map<String, Object?>>();
     final aggregatesByOrder = <int, BenchmarkAggregate>{};
 
@@ -219,8 +230,52 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         ..addAll(orderedEntries.map((entry) => entry.value));
       _hasRestoredSession = true;
       _currentStatus =
-          'Restored benchmark completed ${_formatDateTime(completedAt)}.';
+          '$statusVerb benchmark completed ${_formatDateTime(completedAt)}.';
     });
+  }
+
+  Future<void> _openSavedSessions() async {
+    if (_isRunning || _isRestoring) return;
+
+    final selectedId = await Navigator.push<int>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const SavedBenchmarkSessionsScreen(),
+      ),
+    );
+
+    if (selectedId == null || !mounted) return;
+
+    setState(() {
+      _isRestoring = true;
+    });
+
+    try {
+      final saved =
+          await DatabaseService.instance.getCompletedBenchmarkById(selectedId);
+
+      if (!mounted) return;
+
+      if (saved == null) {
+        setState(() {
+          _currentStatus = 'That saved session could not be found.';
+        });
+      } else {
+        _applySavedBenchmark(saved, statusVerb: 'Loaded saved');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _currentStatus = 'Could not load the saved benchmark: $e';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRestoring = false;
+        });
+      }
+    }
   }
 
   String _formatDateTime(DateTime value) {
@@ -731,6 +786,14 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
             fontSize: 18,
           ),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.folder_open_rounded, color: accentBlue),
+            tooltip: 'Saved sessions',
+            onPressed:
+                (_isRunning || _isRestoring) ? null : _openSavedSessions,
+          ),
+        ],
       ),
       body: SafeArea(
         child: ListView(
@@ -870,7 +933,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                   : const Icon(Icons.play_arrow_rounded, color: Colors.black),
               label: Text(
                 _isRestoring
-                    ? 'Restoring Last Benchmark...'
+                    ? 'Loading Saved Benchmark...'
                     : _isRunning
                         ? 'Model ${_currentRunningIndex + 1}/${models.length} '
                             '• Run $_currentRunNumber/$_runsPerModel'

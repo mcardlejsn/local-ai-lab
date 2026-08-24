@@ -200,7 +200,69 @@ class DatabaseService {
 
     if (sessions.isEmpty) return null;
 
-    final session = Map<String, Object?>.from(sessions.first);
+    return _loadSessionWithRuns(db, sessions.first);
+  }
+
+  /// Loads one saved session by id, with all of its ordered run records.
+  /// Read-only; returns null if the session no longer exists.
+  Future<Map<String, Object?>?> getCompletedBenchmarkById(int sessionId) async {
+    final db = await instance.database;
+    final sessions = await db.query(
+      'benchmark_sessions',
+      where: 'id = ?',
+      whereArgs: [sessionId],
+      limit: 1,
+    );
+
+    if (sessions.isEmpty) return null;
+
+    return _loadSessionWithRuns(db, sessions.first);
+  }
+
+  /// Lightweight archive listing: every completed session newest first, with
+  /// its model names in saved order but without loading any output text.
+  Future<List<Map<String, Object?>>> getBenchmarkSessionSummaries() async {
+    final db = await instance.database;
+    final sessions = await db.query(
+      'benchmark_sessions',
+      orderBy: 'completed_at DESC, id DESC',
+    );
+
+    if (sessions.isEmpty) return [];
+
+    final ids = sessions.map((row) => row['id'] as int).toList();
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    final nameRows = await db.rawQuery(
+      'SELECT DISTINCT session_id, model_order, model_name '
+      'FROM benchmark_runs '
+      'WHERE session_id IN ($placeholders) '
+      'ORDER BY session_id ASC, model_order ASC',
+      ids,
+    );
+
+    final namesBySession = <int, List<String>>{};
+    for (final row in nameRows) {
+      final sessionId = row['session_id'] as int;
+      namesBySession
+          .putIfAbsent(sessionId, () => <String>[])
+          .add(row['model_name'] as String);
+    }
+
+    return sessions.map((row) {
+      final session = Map<String, Object?>.from(row);
+      final sessionId = session['id'] as int;
+      return {
+        ...session,
+        'model_names': namesBySession[sessionId] ?? const <String>[],
+      };
+    }).toList();
+  }
+
+  Future<Map<String, Object?>> _loadSessionWithRuns(
+    Database db,
+    Map<String, Object?> sessionRow,
+  ) async {
+    final session = Map<String, Object?>.from(sessionRow);
     final sessionId = session['id'] as int;
     final runs = await db.query(
       'benchmark_runs',
