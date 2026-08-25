@@ -18,14 +18,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
   String _selectedFilter = 'All';
   bool _isLoading = true;
 
-  /// Benchmark rows are saved with a 'Benchmark: <instruction>' task type, so
-  /// they are matched by prefix rather than by an exact task name.
-  static const String _benchmarkFilter = 'Benchmark';
-  static const String _benchmarkPrefix = 'Benchmark:';
-
   final List<String> _filters = [
     'All',
-    _benchmarkFilter,
     '2-Sentence Summary',
     'Key Events',
     'Action Items',
@@ -61,16 +55,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     setState(() {
       _filteredRecords = _records.where((record) {
-        final bool isBenchmark = record.taskType.startsWith(_benchmarkPrefix);
-
-        final bool matchesFilter;
-        if (_selectedFilter == 'All') {
-          matchesFilter = true;
-        } else if (_selectedFilter == _benchmarkFilter) {
-          matchesFilter = isBenchmark;
-        } else {
-          matchesFilter = record.taskType == _selectedFilter;
-        }
+        final bool matchesFilter = _selectedFilter == 'All' ||
+            record.taskType == _selectedFilter;
 
         final matchesQuery = query.isEmpty ||
             record.generatedSummary.toLowerCase().contains(query) ||
