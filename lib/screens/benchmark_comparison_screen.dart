@@ -256,7 +256,8 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
           'Models are matched across sessions by their stored model id, so a '
           'renamed engine build still pairs. Δ is the newer session minus the '
           'older one; green is the better direction for that metric. An '
-          'accuracy of -- means no run on that side has been scored.',
+          'accuracy of -- means no run on that side has been scored, and a '
+          'recall of -- means that session was not graded.',
           style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.4),
         ),
       ],
@@ -433,6 +434,15 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
             higherIsBetter: null,
           ),
           _buildMetricRow(
+            label: 'Recall',
+            earlierValue: row.earlier?.medianRecallFound,
+            laterValue: row.later?.medianRecallFound,
+            fractionDigits: 1,
+            higherIsBetter: true,
+            earlierSuffix: _recallSuffix(row.earlier?.recallTotal),
+            laterSuffix: _recallSuffix(row.later?.recallTotal),
+          ),
+          _buildMetricRow(
             label: 'Accuracy',
             earlierValue: row.earlier?.medianAccuracyScore,
             laterValue: row.later?.medianAccuracyScore,
@@ -444,12 +454,19 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
     );
   }
 
+  /// Recall is a count out of a checklist size, so it is rendered as `9/11`.
+  /// Sessions graded against an older checklist keep their own total, which is
+  /// why the suffix comes from each side rather than from one constant.
+  String _recallSuffix(int? total) => total == null ? '' : '/$total';
+
   Widget _buildMetricRow({
     required String label,
     required double? earlierValue,
     required double? laterValue,
     required int fractionDigits,
     required bool? higherIsBetter,
+    String earlierSuffix = '',
+    String laterSuffix = '',
   }) {
     final bool hasDelta = earlierValue != null && laterValue != null;
     final double? delta = hasDelta ? laterValue - earlierValue : null;
@@ -467,7 +484,10 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
           ),
           Expanded(
             child: Text(
-              earlierValue?.toStringAsFixed(fractionDigits) ?? '--',
+              earlierValue == null
+                  ? '--'
+                  : '${earlierValue.toStringAsFixed(fractionDigits)}'
+                      '$earlierSuffix',
               maxLines: 1,
               style: const TextStyle(color: Colors.white70, fontSize: 13),
             ),
@@ -480,7 +500,9 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
           const SizedBox(width: 6),
           Expanded(
             child: Text(
-              laterValue?.toStringAsFixed(fractionDigits) ?? '--',
+              laterValue == null
+                  ? '--'
+                  : '${laterValue.toStringAsFixed(fractionDigits)}$laterSuffix',
               maxLines: 1,
               style: const TextStyle(
                 color: Colors.white,

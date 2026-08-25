@@ -221,10 +221,18 @@ const BenchmarkPassage deployIncidentPassage = BenchmarkPassage(
       label: 'Rollback to previous build',
       anyOf: ['rollback', 'rolled back'],
     ),
+    // Split rather than one window fact: a model that writes "10:00 Rollback
+    // began" and "10:45 Rollback completed" has kept both times faithfully,
+    // and should not be marked down for not joining them.
     ExpectedFact(
-      id: 'time_1000_1045',
-      label: '10:00 to 10:45 — rollback window',
-      anyOf: ['10:00 to 10:45', '10:00-10:45', '10:00 - 10:45'],
+      id: 'time_1000',
+      label: '10:00 — rollback started',
+      anyOf: ['10:00'],
+    ),
+    ExpectedFact(
+      id: 'time_1045',
+      label: '10:45 — rollback finished',
+      anyOf: ['10:45'],
     ),
     ExpectedFact(
       id: 'time_1200',

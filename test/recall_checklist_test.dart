@@ -11,6 +11,17 @@ const String _deployCompleteOutput = '''
 5. **12:00:** Traffic returned to baseline with 3 requests still failing.
 ''';
 
+/// A faithful extraction that splits the rollback window into two entries
+/// rather than writing it as a range.
+const String _deploySplitWindowOutput = '''
+1. **08:30**: Deploy of build 4.2.1 started
+2. **09:15**: Error rate rose to 12% after the cache layer restart
+3. **09:30**: Response latency peaked at 940 ms
+4. **10:00**: Rollback began
+5. **10:45**: Rollback completed, previous build restored
+6. **12:00**: Traffic returned to baseline with 3 requests still failing
+''';
+
 /// The same passage summarized loosely: every number dropped.
 const String _deployLossyOutput = '''
 - 08:30 - Deploy started.
@@ -66,6 +77,12 @@ void main() {
           'failing_requests_3',
         ]),
       );
+    });
+
+    test('splitting the rollback window is not counted as a drop', () {
+      // "10:00 Rollback began" and "10:45 Rollback completed" keeps both times
+      // faithfully; only joining them into a range should not be required.
+      expect(gradeRecall(_deploySplitWindowOutput, deploy).missedIds, isEmpty);
     });
 
     test('a bare 12:00 is not credited as a 12% error rate', () {
