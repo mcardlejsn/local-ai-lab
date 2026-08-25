@@ -16,11 +16,15 @@ The three paths differ in more than speed:
 
 | Path | Model choice | Runtime | Control |
 | --- | --- | --- | --- |
-| Gemini Nano | none — system-provided | AICore, managed by Google | temperature, top-K |
-| MediaPipe | Google-published Gemma builds | flutter_gemma | temperature, top-K, session |
-| GGUF | any compatible quantized model | llama.cpp | threads, context, sampling |
+| Gemini Nano | none — system-provided | AICore, managed by Google | temperature, top-K, max output tokens |
+| MediaPipe | Google-published Gemma builds | flutter_gemma | temperature, top-K |
+| GGUF | any compatible quantized model | llama.cpp | threads, context, sampling, max output tokens |
 
 Managed, vendor-supported, and open — with the trade-offs that come with each.
+
+Max output tokens is absent from the MediaPipe row because that runtime takes the
+limit when the model is installed rather than when a session is created, so it cannot
+be changed per run without reinstalling the model.
 
 ## What it does
 
@@ -29,13 +33,18 @@ Managed, vendor-supported, and open — with the trade-offs that come with each.
 Latency, time to first token, estimated tokens, and throughput are shown for the run,
 and the result can be saved.
 
-**Benchmark** — run every discovered model against one standardized passage and
-instruction, N times each (1, 3, or 5). Results are reported as the median across runs
-with the min–max latency range, and each model's representative output is viewable.
-Every individual run is written to history.
+**Benchmark** — run every discovered model against one passage and instruction, N times
+each (1, 3, or 5). Both fields are editable, so the suite can be pointed at any text
+rather than only the sample it opens with. Results are reported as the median across
+runs with the min–max latency range, and each model's representative output is
+viewable. A completed suite can be saved as a session.
 
-**History** — saved summaries and benchmark runs, searchable by text, model, or engine,
-filterable by task type or by benchmark.
+**Saved sessions** — an archive of saved benchmark runs, with a detail view per session
+and a comparison view that pairs two sessions model by model to show what moved between
+them.
+
+**History** — saved summaries, searchable by text, model, or engine, and filterable by
+task type.
 
 ## Models
 
@@ -64,6 +73,31 @@ unrecognized falls back to an unwrapped instruction, since a wrong wrapper is wo
 than none. The resolved format is shown in the status line when a GGUF model loads.
 Gemini Nano's Prompt API takes the instruction directly.
 
+## Recall
+
+Benchmark runs are scored for coverage: how much of the source passage's substance
+survived into the output.
+
+The passage is reduced to a set of content tokens — lowercased, split, stripped of
+stopwords. Anything containing a digit is kept whole, so `4.2.1`, `09:15`, `12%` and
+`940` each stay a single token. The model's output is then checked for each one. Word
+tokens match from a stem, so `restarted` credits `restart`. Digit tokens must match
+exactly and at a boundary, so `12%` is never credited by `12:00` and `940` is never
+credited by `9400`.
+
+The score is the count found out of the count derived, and the total therefore varies
+with the passage. Each saved run stores its own total, and the comparison screen will
+not print a delta between two sessions whose totals differ.
+
+Two things this does and does not tell you:
+
+- It is deterministic and has no model in the loop. The same output against the same
+  passage always produces the same score, on any device, with nothing to configure.
+- It measures coverage, not correctness. A model that reproduces the passage verbatim
+  scores full marks, and a fluent summary that drops a number scores below one that
+  keeps the number and reads badly. The manual 1–5 accuracy score on saved sessions
+  exists for the judgment recall cannot make.
+
 ## Reading the measurements
 
 Some things about the numbers this app produces are worth stating plainly:
@@ -77,8 +111,8 @@ Some things about the numbers this app produces are worth stating plainly:
 - **Models run in discovery order**, so a model benchmarked later runs on a warmer
   device than the first one did.
 - **Output length is not normalized** across runtimes, and latency depends on it.
-- **Nothing here evaluates output quality.** Speed says nothing about whether a summary
-  is accurate or complete.
+- **Recall measures coverage, not accuracy.** See above. Speed says nothing about
+  either.
 
 Repeat runs exist so that variance is visible rather than assumed. A single sample is
 not evidence of stability.
@@ -91,8 +125,9 @@ flutter run
 ```
 
 Requires Android with `minSdk 26`. Gemini Nano requires a device with AICore support.
-Release builds are signed with the debug key; this is a measurement tool, not a
-distributed application.
+Release builds are signed with a keystore configured in `key.properties`, which is not
+committed; without it, the release signing config resolves to nothing and only debug
+builds will run.
 
 ## AI assistance
 
