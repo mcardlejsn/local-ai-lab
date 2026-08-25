@@ -10,6 +10,7 @@ import '../services/mediapipe_gemma_service.dart';
 import '../services/model_manager_service.dart';
 import 'benchmark_screen.dart';
 import 'history_screen.dart';
+import 'model_download_screen.dart';
 
 class SummarizerScreen extends StatefulWidget {
   const SummarizerScreen({super.key});
@@ -460,6 +461,19 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 const Icon(Icons.content_paste_rounded, color: Colors.white70),
             tooltip: 'Paste from Clipboard',
             onPressed: _isStreaming ? null : _pasteFromClipboard,
+          ),
+          IconButton(
+            icon: const Icon(Icons.cloud_download_rounded, color: accentBlue),
+            tooltip: 'Download Models',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      ModelDownloadScreen(modelManager: _modelManager),
+                ),
+              );
+            },
           ),
           IconButton(
             icon: const Icon(Icons.history_rounded, color: accentBlue),
