@@ -43,8 +43,7 @@ viewable. A completed suite can be saved as a session.
 and a comparison view that pairs two sessions model by model to show what moved between
 them.
 
-**History** — saved summaries, searchable by text, model, or engine, and filterable by
-task type.
+**History** — saved outputs, searchable by text, task, model name, or engine (nano, mediapipe, gguf), and filterable by task type.
 
 ## Models
 
