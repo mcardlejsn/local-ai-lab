@@ -751,6 +751,12 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
 
   Widget _buildControlsCard(
       Color surfaceColor, Color bgColor, Color accentBlue) {
+    // MediaPipe has no session-level output cap. The plugin accepts the
+    // argument and ignores it, so the control is inert on that engine and is
+    // disabled rather than left looking live.
+    final bool capSupported =
+        _modelManager.activeModel?.engine != ModelEngine.mediapipe;
+
     return Material(
       color: surfaceColor,
       shape: RoundedRectangleBorder(
@@ -788,7 +794,10 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                   border: Border.all(color: Colors.white12),
                 ),
                 child: Text(
-                  'T: ${_temperature.toStringAsFixed(2)} | K: $_topK | Max: $_maxTokens',
+                  capSupported
+                      ? 'T: ${_temperature.toStringAsFixed(2)} | '
+                          'K: $_topK | Max: $_maxTokens'
+                      : 'T: ${_temperature.toStringAsFixed(2)} | K: $_topK',
                   style: TextStyle(
                     color: accentBlue,
                     fontWeight: FontWeight.bold,
@@ -858,31 +867,42 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Max Output Tokens',
-                    style: TextStyle(color: Colors.white70, fontSize: 13)),
+                Text('Max Output Tokens',
+                    style: TextStyle(
+                        color: capSupported ? Colors.white70 : Colors.white38,
+                        fontSize: 13)),
                 Text(
-                  '$_maxTokens',
-                  style:
-                      TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+                  capSupported ? '$_maxTokens' : '--',
+                  style: TextStyle(
+                      color: capSupported ? accentBlue : Colors.white38,
+                      fontWeight: FontWeight.bold),
                 ),
               ],
             ),
             SliderTheme(
               data: SliderTheme.of(context).copyWith(
-                activeTrackColor: accentBlue,
+                activeTrackColor: capSupported ? accentBlue : Colors.white24,
                 inactiveTrackColor: Colors.white24,
-                thumbColor: accentBlue,
+                thumbColor: capSupported ? accentBlue : Colors.white38,
               ),
               child: Slider(
                 value: _maxTokens.toDouble(),
                 min: 64,
                 max: 1024,
                 divisions: 15,
-                onChanged: _isStreaming
+                onChanged: (_isStreaming || !capSupported)
                     ? null
                     : (v) => setState(() => _maxTokens = v.round()),
               ),
             ),
+            if (!capSupported)
+              const Padding(
+                padding: EdgeInsets.only(top: 2),
+                child: Text(
+                  'MediaPipe does not support a per-run output cap.',
+                  style: TextStyle(color: Colors.white38, fontSize: 11),
+                ),
+              ),
           ],
         ),
       ),

@@ -441,6 +441,8 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
             higherIsBetter: true,
             earlierSuffix: _recallSuffix(row.earlier?.recallTotal),
             laterSuffix: _recallSuffix(row.later?.recallTotal),
+            deltaComparable:
+                row.earlier?.recallTotal == row.later?.recallTotal,
           ),
           _buildMetricRow(
             label: 'Accuracy',
@@ -467,9 +469,15 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
     required bool? higherIsBetter,
     String earlierSuffix = '',
     String laterSuffix = '',
+    bool deltaComparable = true,
   }) {
-    final bool hasDelta = earlierValue != null && laterValue != null;
-    final double? delta = hasDelta ? laterValue - earlierValue : null;
+    // A delta is only meaningful when both sides were measured on the same
+    // scale. Recall is a count out of a per-passage total, so 18/22 -> 20/30
+    // is not a +2 improvement and must not be printed as one.
+    final double? delta =
+        (deltaComparable && earlierValue != null && laterValue != null)
+            ? laterValue - earlierValue
+            : null;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -514,10 +522,10 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
           SizedBox(
             width: 74,
             child: Text(
-              delta == null
-                  ? ''
-                  : '${delta > 0 ? '+' : ''}'
-                      '${delta.toStringAsFixed(fractionDigits)}',
+              delta != null
+                  ? '${delta > 0 ? '+' : ''}'
+                      '${delta.toStringAsFixed(fractionDigits)}'
+                  : (deltaComparable ? '' : '\u2014'),
               textAlign: TextAlign.right,
               style: TextStyle(
                 color: _deltaColor(delta, higherIsBetter),

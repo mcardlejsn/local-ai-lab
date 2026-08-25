@@ -512,16 +512,19 @@ class _OutputModalContentState extends State<_OutputModalContent> {
                         ),
                       ),
                     ),
-                    if (!failed)
+                    // Only shown when the manual 1-5 score is reachable or
+                    // already set. On the live benchmark screen it is neither,
+                    // so recall is left as the only score on the line.
+                    if (!failed && (run.isScored || tappable))
                       Text(
                         run.isScored
                             ? 'Accuracy ${run.accuracyScore}/5'
-                            : (tappable ? 'Score' : 'Unscored'),
+                            : 'Score',
                         style: TextStyle(
                           color: run.isScored
                               ? accuracyScoreColor(
                                   run.accuracyScore!.toDouble())
-                              : (tappable ? _accentBlue : Colors.white38),
+                              : _accentBlue,
                           fontSize: 12,
                           fontWeight: run.isScored
                               ? FontWeight.bold
