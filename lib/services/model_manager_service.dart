@@ -305,4 +305,45 @@ class ModelManagerService extends ChangeNotifier {
     // 2. Free GGUF / llama.cpp memory
     await LlamaGgufService.unloadModel();
   }
+
+  /// Removes a model file from disk and rescans.
+  ///
+  /// Returns true if the file was deleted. Gemini Nano is served by AICore and
+  /// has no file here, so it is refused rather than silently ignored.
+  Future<bool> deleteModel(ModelInfo model) async {
+    if (model.engine == ModelEngine.nano) {
+      _statusMessage = 'Gemini Nano is managed by Android and cannot be removed';
+      notifyListeners();
+      return false;
+    }
+
+    _isLoading = true;
+    _statusMessage = 'Removing ${model.name}...';
+    notifyListeners();
+
+    try {
+      // The runtime holds an open handle to this path. Unlinking underneath a
+      // loaded engine leaves it reading a file that no longer has a name, so
+      // the engine is released first.
+      if (_activeModel?.id == model.id) {
+        await unloadAllEngines();
+        _activeModel = null;
+      }
+
+      final File file = File(model.path);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (e) {
+      _statusMessage = 'Could not remove ${model.name}: $e';
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
+
+    // scanModels rebuilds the list and loads whatever remains.
+    _isLoading = false;
+    await scanModels();
+    return true;
+  }
 }

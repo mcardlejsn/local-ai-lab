@@ -745,6 +745,20 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                   ),
                 ),
               ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                color: Colors.white54,
+                disabledColor: Colors.white24,
+                tooltip: 'Remove Model File',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: (_isStreaming ||
+                        isLoading ||
+                        active == null ||
+                        active.engine == ModelEngine.nano)
+                    ? null
+                    : () => _confirmDeleteModel(active),
+              ),
             ],
           ),
           const SizedBox(height: 2),
@@ -759,6 +773,50 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
             overflow: TextOverflow.ellipsis,
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteModel(ModelInfo model) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title: const Text(
+          'Remove model file?',
+          style: TextStyle(color: Colors.white, fontSize: 16),
+        ),
+        content: Text(
+          '${model.name} (${model.formattedSize}) will be deleted from your '
+          'device. Saved summaries and benchmark sessions are not affected.',
+          style: const TextStyle(color: Colors.white70, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            style: TextButton.styleFrom(foregroundColor: Colors.white54),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final bool removed = await _modelManager.deleteModel(model);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          removed
+              ? 'Removed ${model.name}.'
+              : _modelManager.statusMessage ?? 'Could not remove the model.',
+        ),
       ),
     );
   }
