@@ -259,18 +259,19 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   }) async {
     final runRows = <Map<String, Object?>>[];
 
-    // Recall is graded once per suite against the checklist bound to this
-    // passage. A null checklist means the passage was edited, so the recall
-    // columns stay null rather than recording a score of zero.
-    final checklist = checklistForPassage(passage);
+    // Recall is graded against the content of whatever passage was run, so a
+    // custom passage grades the same way the built-in one does. An empty
+    // passage has no content to expect, so the columns stay null rather than
+    // recording a score of zero.
+    final profile = profileForPassage(passage);
 
     for (int modelOrder = 0; modelOrder < _aggregates.length; modelOrder++) {
       final aggregate = _aggregates[modelOrder];
       for (int runIndex = 0; runIndex < aggregate.runs.length; runIndex++) {
         final run = aggregate.runs[runIndex];
-        final recall = (checklist == null || run.errorMessage != null)
+        final recall = (profile.isEmpty || run.errorMessage != null)
             ? null
-            : gradeRecall(run.outputText, checklist);
+            : gradeRecall(run.outputText, profile);
         runRows.add({
           'model_order': modelOrder,
           'run_number': runIndex + 1,
@@ -287,7 +288,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
           'recall_found': recall?.found,
           'recall_total': recall?.total,
           'missed_fact_ids':
-              recall == null ? null : jsonEncode(recall.missedIds),
+              recall == null ? null : jsonEncode(recall.missedTokens),
         });
       }
     }
@@ -582,7 +583,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
             ),
             const SizedBox(height: 12),
             const Text(
-              'Standardized Passage:',
+              'Passage:',
               style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,

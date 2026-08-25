@@ -1,8 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:local_ai_summarizer/models/recall_checklist.dart';
 
-
-/// A faithful extraction of the deploy incident passage.
+/// A faithful extraction of the sample deploy passage.
 const String _deployCompleteOutput = '''
 1. **08:30:** Deploy of build 4.2.1 started.
 2. **09:15:** Error rate rose to 12% after the cache layer was restarted.
@@ -11,18 +10,7 @@ const String _deployCompleteOutput = '''
 5. **12:00:** Traffic returned to baseline with 3 requests still failing.
 ''';
 
-/// A faithful extraction that splits the rollback window into two entries
-/// rather than writing it as a range.
-const String _deploySplitWindowOutput = '''
-1. **08:30**: Deploy of build 4.2.1 started
-2. **09:15**: Error rate rose to 12% after the cache layer restart
-3. **09:30**: Response latency peaked at 940 ms
-4. **10:00**: Rollback began
-5. **10:45**: Rollback completed, previous build restored
-6. **12:00**: Traffic returned to baseline with 3 requests still failing
-''';
-
-/// The same passage summarized loosely: every number dropped.
+/// The same passage summarized loosely: most of the numbers dropped.
 const String _deployLossyOutput = '''
 - 08:30 - Deploy started.
 - 09:15 - Error rate increased after a restart.
@@ -31,103 +19,143 @@ const String _deployLossyOutput = '''
 - 12:00 - Traffic back to normal.
 ''';
 
-void main() {
-  final deploy = benchmarkPassage.checklist;
+/// Every literal the instruction asks for, with none of the events they belong
+/// to. An authored checklist of timestamps scored this near-full.
+const String _tokenDumpOutput =
+    '08:30 09:15 09:30 10:00 10:45 12:00 4.2.1 12% 940 ms rollback 3 requests';
 
-  group('passage identification', () {
-    test('the benchmark runs the deploy incident passage', () {
+/// A passage the app has never seen.
+const String _customPassage =
+    'Patient seen at 14:20 reporting chest pain. Troponin measured 0.09 '
+    'ng/mL. Discharged at 17:45 with a follow-up in 72 hours.';
+
+void main() {
+  final deploy = benchmarkPassage.profile;
+
+  group('profiling a passage', () {
+    test('the benchmark opens on the deploy sample', () {
       expect(defaultBenchmarkPassage, deployIncidentPassage.text);
       expect(defaultBenchmarkInstruction, deployIncidentPassage.instruction);
     });
 
-    test('the built-in passage resolves to its checklist', () {
-      expect(builtInPassageFor(benchmarkPassage.text)?.id, 'deploy_incident');
+    test('content words are kept and function words are not', () {
+      expect(deploy.tokens, contains('rollback'));
+      expect(deploy.tokens, contains('baseline'));
+      expect(deploy.tokens, isNot(contains('the')));
+      expect(deploy.tokens, isNot(contains('at')));
+      expect(deploy.tokens, isNot(contains('and')));
     });
 
-    test('whitespace and casing changes still resolve', () {
-      final reflowed =
-          benchmarkPassage.text.replaceAll(' ', '  ').toUpperCase();
-      expect(builtInPassageFor(reflowed)?.id, 'deploy_incident');
-    });
-
-    test('a session saved with another passage resolves to no checklist', () {
-      final other = benchmarkPassage.text.replaceAll('940', '512');
-      expect(checklistForPassage(other), isNull);
-    });
-
-    test('the passage recalls all of its own facts', () {
-      expect(gradeRecall(benchmarkPassage.text, deploy).missedIds, isEmpty);
-    });
-  });
-
-  group('grading deploy-incident outputs', () {
-    test('a faithful extraction recalls every expected fact', () {
-      expect(gradeRecall(_deployCompleteOutput, deploy).missedIds, isEmpty);
-    });
-
-    test('a lossy summary loses the version, rate, latency and count', () {
-      final result = gradeRecall(_deployLossyOutput, deploy);
-
+    test('numbers, times, metrics and versions survive whole', () {
       expect(
-        result.missedIds,
-        containsAll(<String>[
-          'build_version',
-          'error_rate_12',
-          'latency_940ms',
-          'failing_requests_3',
-        ]),
+        deploy.tokens,
+        containsAll(<String>['4.2.1', '08:30', '12%', '940', '10:45', '3']),
       );
     });
 
-    test('splitting the rollback window is not counted as a drop', () {
-      // "10:00 Rollback began" and "10:45 Rollback completed" keeps both times
-      // faithfully; only joining them into a range should not be required.
-      expect(gradeRecall(_deploySplitWindowOutput, deploy).missedIds, isEmpty);
+    test('a repeated word is expected once', () {
+      expect(deploy.tokens.where((t) => t == 'build').length, 1);
     });
 
-    test('a bare 12:00 is not credited as a 12% error rate', () {
-      final fact = deploy.factById('error_rate_12')!;
+    test('an unseen passage profiles just as well', () {
+      final custom = profileForPassage(_customPassage);
 
-      expect(outputContainsFact('Traffic resumed at 12:00.', fact), isFalse);
-      expect(outputContainsFact('Error rate hit 12%.', fact), isTrue);
+      expect(custom.total, greaterThan(10));
+      expect(
+        custom.tokens,
+        containsAll(<String>['troponin', '14:20', '0.09', '72']),
+      );
+    });
+
+    test('an empty passage expects nothing', () {
+      final empty = profileForPassage('   ');
+
+      expect(empty.isEmpty, isTrue);
+      expect(gradeRecall('anything at all', empty).fraction, isNull);
+    });
+  });
+
+  group('grading outputs', () {
+    test('a passage recalls all of its own content', () {
+      expect(gradeRecall(benchmarkPassage.text, deploy).missedTokens, isEmpty);
+    });
+
+    test('a faithful extraction keeps nearly everything', () {
+      final result = gradeRecall(_deployCompleteOutput, deploy);
+
+      expect(result.fraction, greaterThan(0.95));
+    });
+
+    test('a lossy summary scores well under a faithful one', () {
+      final lossy = gradeRecall(_deployLossyOutput, deploy);
+      final complete = gradeRecall(_deployCompleteOutput, deploy);
+
+      expect(lossy.found, lessThan(complete.found));
+      expect(
+        lossy.missedTokens,
+        containsAll(<String>['4.2.1', '12%', '940', 'cache']),
+      );
+    });
+
+    test('a bare token dump is not credited with the content', () {
+      final dump = gradeRecall(_tokenDumpOutput, deploy);
+
+      expect(dump.fraction, lessThan(0.5));
+      expect(
+        dump.missedTokens,
+        containsAll(<String>['deploy', 'error', 'cache', 'layer']),
+      );
+    });
+
+    test('an empty output recalls nothing without erroring', () {
+      final result = gradeRecall('', deploy);
+
+      expect(result.found, 0);
+      expect(result.missedTokens.length, deploy.total);
+      expect(result.fraction, 0);
+    });
+
+    test('found and missed together account for the whole passage', () {
+      final result = gradeRecall(_deployLossyOutput, deploy);
+
+      expect(result.found + result.missedTokens.length, deploy.total);
+      expect(result.total, deploy.total);
     });
   });
 
   group('matching rules', () {
-    const latency = ExpectedFact(
-      id: 'latency_940ms',
-      label: 'Latency 940 ms',
-      anyOf: ['940 ms', '940ms'],
-    );
-
-    test('spacing and casing inside a unit do not matter', () {
-      expect(outputContainsFact('Latency hit 940 MS.', latency), isTrue);
-      expect(outputContainsFact('peak: 940ms', latency), isTrue);
-      expect(outputContainsFact('(940 ms)', latency), isTrue);
-    });
-
     test('markdown emphasis around a timestamp does not hide it', () {
-      const time = ExpectedFact(
-        id: 'time_0830',
-        label: '08:30',
-        anyOf: ['08:30'],
-      );
-
-      expect(outputContainsFact('**08:30:** arrived', time), isTrue);
+      expect(outputContainsToken('**08:30:** deploy began', '08:30'), isTrue);
     });
 
-    test('an absent fact stays absent', () {
-      expect(outputContainsFact('Latency hit 512 ms.', latency), isFalse);
+    test('a dropped leading zero still counts', () {
+      expect(outputContainsToken('started at 8:30', '08:30'), isTrue);
     });
-  });
 
-  group('empty output', () {
-    test('recalls nothing without erroring', () {
-      final result = gradeRecall('', deploy);
+    test('a bare 12:00 is not credited as a 12% error rate', () {
+      expect(outputContainsToken('Traffic resumed at 12:00.', '12%'), isFalse);
+      expect(outputContainsToken('Error rate hit 12%.', '12%'), isTrue);
+    });
 
-      expect(result.found, 0);
-      expect(result.missedIds.length, deploy.facts.length);
-      expect(result.fraction, 0);
+    test('a number is not credited by a longer number containing it', () {
+      expect(outputContainsToken('latency was 9400 ms', '940'), isFalse);
+      expect(outputContainsToken('latency was 940 ms', '940'), isTrue);
+    });
+
+    test('inflected forms of a word count', () {
+      expect(outputContainsToken('the cache restart finished', 'restarted'),
+          isTrue);
+      expect(outputContainsToken('traffic returns to normal', 'returned'),
+          isTrue);
+    });
+
+    test('a stem stays specific enough not to match a different word', () {
+      expect(outputContainsToken('it finished later than planned', 'latency'),
+          isFalse);
+    });
+
+    test('a word inside a longer word is not credited', () {
+      expect(outputContainsToken('the recache step', 'cache'), isFalse);
     });
   });
 }

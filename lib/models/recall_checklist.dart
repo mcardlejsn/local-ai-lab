@@ -1,72 +1,28 @@
-/// Deterministic recall grading: how many of a passage's expected facts appear
-/// in a model's output. No model is involved in grading — a fact is either
-/// found by string match or it is not.
+/// Deterministic recall grading: how much of the passage's content survives
+/// into a model's output. No model is involved in grading — a content word is
+/// either present or it is not.
+///
+/// The expected content is derived from whatever passage is being run, so a
+/// custom passage grades exactly like the built-in one. Nothing is authored
+/// per passage and nothing has to match a known text.
 ///
 /// Recall is not accuracy. It counts what the output kept, and says nothing
 /// about what it invented; a run can score full recall and still fabricate.
 /// Faithfulness stays a manual judgement.
 library;
 
-/// One fact a faithful output is expected to carry.
-class ExpectedFact {
-  const ExpectedFact({
-    required this.id,
-    required this.label,
-    required this.anyOf,
-    this.normalizedOnly = false,
-  });
-
-  /// Stable identifier, stored with results so a saved run can name what it
-  /// missed without re-running the matcher.
-  final String id;
-
-  /// Human-readable description, shown in the output modal.
-  final String label;
-
-  /// Accepted surface forms. The fact counts as found if any one of them
-  /// appears in the output.
-  final List<String> anyOf;
-
-  /// Skips the punctuation-insensitive pass for facts whose meaning lives in
-  /// their punctuation. `12%` would otherwise match the `12` inside `12:00`.
-  final bool normalizedOnly;
-}
-
-/// The set of facts expected for one passage, bound to that passage by
-/// fingerprint so an edited passage can't be graded against a stale list.
-class RecallChecklist {
-  const RecallChecklist({
-    required this.passageFingerprint,
-    required this.facts,
-  });
-
-  final String passageFingerprint;
-  final List<ExpectedFact> facts;
-
-  int get total => facts.length;
-
-  ExpectedFact? factById(String id) {
-    for (final fact in facts) {
-      if (fact.id == id) return fact;
-    }
-    return null;
-  }
-}
-
-/// A built-in passage and the facts it expects. The passage text is the control
-/// variable for a benchmark run, so these are fixed rather than generated.
+/// A passage and the instruction it is meant to be run with.
 class BenchmarkPassage {
   const BenchmarkPassage({
     required this.id,
     required this.name,
     required this.text,
     required this.instruction,
-    required this.facts,
   });
 
   final String id;
 
-  /// Short label for the picker.
+  /// Short label.
   final String name;
 
   final String text;
@@ -75,29 +31,38 @@ class BenchmarkPassage {
   /// passage so the task always describes what the text actually contains.
   final String instruction;
 
-  final List<ExpectedFact> facts;
-
-  RecallChecklist get checklist => RecallChecklist(
-        passageFingerprint: fingerprintPassage(text),
-        facts: facts,
-      );
+  PassageProfile get profile => profileForPassage(text);
 }
 
-/// Outcome of grading one output against a checklist.
+/// The content words a passage expects an output to carry, in the order they
+/// first appear. Derived, never authored.
+class PassageProfile {
+  const PassageProfile(this.tokens);
+
+  /// Unique content tokens: everything left after stripping function words.
+  /// Numbers, times, percentages and version strings survive whole.
+  final List<String> tokens;
+
+  int get total => tokens.length;
+
+  bool get isEmpty => tokens.isEmpty;
+}
+
+/// Outcome of grading one output against a profile.
 class RecallResult {
   const RecallResult({
-    required this.foundIds,
-    required this.missedIds,
+    required this.foundTokens,
+    required this.missedTokens,
     required this.total,
   });
 
-  final List<String> foundIds;
-  final List<String> missedIds;
+  final List<String> foundTokens;
+  final List<String> missedTokens;
   final int total;
 
-  int get found => foundIds.length;
+  int get found => foundTokens.length;
 
-  /// Recall as a fraction of expected facts, or null for an empty checklist.
+  /// Recall as a fraction of expected content, or null for an empty passage.
   double? get fraction => total == 0 ? null : found / total;
 }
 
@@ -111,64 +76,132 @@ String normalizeForRecall(String value) {
       .trim();
 }
 
-/// Reduces text to letters and digits only, so `940 ms`, `940ms` and
-/// `(940 ms)` all compare equal.
-String compactForRecall(String value) {
-  return value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
-}
+/// Function words carry no content, so an output isn't credited or penalised
+/// for them. Deliberately conservative: anything not listed here counts.
+const Set<String> recallStopWords = <String>{
+  'a', 'about', 'after', 'again', 'all', 'also', 'an', 'and', 'any', 'are',
+  'as', 'at', 'be', 'because', 'been', 'before', 'being', 'both', 'but', 'by',
+  'can', 'could', 'did', 'do', 'does', 'during', 'each', 'either', 'for',
+  'from', 'further', 'had', 'has', 'have', 'having', 'here', 'how', 'however',
+  'if', 'in', 'into', 'is', 'it', 'its', 'just', 'may', 'might', 'more',
+  'most', 'must', 'no', 'nor', 'not', 'now', 'of', 'off', 'on', 'once',
+  'only', 'or', 'other', 'our', 'out', 'over', 'own', 'said', 'same', 'shall',
+  'should', 'since', 'so', 'some', 'still', 'such', 'than', 'that', 'the',
+  'their', 'them', 'then', 'there', 'these', 'they', 'this', 'those',
+  'through', 'thus', 'to', 'too', 'under', 'until', 'up', 'upon', 'very',
+  'was', 'we', 'were', 'what', 'when', 'where', 'which', 'while', 'who',
+  'whom', 'why', 'will', 'with', 'within', 'without', 'would', 'you', 'your',
+};
 
-/// Fingerprint of a passage's content. FNV-1a, 32-bit, computed over the
-/// normalized text so whitespace and casing edits don't invalidate a checklist
-/// but wording changes do.
-String fingerprintPassage(String passage) {
-  const int offsetBasis = 0x811c9dc5;
-  const int prime = 0x01000193;
+/// Anything that isn't part of a word, a number, or a compound like `08:30`,
+/// `4.2.1`, `12%` or `re-run`.
+final RegExp _tokenSeparator = RegExp("[^a-z0-9:%.'\\-/]+");
 
-  int hash = offsetBasis;
-  for (final unit in normalizeForRecall(passage).codeUnits) {
-    hash = (hash ^ unit) & 0xFFFFFFFF;
-    hash = (hash * prime) & 0xFFFFFFFF;
+/// Punctuation that can sit on either end of a token without belonging to it —
+/// a trailing sentence period, a stray hyphen from a bullet list.
+final RegExp _tokenEdges = RegExp("^[.:'\\-/]+|[.:'\\-/]+\$");
+
+final RegExp _hasDigit = RegExp(r'[0-9]');
+
+/// `08:30` and `8:30` are the same timestamp; models drop the leading zero.
+final RegExp _paddedTime = RegExp(r'^0(\d:\d{2})$');
+
+/// The content tokens of [passage], deduplicated, in order of first
+/// appearance. A token is kept when it carries a digit — timestamps, metrics,
+/// counts, version strings — or when it is a word of three or more letters
+/// that isn't a function word.
+List<String> passageContentTokens(String passage) {
+  final seen = <String>{};
+  final tokens = <String>[];
+
+  for (final raw in normalizeForRecall(passage).split(_tokenSeparator)) {
+    final token = raw.replaceAll(_tokenEdges, '');
+    if (token.isEmpty) continue;
+
+    final keep = _hasDigit.hasMatch(token)
+        ? true
+        : token.length >= 3 && !recallStopWords.contains(token);
+    if (!keep) continue;
+
+    if (seen.add(token)) tokens.add(token);
   }
-  return hash.toRadixString(16).padLeft(8, '0');
+
+  return tokens;
 }
 
-/// True when [output] carries [fact] in any of its accepted forms.
-bool outputContainsFact(String output, ExpectedFact fact) {
+/// The content [PassageProfile] of [passage]. Works on any text — there is no
+/// built-in list to match against.
+PassageProfile profileForPassage(String passage) {
+  return PassageProfile(passageContentTokens(passage));
+}
+
+String _escapeForRegExp(String value) {
+  return value.replaceAllMapped(
+    RegExp(r'[.*+?^${}()|[\]\\/%-]'),
+    (match) => '\\${match[0]}',
+  );
+}
+
+/// Matcher for one content token. Words are matched from their stem, so
+/// `restarted` is credited by `restart` or `restarts`; anything carrying a
+/// digit is matched exactly, so `12%` is never credited by the `12` inside
+/// `12:00`.
+RegExp tokenPattern(String token) {
+  if (_hasDigit.hasMatch(token)) {
+    final forms = <String>[token];
+    final padded = _paddedTime.firstMatch(token);
+    if (padded != null) forms.add(padded.group(1)!);
+
+    final body = forms.map(_escapeForRegExp).join('|');
+    return RegExp('(?<![a-z0-9])(?:$body)(?![a-z0-9])');
+  }
+
+  // Trim up to three characters of inflection, never below five, so `latency`
+  // stays specific enough not to be credited by `later`.
+  final int stemLength = token.length <= 5
+      ? token.length
+      : (token.length - 3 < 5 ? 5 : token.length - 3);
+  final stem = _escapeForRegExp(token.substring(0, stemLength));
+  return RegExp('(?<![a-z])$stem[a-z]*');
+}
+
+/// True when [normalizedOutput] carries [token]. Expects output that has
+/// already been through [normalizeForRecall].
+bool normalizedOutputContainsToken(String normalizedOutput, String token) {
+  return tokenPattern(token).hasMatch(normalizedOutput);
+}
+
+/// True when [output] carries [token].
+bool outputContainsToken(String output, String token) {
+  return normalizedOutputContainsToken(normalizeForRecall(output), token);
+}
+
+/// Grades one output against [profile].
+RecallResult gradeRecall(String output, PassageProfile profile) {
   final normalized = normalizeForRecall(output);
-  final compact = compactForRecall(output);
-
-  for (final form in fact.anyOf) {
-    if (normalized.contains(normalizeForRecall(form))) return true;
-    if (!fact.normalizedOnly && compact.contains(compactForRecall(form))) {
-      return true;
-    }
-  }
-  return false;
-}
-
-/// Grades one output against [checklist].
-RecallResult gradeRecall(String output, RecallChecklist checklist) {
   final found = <String>[];
   final missed = <String>[];
 
-  for (final fact in checklist.facts) {
-    if (outputContainsFact(output, fact)) {
-      found.add(fact.id);
+  for (final token in profile.tokens) {
+    if (normalizedOutputContainsToken(normalized, token)) {
+      found.add(token);
     } else {
-      missed.add(fact.id);
+      missed.add(token);
     }
   }
 
   return RecallResult(
-    foundIds: found,
-    missedIds: missed,
-    total: checklist.facts.length,
+    foundTokens: found,
+    missedTokens: missed,
+    total: profile.tokens.length,
   );
 }
 
-/// Default passage: a deployment timeline. Dense with timestamps, units, a
-/// version string and a duration window, which is the shape that small models
-/// drop facts from, without reading as anyone's personal record.
+/// Sample passage: a deployment timeline. Dense with timestamps, units, a
+/// version string and a duration window, which is the shape small models drop
+/// content from, without reading as anyone's personal record. It is only a
+/// starting text — the passage field is editable and recall follows whatever
+/// is in it.
 const BenchmarkPassage deployIncidentPassage = BenchmarkPassage(
   id: 'deploy_incident',
   name: 'Deploy incident',
@@ -179,96 +212,13 @@ const BenchmarkPassage deployIncidentPassage = BenchmarkPassage(
       '940 ms at 09:30. Rollback ran from 10:00 to 10:45 and restored the '
       'previous build. Traffic returned to baseline at 12:00 with 3 requests '
       'still failing.',
-  facts: [
-    ExpectedFact(
-      id: 'time_0830',
-      label: '08:30 — deploy started',
-      anyOf: ['08:30', '8:30'],
-    ),
-    ExpectedFact(
-      id: 'build_version',
-      label: 'Build 4.2.1',
-      anyOf: ['4.2.1'],
-    ),
-    ExpectedFact(
-      id: 'error_rate_12',
-      label: 'Error rate 12%',
-      anyOf: ['12%', '12 %'],
-      normalizedOnly: true,
-    ),
-    ExpectedFact(
-      id: 'time_0915',
-      label: '09:15 — error rate rose',
-      anyOf: ['09:15', '9:15'],
-    ),
-    ExpectedFact(
-      id: 'cache_restart',
-      label: 'Cache layer restarted',
-      anyOf: ['cache layer', 'cache'],
-    ),
-    ExpectedFact(
-      id: 'time_0930',
-      label: '09:30 — latency peaked',
-      anyOf: ['09:30', '9:30'],
-    ),
-    ExpectedFact(
-      id: 'latency_940ms',
-      label: 'Latency 940 ms',
-      anyOf: ['940 ms', '940ms'],
-    ),
-    ExpectedFact(
-      id: 'event_rollback',
-      label: 'Rollback to previous build',
-      anyOf: ['rollback', 'rolled back'],
-    ),
-    // Split rather than one window fact: a model that writes "10:00 Rollback
-    // began" and "10:45 Rollback completed" has kept both times faithfully,
-    // and should not be marked down for not joining them.
-    ExpectedFact(
-      id: 'time_1000',
-      label: '10:00 — rollback started',
-      anyOf: ['10:00'],
-    ),
-    ExpectedFact(
-      id: 'time_1045',
-      label: '10:45 — rollback finished',
-      anyOf: ['10:45'],
-    ),
-    ExpectedFact(
-      id: 'time_1200',
-      label: '12:00 — traffic back to baseline',
-      anyOf: ['12:00'],
-    ),
-    ExpectedFact(
-      id: 'failing_requests_3',
-      label: '3 requests still failing',
-      anyOf: ['3 requests'],
-    ),
-  ],
 );
 
-/// The passage every benchmark runs. Fixed on purpose: it is the control
-/// variable, so results stay comparable across sessions and devices.
+/// The passage the benchmark screen opens on.
 const BenchmarkPassage benchmarkPassage = deployIncidentPassage;
 
-/// Text the benchmark screen runs.
+/// Text the benchmark screen starts with.
 String get defaultBenchmarkPassage => benchmarkPassage.text;
 
-/// Instruction the benchmark screen runs it with.
+/// Instruction the benchmark screen starts with.
 String get defaultBenchmarkInstruction => benchmarkPassage.instruction;
-
-/// The built-in passage matching [passage], or null for anything else —
-/// including sessions saved before the passage was fixed.
-BenchmarkPassage? builtInPassageFor(String passage) {
-  return fingerprintPassage(passage) ==
-          fingerprintPassage(benchmarkPassage.text)
-      ? benchmarkPassage
-      : null;
-}
-
-/// The checklist for [passage], or null when the passage isn't the built-in
-/// one. A null result means recall grading is unavailable, not that the output
-/// scored zero.
-RecallChecklist? checklistForPassage(String passage) {
-  return builtInPassageFor(passage)?.checklist;
-}

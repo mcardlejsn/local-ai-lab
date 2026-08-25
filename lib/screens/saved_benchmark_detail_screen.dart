@@ -203,7 +203,7 @@ class _SavedBenchmarkDetailScreenState
         _buildReadOnlyBlock(_instruction),
         const SizedBox(height: 12),
         const Text(
-          'Standardized Passage (Shift Note):',
+          'Passage:',
           style: TextStyle(
               color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
         ),

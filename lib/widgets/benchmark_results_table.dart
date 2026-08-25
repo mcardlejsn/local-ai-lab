@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/benchmark_session.dart';
-import '../models/recall_checklist.dart';
 import '../services/model_manager_service.dart';
 
 /// Signature for persisting a manual accuracy score. [score] and [note] are
@@ -326,7 +325,7 @@ class BenchmarkResultsTable extends StatelessWidget {
             'total latency including prompt processing and TTFT. It is therefore '
             'an end-to-end throughput proxy, not pure decode speed.\n'
             'Recall is graded automatically: the share of the passage\'s '
-            'expected facts that appear in the output, median across runs. It '
+            'content words that appear in the output, median across runs. It '
             'counts what was kept and cannot see what was invented.\n'
             'Accuracy is a manual 0–5 score assigned per run against the source '
             'passage; the column shows the median across scored runs. It is a '
@@ -597,11 +596,13 @@ class _OutputModalContentState extends State<_OutputModalContent> {
 /// Turns stored fact ids into the checklist's human-readable labels, falling
 /// back to the raw id if a stored run references a fact the checklist no
 /// longer has.
-String _describeMissedFacts(List<String> ids) {
-  final checklist = benchmarkPassage.checklist;
-  return ids
-      .map((id) => checklist.factById(id)?.label ?? id)
-      .join('; ');
+/// Missed content, as a sample. A long passage can drop dozens of words and
+/// the row only has one line for them.
+String _describeMissedFacts(List<String> tokens) {
+  const shown = 6;
+  if (tokens.length <= shown) return tokens.join(', ');
+  final rest = tokens.length - shown;
+  return '${tokens.take(shown).join(', ')} +$rest more';
 }
 
 class _ScoreDialogResult {
