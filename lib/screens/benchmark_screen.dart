@@ -332,6 +332,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
           prompt: fullPrompt,
           temperature: 0.2,
           topK: 40,
+          maxTokens: 256,
         );
         totalStopwatch.stop();
 

@@ -27,6 +27,7 @@ class GeminiNanoService {
     required String prompt,
     double temperature = 0.20,
     int topK = 40,
+    int maxTokens = 256,
   }) async {
     try {
       final String? result = await _channel.invokeMethod<String>(
@@ -35,6 +36,7 @@ class GeminiNanoService {
           'prompt': prompt,
           'temperature': temperature,
           'topK': topK,
+          'maxTokens': maxTokens,
         },
       );
       return result ?? '';

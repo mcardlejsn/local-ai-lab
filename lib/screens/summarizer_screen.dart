@@ -199,6 +199,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
           prompt: fullPrompt,
           temperature: _temperature,
           topK: _topK,
+          maxTokens: _maxTokens,
         );
 
         _stopTimers();

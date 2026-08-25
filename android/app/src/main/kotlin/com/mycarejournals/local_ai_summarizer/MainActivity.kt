@@ -57,6 +57,10 @@ class MainActivity : FlutterActivity() {
                     val prompt = call.argument<String>("prompt") ?: ""
                     val temperature = call.argument<Double>("temperature")?.toFloat() ?: 0.2f
                     val topK = call.argument<Int>("topK") ?: 40
+                    // Left null when the caller omits it, so the request keeps
+                    // AICore's own output length rather than gaining a cap the
+                    // caller never asked for.
+                    val maxTokens = call.argument<Int>("maxTokens")
 
                     if (prompt.isEmpty()) {
                         result.error("INVALID_PROMPT", "Prompt cannot be empty", null)
@@ -69,6 +73,9 @@ class MainActivity : FlutterActivity() {
                             val request = generateContentRequest(TextPart(prompt)) {
                                 this.temperature = temperature
                                 this.topK = topK
+                                if (maxTokens != null) {
+                                    this.maxOutputTokens = maxTokens
+                                }
                             }
                             val response = withContext(Dispatchers.IO) {
                                 client.generateContent(request)
