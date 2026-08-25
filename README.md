@@ -1,4 +1,4 @@
-# Local AI Summarizer
+# Local AI Lab
 
 An Android app for comparing on-device text summarization across three different
 local inference runtimes on the same hardware, with the same passage and the same
