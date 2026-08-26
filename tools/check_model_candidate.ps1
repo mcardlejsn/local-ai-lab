@@ -140,6 +140,11 @@ function Resolve-LocalPromptFormat {
       $name.Contains('phi_3')) {
     return 'phi3'
   }
+  if ($name.Contains('phi-4') -or
+      $name.Contains('phi4') -or
+      $name.Contains('phi_4')) {
+    return 'phi4'
+  }
   if ($name.Contains('gemma')) {
     return 'gemma'
   }

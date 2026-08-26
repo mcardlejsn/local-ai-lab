@@ -18,6 +18,7 @@ enum PromptFormat {
   chatml,
   qwen3,
   phi3,
+  phi4,
   llama3,
   mistral,
   smollm2,
@@ -37,6 +38,8 @@ extension PromptFormatLabel on PromptFormat {
         return 'qwen3';
       case PromptFormat.phi3:
         return 'phi3';
+      case PromptFormat.phi4:
+        return 'phi4';
       case PromptFormat.llama3:
         return 'llama3';
       case PromptFormat.mistral:
@@ -78,6 +81,11 @@ PromptFormat resolvePromptFormat(String fileName) {
       name.contains('phi_3')) {
     return PromptFormat.phi3;
   }
+  if (name.contains('phi-4') ||
+      name.contains('phi4') ||
+      name.contains('phi_4')) {
+    return PromptFormat.phi4;
+  }
   if (name.contains('gemma')) return PromptFormat.gemma;
   if (name.contains('llama-3') ||
       name.contains('llama3') ||
@@ -117,6 +125,8 @@ String buildPrompt({
           '<|im_start|>assistant\n'
           '<think>\n\n</think>\n\n';
     case PromptFormat.phi3:
+      return '<|user|>\n$body<|end|>\n<|assistant|>\n';
+    case PromptFormat.phi4:
       return '<|user|>\n$body<|end|>\n<|assistant|>\n';
     case PromptFormat.smollm2:
       return '<|im_start|>system\n'
