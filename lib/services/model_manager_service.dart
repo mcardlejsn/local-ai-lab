@@ -12,7 +12,7 @@ enum ModelEngine { nano, mediapipe, gguf }
 /// The instruction-tuning wrapper a model expects around a prompt. This is not
 /// conversational state — it is the framing each fine-tune was trained on, and
 /// sending the wrong one pushes the model off-distribution.
-enum PromptFormat { plain, gemma, chatml, llama3, mistral }
+enum PromptFormat { plain, gemma, chatml, llama3, mistral, smollm2 }
 
 extension PromptFormatLabel on PromptFormat {
   String get label {
@@ -27,6 +27,8 @@ extension PromptFormatLabel on PromptFormat {
         return 'llama3';
       case PromptFormat.mistral:
         return 'mistral';
+      case PromptFormat.smollm2:
+        return 'smollm2';
     }
   }
 }
@@ -36,6 +38,8 @@ extension PromptFormatLabel on PromptFormat {
 /// confidently wrong wrapper.
 PromptFormat resolvePromptFormat(String fileName) {
   final String name = fileName.toLowerCase();
+
+  if (name.contains('smollm2')) return PromptFormat.smollm2;
 
   // Explicit ChatML indicators take precedence over the underlying model
   // family. For example, Hermes 3 filenames can also contain "Llama-3.2",
@@ -74,6 +78,11 @@ String buildPrompt({
       return '<start_of_turn>user\n$body<end_of_turn>\n<start_of_turn>model\n';
     case PromptFormat.chatml:
       return '<|im_start|>user\n$body<|im_end|>\n<|im_start|>assistant\n';
+    case PromptFormat.smollm2:
+      return '<|im_start|>system\n'
+          'You are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|>\n'
+          '<|im_start|>user\n$body<|im_end|>\n'
+          '<|im_start|>assistant\n';
     case PromptFormat.llama3:
       // BOS is emitted by the runtime, so it is deliberately omitted here to
       // avoid a duplicate begin-of-text token.

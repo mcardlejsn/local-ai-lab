@@ -82,6 +82,12 @@ function Resolve-LocalPromptFormat {
   # lib/services/model_manager_service.dart.
   $name = $FileName.ToLowerInvariant()
 
+  if ($name.Contains('smollm2')) {
+    return 'smollm2'
+  }
+  if ($name.Contains('chatml') -or $name.Contains('hermes')) {
+    return 'chatml'
+  }
   if ($name.Contains('gemma')) {
     return 'gemma'
   }
@@ -93,9 +99,7 @@ function Resolve-LocalPromptFormat {
   if ($name.Contains('mistral') -or $name.Contains('mixtral')) {
     return 'mistral'
   }
-  if ($name.Contains('qwen') -or
-      $name.Contains('chatml') -or
-      $name.Contains('hermes')) {
+  if ($name.Contains('qwen')) {
     return 'chatml'
   }
 

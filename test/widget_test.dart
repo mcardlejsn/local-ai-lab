@@ -21,6 +21,13 @@ void main() {
       );
     });
 
+    test('recognizes the dedicated SmolLM2 prompt format', () {
+      expect(
+        resolvePromptFormat('smollm2-1.7b-instruct-q4_k_m.gguf'),
+        PromptFormat.smollm2,
+      );
+    });
+
     test('recognizes existing supported filename families', () {
       expect(
         resolvePromptFormat('Llama-3.2-1B-Instruct-Q4_K_M.gguf'),
@@ -55,6 +62,34 @@ void main() {
   group('inference prompt formatting', () {
     const instruction = 'Summarize this:';
     const rawText = 'A short passage.';
+
+    test('SmolLM2 includes its official default system message', () {
+      final prompt = buildPrompt(
+        format: PromptFormat.smollm2,
+        instruction: instruction,
+        rawText: rawText,
+      );
+
+      expect(
+        prompt,
+        '<|im_start|>system\n'
+        'You are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|>\n'
+        '<|im_start|>user\n'
+        'Summarize this:\n\n"""\nA short passage.\n"""<|im_end|>\n'
+        '<|im_start|>assistant\n',
+      );
+    });
+
+    test('generic ChatML does not inherit the SmolLM2 system message', () {
+      final prompt = buildPrompt(
+        format: PromptFormat.chatml,
+        instruction: instruction,
+        rawText: rawText,
+      );
+
+      expect(prompt, isNot(contains('named SmolLM')));
+      expect(prompt, startsWith('<|im_start|>user\n'));
+    });
 
     test('MediaPipe retains the manual Gemma template required by .bin', () {
       final prompt = buildInferencePrompt(
