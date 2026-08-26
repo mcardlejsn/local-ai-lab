@@ -3,112 +3,14 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../models/gguf_compatibility_policy.dart';
 import 'gemini_nano_service.dart';
 import 'llama_gguf_service.dart';
 import 'mediapipe_gemma_service.dart';
 
+export '../models/gguf_compatibility_policy.dart';
+
 enum ModelEngine { nano, mediapipe, gguf }
-
-/// The instruction-tuning wrapper a model expects around a prompt. This is not
-/// conversational state — it is the framing each fine-tune was trained on, and
-/// sending the wrong one pushes the model off-distribution.
-enum PromptFormat {
-  plain,
-  gemma,
-  chatml,
-  falconH1,
-  qwen3,
-  phi3,
-  phi4,
-  llama3,
-  mistral,
-  smollm2,
-  smollm3,
-}
-
-extension PromptFormatLabel on PromptFormat {
-  String get label {
-    switch (this) {
-      case PromptFormat.plain:
-        return 'plain';
-      case PromptFormat.gemma:
-        return 'gemma';
-      case PromptFormat.chatml:
-        return 'chatml';
-      case PromptFormat.falconH1:
-        return 'falcon-h1';
-      case PromptFormat.qwen3:
-        return 'qwen3';
-      case PromptFormat.phi3:
-        return 'phi3';
-      case PromptFormat.phi4:
-        return 'phi4';
-      case PromptFormat.llama3:
-        return 'llama3';
-      case PromptFormat.mistral:
-        return 'mistral';
-      case PromptFormat.smollm2:
-        return 'smollm2';
-      case PromptFormat.smollm3:
-        return 'smollm3';
-    }
-  }
-}
-
-/// Resolves a prompt format from a model filename. Falls back to [PromptFormat.plain]
-/// for anything unrecognized, since an unwrapped instruction is safer than a
-/// confidently wrong wrapper.
-PromptFormat resolvePromptFormat(String fileName) {
-  final String name = fileName.toLowerCase();
-
-  if (name.contains('smollm3')) return PromptFormat.smollm3;
-  if (name.contains('smollm2')) return PromptFormat.smollm2;
-
-  // Explicit ChatML indicators take precedence over the underlying model
-  // family. For example, Hermes 3 filenames can also contain "Llama-3.2",
-  // but Hermes 3 expects ChatML rather than the Llama 3 instruction wrapper.
-  if (name.contains('chatml') || name.contains('hermes')) {
-    return PromptFormat.chatml;
-  }
-  final bool isFalconH105B = name.contains('falcon-h1-0.5b') ||
-      name.contains('falcon_h1_0.5b') ||
-      name.contains('falconh1-0.5b') ||
-      name.contains('falconh1_0.5b');
-  if (isFalconH105B) return PromptFormat.falconH1;
-  final bool isQwen35 = name.contains('qwen3.5') ||
-      name.contains('qwen-3.5') ||
-      name.contains('qwen_3.5');
-  if (!isQwen35 &&
-      (name.contains('qwen3') ||
-          name.contains('qwen-3') ||
-          name.contains('qwen_3'))) {
-    return PromptFormat.qwen3;
-  }
-  if (name.contains('phi-3') ||
-      name.contains('phi3') ||
-      name.contains('phi_3')) {
-    return PromptFormat.phi3;
-  }
-  if (name.contains('phi-4') ||
-      name.contains('phi4') ||
-      name.contains('phi_4')) {
-    return PromptFormat.phi4;
-  }
-  if (name.contains('gemma')) return PromptFormat.gemma;
-  if (name.contains('llama-3') ||
-      name.contains('llama3') ||
-      name.contains('llama_3')) {
-    return PromptFormat.llama3;
-  }
-  if (name.contains('mistral') || name.contains('mixtral')) {
-    return PromptFormat.mistral;
-  }
-  if (name.contains('qwen')) {
-    return PromptFormat.chatml;
-  }
-
-  return PromptFormat.plain;
-}
 
 /// Wraps [instruction] and [rawText] in the framing [format] expects.
 String buildPrompt({
