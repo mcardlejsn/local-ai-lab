@@ -1,0 +1,34 @@
+# Local AI Lab GGUF candidate repositories
+# One verified Hugging Face owner/name repository ID per line.
+# Blank lines and lines beginning with # are ignored.
+#
+# PASS means mechanically suitable only. Every exact pinned artifact must still
+# pass Local AI Lab's benchmark suite on the target phone before catalog entry.
+# REVIEW repositories must not proceed to phone benchmarking until the reported
+# license, purpose, or prompt-format issue is resolved.
+
+# Qwen2.5
+Qwen/Qwen2.5-1.5B-Instruct-GGUF
+Qwen/Qwen2.5-3B-Instruct-GGUF
+
+# Llama and Gemma
+bartowski/Llama-3.2-1B-Instruct-GGUF
+bartowski/google_gemma-3-1b-it-GGUF
+
+# SmolLM
+HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF
+ggml-org/SmolLM3-3B-GGUF
+
+# Phi
+bartowski/Phi-3.5-mini-instruct-GGUF
+bartowski/microsoft_Phi-4-mini-instruct-GGUF
+
+# Falcon and LFM
+tiiuae/Falcon-H1-0.5B-Instruct-GGUF
+tiiuae/Falcon-H1-1.5B-Instruct-GGUF
+LiquidAI/LFM2.5-1.2B-Instruct-GGUF
+
+# Known prompt/purpose review candidates
+mistralai/Ministral-3-3B-Instruct-2512-GGUF
+bartowski/Qwen_Qwen3-1.7B-GGUF
+bartowski/Qwen_Qwen3.5-2B-GGUF
