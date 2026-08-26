@@ -151,7 +151,6 @@ class ModelManagerService extends ChangeNotifier {
     final List<Directory> dirs = [];
     final extDir = await getExternalStorageDirectory();
     if (extDir != null) {
-      dirs.add(Directory(p.join(extDir.path, 'models')));
       dirs.add(extDir);
     }
     return dirs;
@@ -251,7 +250,7 @@ class ModelManagerService extends ChangeNotifier {
       } else {
         _activeModel = null;
         await unloadAllEngines();
-        _statusMessage = 'No models found (System NPU or files/models/)';
+        _statusMessage = 'No models found (System NPU or files/)';
       }
     } catch (e) {
       _statusMessage = 'Scan error: $e';

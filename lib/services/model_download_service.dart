@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-/// Downloads a single model file into the same `models/` directory
+/// Downloads a single model file into the same directory
 /// [ModelManagerService.scanModels] reads from.
 ///
 /// The in-flight file is written as `<name>.part`, an extension the scanner
@@ -85,15 +85,17 @@ class ModelDownloadService {
   static const String _userAgent = 'LocalAILab/1.0 (Android; Dart:io)';
   static const Duration _connectionTimeout = Duration(seconds: 30);
 
-  /// The directory [ModelManagerService] scans. Created if absent.
+  /// The app's external files directory — `Android/data/<package>/files/`,
+  /// the directory [ModelManagerService.scanModels] reads. Downloads land
+  /// here rather than in a `models/` subfolder, so an installed model is one
+  /// level in from the app's data folder instead of two.
   Future<Directory?> resolveModelsDirectory() async {
     final Directory? extDir = await getExternalStorageDirectory();
     if (extDir == null) return null;
-    final Directory modelsDir = Directory(p.join(extDir.path, 'models'));
-    if (!await modelsDir.exists()) {
-      await modelsDir.create(recursive: true);
+    if (!await extDir.exists()) {
+      await extDir.create(recursive: true);
     }
-    return modelsDir;
+    return extDir;
   }
 
   /// Bytes already downloaded for [fileName], or 0 if there is no partial file.
@@ -122,8 +124,8 @@ class ModelDownloadService {
     }
   }
 
-  /// Downloads [url] to `models/[fileName]`, resuming an existing `.part` when
-  /// one is present.
+  /// Downloads [url] to [fileName] in the app's external files directory,
+  /// resuming an existing `.part` when one is present.
   ///
   /// [expectedSha256] is the digest of the complete file, compared
   /// case-insensitively. [fileName] must carry the model's real extension
