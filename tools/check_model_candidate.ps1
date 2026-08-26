@@ -171,6 +171,14 @@ if ($isGated) {
   $failReasons += ("The repository is gated ({0})." -f $gatedValue)
 }
 
+$tagsValue = Get-PropertyValue -InputObject $metadata -Name 'tags'
+$metadataTags = if ($null -eq $tagsValue) {
+  @()
+} else {
+  @($tagsValue | ForEach-Object { [string]$_ })
+}
+$hasConversationalTag = $metadataTags -icontains 'conversational'
+
 $cardData = Get-PropertyValue -InputObject $metadata -Name 'cardData'
 $licenseValue = if ($null -eq $cardData) {
   $null
@@ -282,6 +290,8 @@ if ($identityText -match '(?i)(?:^|[-_./ ])base(?:$|[-_./ ])') {
   $purpose = 'base'
   $failReasons += 'The repository or artifact is explicitly labeled as a base model.'
 } elseif ($identityText -match '(?i)(?:^|[-_./ ])(?:instruct(?:ion|ed)?|chat|it)(?:$|[-_./ ])') {
+  $purpose = 'instruction/chat'
+} elseif ($hasConversationalTag) {
   $purpose = 'instruction/chat'
 } else {
   $purpose = 'unclear'
