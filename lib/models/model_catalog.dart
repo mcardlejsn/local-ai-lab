@@ -92,4 +92,16 @@ const List<CatalogModel> kModelCatalog = <CatalogModel>[
     license: 'Apache-2.0',
     sourcePage: 'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF',
   ),
+  CatalogModel(
+    id: 'qwen2.5-0.5b-instruct-q4_k_m',
+    displayName: 'Qwen2.5 0.5B Instruct (Q4_K_M)',
+    fileName: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
+    url: 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/'
+        '9217f5db79a29953eb74d5343926648285ec7e67/'
+        'qwen2.5-0.5b-instruct-q4_k_m.gguf',
+    sizeBytes: 491400032,
+    sha256: '74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db',
+    license: 'Apache-2.0',
+    sourcePage: 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF',
+  ),
 ];
