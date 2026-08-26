@@ -16,6 +16,7 @@ enum PromptFormat {
   plain,
   gemma,
   chatml,
+  falconH1,
   qwen3,
   phi3,
   phi4,
@@ -34,6 +35,8 @@ extension PromptFormatLabel on PromptFormat {
         return 'gemma';
       case PromptFormat.chatml:
         return 'chatml';
+      case PromptFormat.falconH1:
+        return 'falcon-h1';
       case PromptFormat.qwen3:
         return 'qwen3';
       case PromptFormat.phi3:
@@ -67,6 +70,11 @@ PromptFormat resolvePromptFormat(String fileName) {
   if (name.contains('chatml') || name.contains('hermes')) {
     return PromptFormat.chatml;
   }
+  final bool isFalconH105B = name.contains('falcon-h1-0.5b') ||
+      name.contains('falcon_h1_0.5b') ||
+      name.contains('falconh1-0.5b') ||
+      name.contains('falconh1_0.5b');
+  if (isFalconH105B) return PromptFormat.falconH1;
   final bool isQwen35 = name.contains('qwen3.5') ||
       name.contains('qwen-3.5') ||
       name.contains('qwen_3.5');
@@ -116,6 +124,10 @@ String buildPrompt({
     case PromptFormat.gemma:
       return '<start_of_turn>user\n$body<end_of_turn>\n<start_of_turn>model\n';
     case PromptFormat.chatml:
+      return '<|im_start|>user\n$body<|im_end|>\n<|im_start|>assistant\n';
+    case PromptFormat.falconH1:
+      // Falcon-H1's official template begins with BOS. The runtime emits BOS,
+      // so it is deliberately omitted here to avoid a duplicate token.
       return '<|im_start|>user\n$body<|im_end|>\n<|im_start|>assistant\n';
     case PromptFormat.qwen3:
       // The raw llama.cpp path cannot pass enable_thinking=false to Qwen3's

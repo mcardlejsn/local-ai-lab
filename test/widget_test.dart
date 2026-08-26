@@ -64,6 +64,17 @@ void main() {
       );
     });
 
+    test('recognizes only the audited Falcon-H1 0.5B prompt format', () {
+      expect(
+        resolvePromptFormat('Falcon-H1-0.5B-Instruct-Q4_K_M.gguf'),
+        PromptFormat.falconH1,
+      );
+      expect(
+        resolvePromptFormat('Falcon-H1-1.5B-Instruct-Q4_K_M.gguf'),
+        PromptFormat.plain,
+      );
+    });
+
     test('recognizes existing supported filename families', () {
       expect(
         resolvePromptFormat('Llama-3.2-1B-Instruct-Q4_K_M.gguf'),
@@ -181,6 +192,22 @@ void main() {
         '<|assistant|>\n',
       );
       expect(prompt, isNot(contains('<|system|>')));
+    });
+
+    test('Falcon-H1 0.5B uses its official user-only ChatML prompt', () {
+      final prompt = buildPrompt(
+        format: PromptFormat.falconH1,
+        instruction: instruction,
+        rawText: rawText,
+      );
+
+      expect(
+        prompt,
+        '<|im_start|>user\n'
+        'Summarize this:\n\n"""\nA short passage.\n"""<|im_end|>\n'
+        '<|im_start|>assistant\n',
+      );
+      expect(prompt, isNot(startsWith('<|begin_of_text|>')));
     });
 
     test('generic ChatML does not inherit the SmolLM2 system message', () {

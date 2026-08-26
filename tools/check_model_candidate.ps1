@@ -126,6 +126,13 @@ function Resolve-LocalPromptFormat {
   if ($name.Contains('chatml') -or $name.Contains('hermes')) {
     return 'chatml'
   }
+  $isFalconH105B = $name.Contains('falcon-h1-0.5b') -or
+    $name.Contains('falcon_h1_0.5b') -or
+    $name.Contains('falconh1-0.5b') -or
+    $name.Contains('falconh1_0.5b')
+  if ($isFalconH105B) {
+    return 'falcon-h1'
+  }
   $isQwen35 = $name.Contains('qwen3.5') -or
     $name.Contains('qwen-3.5') -or
     $name.Contains('qwen_3.5')
@@ -239,10 +246,19 @@ $directLicenseValue = if ($null -eq $cardData) {
 } else {
   Get-PropertyValue -InputObject $cardData -Name 'license'
 }
+$directLicenseNameValue = if ($null -eq $cardData) {
+  $null
+} else {
+  Get-PropertyValue -InputObject $cardData -Name 'license_name'
+}
 $license = if ([string]::IsNullOrWhiteSpace([string]$directLicenseValue)) {
   'Unknown'
 } else {
   ([string]$directLicenseValue).Trim()
+}
+if ($license -ieq 'other' -and
+    -not [string]::IsNullOrWhiteSpace([string]$directLicenseNameValue)) {
+  $license = ([string]$directLicenseNameValue).Trim()
 }
 $licenseSourceRepository = ''
 $licenseSourceCommit = ''
@@ -310,6 +326,10 @@ switch ($license.ToLowerInvariant()) {
   }
   'mit' {
     $catalogLicense = 'MIT'
+    break
+  }
+  'falcon-llm-license' {
+    $catalogLicense = 'Falcon-LLM License'
     break
   }
   'unknown' {
