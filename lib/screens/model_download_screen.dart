@@ -139,6 +139,9 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
         return 'Checksum did not match. The file was discarded, not installed.';
       case DownloadOutcome.storageError:
         return 'Storage error: ${result.message ?? 'could not write the file'}.';
+      case DownloadOutcome.fileConflict:
+        return 'A different file already uses this model filename. '
+            'It was not changed.';
     }
   }
 

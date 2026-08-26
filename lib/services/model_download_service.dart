@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+typedef ModelsDirectoryResolver = Future<Directory?> Function();
+
 /// Downloads a single model file into the same directory
 /// [ModelManagerService.scanModels] reads from.
 ///
@@ -34,6 +36,18 @@ enum DownloadOutcome {
 
   /// The models directory or the file could not be written.
   storageError,
+
+  /// A different file already occupies the exact destination filename.
+  /// Nothing is overwritten or deleted.
+  fileConflict,
+}
+
+/// Relationship between an installed filename and an expected exact artifact.
+enum InstalledArtifactStatus {
+  absent,
+  matchesExpected,
+  differentFile,
+  storageUnavailable,
 }
 
 class DownloadResult {
@@ -80,22 +94,49 @@ class DownloadCancelToken {
 }
 
 class ModelDownloadService {
-  ModelDownloadService();
+  ModelDownloadService({ModelsDirectoryResolver? modelsDirectoryResolver})
+      : _modelsDirectoryResolver = modelsDirectoryResolver;
 
   static const String _userAgent = 'LocalAILab/1.0 (Android; Dart:io)';
   static const Duration _connectionTimeout = Duration(seconds: 30);
+
+  final ModelsDirectoryResolver? _modelsDirectoryResolver;
 
   /// The app's external files directory — `Android/data/<package>/files/`,
   /// the directory [ModelManagerService.scanModels] reads. Downloads land
   /// here rather than in a `models/` subfolder, so an installed model is one
   /// level in from the app's data folder instead of two.
   Future<Directory?> resolveModelsDirectory() async {
+    final ModelsDirectoryResolver? override = _modelsDirectoryResolver;
+    if (override != null) return override();
+
     final Directory? extDir = await getExternalStorageDirectory();
     if (extDir == null) return null;
     if (!await extDir.exists()) {
       await extDir.create(recursive: true);
     }
     return extDir;
+  }
+
+  /// Checks whether [fileName] is the exact artifact identified by
+  /// [expectedSha256]. A same-named file with different bytes is never treated
+  /// as installed for that artifact.
+  Future<InstalledArtifactStatus> installedArtifactStatus({
+    required String fileName,
+    required String expectedSha256,
+  }) async {
+    try {
+      final Directory? modelsDir = await resolveModelsDirectory();
+      if (modelsDir == null) {
+        return InstalledArtifactStatus.storageUnavailable;
+      }
+      return await _installedArtifactStatus(
+        File(p.join(modelsDir.path, fileName)),
+        expectedSha256,
+      );
+    } on FileSystemException {
+      return InstalledArtifactStatus.storageUnavailable;
+    }
   }
 
   /// Bytes already downloaded for [fileName], or 0 if there is no partial file.
@@ -146,12 +187,37 @@ class ModelDownloadService {
     }
 
     final File target = File(p.join(modelsDir.path, fileName));
-    if (await target.exists()) {
-      return DownloadResult(
-        DownloadOutcome.completed,
-        filePath: target.path,
-        message: 'Already installed.',
+    final InstalledArtifactStatus installedStatus;
+    try {
+      installedStatus = await _installedArtifactStatus(
+        target,
+        expectedSha256,
       );
+    } on FileSystemException catch (error) {
+      return DownloadResult(
+        DownloadOutcome.storageError,
+        message: error.message,
+      );
+    }
+    switch (installedStatus) {
+      case InstalledArtifactStatus.matchesExpected:
+        return DownloadResult(
+          DownloadOutcome.completed,
+          filePath: target.path,
+          message: 'Already installed.',
+        );
+      case InstalledArtifactStatus.differentFile:
+        return const DownloadResult(
+          DownloadOutcome.fileConflict,
+          message: 'A different file already uses this filename.',
+        );
+      case InstalledArtifactStatus.storageUnavailable:
+        return const DownloadResult(
+          DownloadOutcome.storageError,
+          message: 'The installed file could not be inspected.',
+        );
+      case InstalledArtifactStatus.absent:
+        break;
     }
 
     final File part = File(p.join(modelsDir.path, '$fileName.part'));
@@ -323,6 +389,17 @@ class ModelDownloadService {
   Future<String> _sha256OfFile(File file) async {
     final Digest digest = await sha256.bind(file.openRead()).first;
     return digest.toString();
+  }
+
+  Future<InstalledArtifactStatus> _installedArtifactStatus(
+    File target,
+    String expectedSha256,
+  ) async {
+    if (!await target.exists()) return InstalledArtifactStatus.absent;
+    final String actualSha256 = await _sha256OfFile(target);
+    return actualSha256.toLowerCase() == expectedSha256.toLowerCase()
+        ? InstalledArtifactStatus.matchesExpected
+        : InstalledArtifactStatus.differentFile;
   }
 
   int? _contentLengthOrNull(HttpClientResponse response) {
