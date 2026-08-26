@@ -72,6 +72,41 @@ function ConvertTo-DartSingleQuotedString {
   return $Value.Replace('\', '\\').Replace("'", "\'")
 }
 
+function Get-QuantizedBaseModelRepositories {
+  param(
+    [AllowNull()]
+    [object]$CardData,
+
+    [Parameter(Mandatory = $true)]
+    [AllowEmptyCollection()]
+    [string[]]$Tags
+  )
+
+  $repositories = @()
+
+  if ($null -ne $CardData) {
+    $relationValue = Get-PropertyValue -InputObject $CardData -Name 'base_model_relation'
+    $baseModelValue = Get-PropertyValue -InputObject $CardData -Name 'base_model'
+    if (([string]$relationValue).Trim() -ieq 'quantized' -and
+        $null -ne $baseModelValue) {
+      foreach ($candidate in @($baseModelValue)) {
+        $candidateRepository = ([string]$candidate).Trim().Trim('/')
+        if ($candidateRepository -match '^[^/\s]+/[^/\s]+$') {
+          $repositories += $candidateRepository
+        }
+      }
+    }
+  }
+
+  foreach ($tag in $Tags) {
+    if ($tag -match '(?i)^base_model:quantized:(?<repository>[^/\s]+/[^/\s]+)$') {
+      $repositories += $Matches.repository
+    }
+  }
+
+  return @($repositories | Sort-Object -Unique)
+}
+
 function Resolve-LocalPromptFormat {
   param(
     [Parameter(Mandatory = $true)]
@@ -189,15 +224,69 @@ $metadataTags = if ($null -eq $tagsValue) {
 $hasConversationalTag = $metadataTags -icontains 'conversational'
 
 $cardData = Get-PropertyValue -InputObject $metadata -Name 'cardData'
-$licenseValue = if ($null -eq $cardData) {
+$directLicenseValue = if ($null -eq $cardData) {
   $null
 } else {
   Get-PropertyValue -InputObject $cardData -Name 'license'
 }
-$license = if ($null -eq $licenseValue) {
+$license = if ([string]::IsNullOrWhiteSpace([string]$directLicenseValue)) {
   'Unknown'
 } else {
-  ([string]$licenseValue).Trim()
+  ([string]$directLicenseValue).Trim()
+}
+$licenseSourceRepository = ''
+$licenseSourceCommit = ''
+$licenseReviewAdded = $false
+
+if ($license -ieq 'Unknown') {
+  $quantizedBaseModels = @(Get-QuantizedBaseModelRepositories `
+      -CardData $cardData `
+      -Tags $metadataTags)
+
+  if ($quantizedBaseModels.Count -gt 1) {
+    $reviewReasons += 'More than one explicitly linked quantized base model was found; license inheritance is ambiguous.'
+    $licenseReviewAdded = $true
+  } elseif ($quantizedBaseModels.Count -eq 1) {
+    $upstreamRepository = [string]$quantizedBaseModels[0]
+    $encodedUpstreamRepository = ConvertTo-EncodedPath -Path $upstreamRepository
+    $upstreamApiUrl = "https://huggingface.co/api/models/${encodedUpstreamRepository}"
+
+    try {
+      $upstreamMetadata = Invoke-RestMethod `
+        -Uri $upstreamApiUrl `
+        -Method Get `
+        -Headers @{ 'User-Agent' = 'Local-AI-Lab-Curation-Tool/1.0' } `
+        -TimeoutSec 30
+
+      $upstreamCommitValue = Get-PropertyValue -InputObject $upstreamMetadata -Name 'sha'
+      $upstreamCommit = if ($null -eq $upstreamCommitValue) {
+        ''
+      } else {
+        [string]$upstreamCommitValue
+      }
+      $upstreamCardData = Get-PropertyValue -InputObject $upstreamMetadata -Name 'cardData'
+      $upstreamLicenseValue = if ($null -eq $upstreamCardData) {
+        $null
+      } else {
+        Get-PropertyValue -InputObject $upstreamCardData -Name 'license'
+      }
+
+      if ($upstreamCommit -notmatch '^[0-9a-fA-F]{40}$') {
+        $reviewReasons += ("The linked upstream model '{0}' did not provide a complete 40-character commit hash." -f $upstreamRepository)
+        $licenseReviewAdded = $true
+      } elseif ([string]::IsNullOrWhiteSpace([string]$upstreamLicenseValue)) {
+        $reviewReasons += ("The linked upstream model card '{0}' does not declare a license." -f $upstreamRepository)
+        $licenseReviewAdded = $true
+      } else {
+        $license = ([string]$upstreamLicenseValue).Trim()
+        $licenseSourceRepository = $upstreamRepository
+        $licenseSourceCommit = $upstreamCommit.ToLowerInvariant()
+      }
+    } catch {
+      $reviewReasons += ("The linked upstream model metadata request failed for '{0}'." -f $upstreamRepository)
+      $licenseReviewAdded = $true
+    }
+  }
 }
 
 $catalogLicense = $license
@@ -211,7 +300,9 @@ switch ($license.ToLowerInvariant()) {
     break
   }
   'unknown' {
-    $reviewReasons += 'The model card does not declare a license.'
+    if (-not $licenseReviewAdded) {
+      $reviewReasons += 'The model card does not declare a license.'
+    }
     break
   }
   default {
@@ -366,6 +457,9 @@ Write-Output ("Repository     : {0}" -f $repositoryId)
 Write-Output ("Commit         : {0}" -f $(if ($commit) { $commit } else { 'Unknown' }))
 Write-Output ("Access         : {0}" -f $accessLabel)
 Write-Output ("License        : {0}" -f $license)
+if ($licenseSourceRepository) {
+  Write-Output ("License source : {0} @ {1}" -f $licenseSourceRepository, $licenseSourceCommit)
+}
 Write-Output ("Purpose        : {0}" -f $purpose)
 Write-Output ("Parameters     : {0}" -f $parameterLabel)
 Write-Output ("Q4_K_M files   : {0} total, {1} unsharded" -f $q4Files.Count, $unshardedQ4Files.Count)
