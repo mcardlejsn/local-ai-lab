@@ -112,6 +112,55 @@ class _SavedBenchmarkSessionsScreenState
     );
   }
 
+  Future<void> _confirmDeleteSession(
+      int sessionId, String completedLabel) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: _surfaceColor,
+        title: const Text(
+          'Delete this session?',
+          style: TextStyle(color: Colors.white, fontSize: 16),
+        ),
+        content: Text(
+          'The session from $completedLabel and all of its runs will be '
+          'removed. This cannot be undone.',
+          style: const TextStyle(color: Colors.white70, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            style: TextButton.styleFrom(foregroundColor: Colors.white54),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    String message;
+    try {
+      await DatabaseService.instance.deleteBenchmarkSession(sessionId);
+      message = 'Session deleted.';
+    } catch (e) {
+      message = 'Could not delete the session: $e';
+    }
+
+    // A deleted session may have been one of the two picked for comparison.
+    _selectedIds.remove(sessionId);
+    await _loadSessions();
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
   String _formatCompletedAt(Object? rawValue) {
     if (rawValue is! String) return 'Unknown date';
     final parsed = DateTime.tryParse(rawValue);
@@ -229,6 +278,8 @@ class _SavedBenchmarkSessionsScreenState
         final modelCount = session['model_count'] as int? ?? modelNames.length;
         final runsPerModel = session['runs_per_model'] as int? ?? 0;
         final bool selected = _selectedIds.contains(sessionId);
+        final String completedLabel =
+            _formatCompletedAt(session['completed_at']);
 
         return Material(
           color: _surfaceColor,
@@ -265,7 +316,7 @@ class _SavedBenchmarkSessionsScreenState
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          _formatCompletedAt(session['completed_at']),
+                          completedLabel,
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w600,
@@ -273,12 +324,26 @@ class _SavedBenchmarkSessionsScreenState
                           ),
                         ),
                       ),
-                      if (!_selectionMode)
+                      if (!_selectionMode) ...[
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline_rounded),
+                          color: Colors.white38,
+                          iconSize: 20,
+                          tooltip: 'Delete Session',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
+                          ),
+                          onPressed: () =>
+                              _confirmDeleteSession(sessionId, completedLabel),
+                        ),
                         const Icon(
                           Icons.chevron_right_rounded,
                           color: Colors.white38,
                           size: 20,
                         ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 6),

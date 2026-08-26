@@ -207,6 +207,18 @@ class DatabaseService {
     return db.delete('summaries', where: 'id = ?', whereArgs: [id]);
   }
 
+  /// Deletes a completed benchmark session. Its rows in `benchmark_runs` go
+  /// with it via `ON DELETE CASCADE`, which is live because `onConfigure`
+  /// turns on `PRAGMA foreign_keys`.
+  Future<int> deleteBenchmarkSession(int sessionId) async {
+    final db = await instance.database;
+    return db.delete(
+      'benchmark_sessions',
+      where: 'id = ?',
+      whereArgs: [sessionId],
+    );
+  }
+
   Future<int> insertCompletedBenchmark({
     required String passage,
     required String instruction,
