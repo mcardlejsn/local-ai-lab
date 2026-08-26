@@ -12,7 +12,7 @@ class HuggingFaceRepositorySummary {
     return HuggingFaceRepositorySummary(
       id: _requiredString(json, 'id'),
       isPrivate: _requiredBool(json, 'private'),
-      gatedStatus: _requiredGatedStatus(json),
+      gatedStatus: _gatedStatus(json),
       tags: _requiredStringList(json, 'tags'),
       lastModified: _optionalDateTime(json['lastModified']),
     );
@@ -67,7 +67,7 @@ class HuggingFaceRepositoryMetadata {
       id: _requiredString(json, 'id'),
       commitSha: commitSha,
       isPrivate: _requiredBool(json, 'private'),
-      gatedStatus: _requiredGatedStatus(json),
+      gatedStatus: _gatedStatus(json),
       tags: tags,
       files: List<HuggingFaceRepositoryFile>.unmodifiable(
         siblingsValue.map((Object? value) {
@@ -158,14 +158,21 @@ bool _requiredBool(Map<String, dynamic> json, String key) {
   return value;
 }
 
-String _requiredGatedStatus(Map<String, dynamic> json) {
+String _gatedStatus(Map<String, dynamic> json) {
   final Object? value = json['gated'];
+  // Hugging Face's public API defines this field as optional and commonly
+  // omits it for ordinary ungated repositories. Restricted repositories
+  // report an explicit boolean or approval mode.
+  if (value == null) return 'false';
   if (value is bool) return value ? 'true' : 'false';
   if (value is String && value.trim().isNotEmpty) {
-    return value.trim().toLowerCase();
+    final String normalized = value.trim().toLowerCase();
+    if (<String>{'false', 'true', 'auto', 'manual'}.contains(normalized)) {
+      return normalized;
+    }
   }
   throw const FormatException(
-    'Hugging Face metadata is missing its gated status.',
+    'Hugging Face metadata contains an invalid gated status.',
   );
 }
 

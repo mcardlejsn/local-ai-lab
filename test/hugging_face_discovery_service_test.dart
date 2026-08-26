@@ -26,7 +26,6 @@ void main() {
             <String, Object?>{
               'id': 'Example/Public-GGUF',
               'private': false,
-              'gated': false,
               'tags': <String>['gguf', 'conversational'],
               'lastModified': '2026-08-25T12:00:00.000Z',
             },
@@ -70,7 +69,6 @@ void main() {
             'id': 'Publisher/Example-GGUF',
             'sha': '0123456789abcdef0123456789abcdef01234567',
             'private': false,
-            'gated': false,
             'lastModified': '2026-08-26T12:30:00.000Z',
             'tags': <String>[
               'gguf',
@@ -137,6 +135,30 @@ void main() {
             (error) => error.message,
             'message',
             contains('sha'),
+          ),
+        ),
+      );
+    });
+
+    test('rejects a malformed gated status', () async {
+      final HuggingFaceDiscoveryService service = HuggingFaceDiscoveryService(
+        fetchJson: (Uri uri) async => <Object?>[
+          <String, Object?>{
+            'id': 'Example/Invalid-GGUF',
+            'private': false,
+            'gated': 7,
+            'tags': <String>['gguf'],
+          },
+        ],
+      );
+
+      await expectLater(
+        service.searchPublicGgufRepositories(),
+        throwsA(
+          isA<HuggingFaceDiscoveryException>().having(
+            (error) => error.message,
+            'message',
+            contains('invalid gated status'),
           ),
         ),
       );
