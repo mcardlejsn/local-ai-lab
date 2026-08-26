@@ -12,6 +12,7 @@ void main() {
       expect(assessment.promptFormat, PromptFormat.chatml);
       expect(assessment.isRecognized, isTrue);
       expect(assessment.isSupported, isTrue);
+      expect(assessment.isKnownIncompatible, isFalse);
       expect(assessment.discoveryEligible, isTrue);
     });
 
@@ -28,6 +29,7 @@ void main() {
       expect(unaudited.promptFormat, PromptFormat.plain);
       expect(unaudited.isRecognized, isTrue);
       expect(unaudited.isSupported, isFalse);
+      expect(unaudited.isKnownIncompatible, isFalse);
       expect(unaudited.discoveryEligible, isFalse);
     });
 
@@ -44,6 +46,7 @@ void main() {
       );
       expect(assessment.isRecognized, isTrue);
       expect(assessment.isSupported, isFalse);
+      expect(assessment.isKnownIncompatible, isTrue);
       expect(assessment.discoveryEligible, isFalse);
       expect(assessment.family, 'Qwen3.5 2B');
       expect(assessment.explanation, contains('incompatible'));
@@ -57,6 +60,7 @@ void main() {
       expect(assessment.promptFormat, PromptFormat.chatml);
       expect(assessment.isRecognized, isTrue);
       expect(assessment.isSupported, isFalse);
+      expect(assessment.isKnownIncompatible, isFalse);
       expect(assessment.discoveryEligible, isFalse);
       expect(assessment.family, 'Qwen3.5');
       expect(
@@ -73,6 +77,7 @@ void main() {
       expect(assessment.promptFormat, PromptFormat.plain);
       expect(assessment.isRecognized, isFalse);
       expect(assessment.isSupported, isFalse);
+      expect(assessment.isKnownIncompatible, isFalse);
       expect(assessment.discoveryEligible, isFalse);
       expect(
         resolvePromptFormat('unknown-model-Q4_K_M.gguf'),

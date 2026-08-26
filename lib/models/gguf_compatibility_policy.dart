@@ -52,6 +52,7 @@ class GgufCompatibilityAssessment {
     required this.promptFormat,
     required this.isRecognized,
     required this.isSupported,
+    required this.isKnownIncompatible,
     required this.discoveryEligible,
     required this.explanation,
   });
@@ -60,6 +61,10 @@ class GgufCompatibilityAssessment {
   final PromptFormat promptFormat;
   final bool isRecognized;
   final bool isSupported;
+
+  /// True only when this exact recognized variant has a confirmed runtime
+  /// incompatibility. Unsupported or unaudited relatives remain review cases.
+  final bool isKnownIncompatible;
 
   /// Whether this filename may pass the app-side compatibility portion of
   /// discovery screening. Repository access, artifact, size, checksum,
@@ -116,6 +121,7 @@ GgufCompatibilityAssessment assessGgufCompatibility(String fileName) {
         promptFormat: PromptFormat.chatml,
         isRecognized: true,
         isSupported: false,
+        isKnownIncompatible: true,
         discoveryEligible: false,
         explanation:
             'Qwen3.5 2B is incompatible with Local AI Lab\'s bundled llama.cpp runtime.',
@@ -126,6 +132,7 @@ GgufCompatibilityAssessment assessGgufCompatibility(String fileName) {
       promptFormat: PromptFormat.chatml,
       isRecognized: true,
       isSupported: false,
+      isKnownIncompatible: false,
       discoveryEligible: false,
       explanation:
           'This Qwen3.5 variant has not been independently audited by Local AI Lab.',
@@ -177,6 +184,7 @@ GgufCompatibilityAssessment _supported(
     promptFormat: promptFormat,
     isRecognized: true,
     isSupported: true,
+    isKnownIncompatible: false,
     discoveryEligible: true,
     explanation:
         'Local AI Lab has an audited prompt path for this filename family.',
@@ -192,6 +200,7 @@ GgufCompatibilityAssessment _unsupported({
     promptFormat: PromptFormat.plain,
     isRecognized: family != 'Unknown',
     isSupported: false,
+    isKnownIncompatible: false,
     discoveryEligible: false,
     explanation: explanation,
   );
