@@ -82,6 +82,9 @@ function Resolve-LocalPromptFormat {
   # lib/services/model_manager_service.dart.
   $name = $FileName.ToLowerInvariant()
 
+  if ($name.Contains('smollm3')) {
+    return 'smollm3'
+  }
   if ($name.Contains('smollm2')) {
     return 'smollm2'
   }

@@ -28,6 +28,13 @@ void main() {
       );
     });
 
+    test('recognizes the dedicated SmolLM3 prompt format', () {
+      expect(
+        resolvePromptFormat('SmolLM3-Q4_K_M.gguf'),
+        PromptFormat.smollm3,
+      );
+    });
+
     test('recognizes existing supported filename families', () {
       expect(
         resolvePromptFormat('Llama-3.2-1B-Instruct-Q4_K_M.gguf'),
@@ -78,6 +85,25 @@ void main() {
         'Summarize this:\n\n"""\nA short passage.\n"""<|im_end|>\n'
         '<|im_start|>assistant\n',
       );
+    });
+
+    test('SmolLM3 uses a stable non-thinking prompt', () {
+      final prompt = buildPrompt(
+        format: PromptFormat.smollm3,
+        instruction: instruction,
+        rawText: rawText,
+      );
+
+      expect(
+        prompt,
+        '<|im_start|>system\n'
+        'You are a helpful AI assistant named SmolLM, trained by Hugging Face.<|im_end|>\n'
+        '<|im_start|>user\n'
+        'Summarize this:\n\n"""\nA short passage.\n"""<|im_end|>\n'
+        '<|im_start|>assistant\n'
+        '<think>\n\n</think>\n',
+      );
+      expect(prompt, isNot(contains('Today Date:')));
     });
 
     test('generic ChatML does not inherit the SmolLM2 system message', () {

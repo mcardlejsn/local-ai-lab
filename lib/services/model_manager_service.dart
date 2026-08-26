@@ -12,7 +12,7 @@ enum ModelEngine { nano, mediapipe, gguf }
 /// The instruction-tuning wrapper a model expects around a prompt. This is not
 /// conversational state — it is the framing each fine-tune was trained on, and
 /// sending the wrong one pushes the model off-distribution.
-enum PromptFormat { plain, gemma, chatml, llama3, mistral, smollm2 }
+enum PromptFormat { plain, gemma, chatml, llama3, mistral, smollm2, smollm3 }
 
 extension PromptFormatLabel on PromptFormat {
   String get label {
@@ -29,6 +29,8 @@ extension PromptFormatLabel on PromptFormat {
         return 'mistral';
       case PromptFormat.smollm2:
         return 'smollm2';
+      case PromptFormat.smollm3:
+        return 'smollm3';
     }
   }
 }
@@ -39,6 +41,7 @@ extension PromptFormatLabel on PromptFormat {
 PromptFormat resolvePromptFormat(String fileName) {
   final String name = fileName.toLowerCase();
 
+  if (name.contains('smollm3')) return PromptFormat.smollm3;
   if (name.contains('smollm2')) return PromptFormat.smollm2;
 
   // Explicit ChatML indicators take precedence over the underlying model
@@ -83,6 +86,16 @@ String buildPrompt({
           'You are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|>\n'
           '<|im_start|>user\n$body<|im_end|>\n'
           '<|im_start|>assistant\n';
+    case PromptFormat.smollm3:
+      // SmolLM3 normally injects the current date into its system metadata.
+      // Use its supported system-override path so repeated benchmarks keep a
+      // stable prompt, and prefill the empty think block required by the
+      // official non-thinking template.
+      return '<|im_start|>system\n'
+          'You are a helpful AI assistant named SmolLM, trained by Hugging Face.<|im_end|>\n'
+          '<|im_start|>user\n$body<|im_end|>\n'
+          '<|im_start|>assistant\n'
+          '<think>\n\n</think>\n';
     case PromptFormat.llama3:
       // BOS is emitted by the runtime, so it is deliberately omitted here to
       // avoid a duplicate begin-of-text token.
