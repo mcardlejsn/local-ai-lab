@@ -50,6 +50,13 @@ void main() {
       );
     });
 
+    test('recognizes the dedicated Phi-3 prompt format', () {
+      expect(
+        resolvePromptFormat('Phi-3.5-mini-instruct-Q4_K_M.gguf'),
+        PromptFormat.phi3,
+      );
+    });
+
     test('recognizes existing supported filename families', () {
       expect(
         resolvePromptFormat('Llama-3.2-1B-Instruct-Q4_K_M.gguf'),
@@ -135,6 +142,22 @@ void main() {
         '<|im_start|>assistant\n'
         '<think>\n\n</think>\n\n',
       );
+    });
+
+    test('Phi-3 uses its official user-only instruction prompt', () {
+      final prompt = buildPrompt(
+        format: PromptFormat.phi3,
+        instruction: instruction,
+        rawText: rawText,
+      );
+
+      expect(
+        prompt,
+        '<|user|>\n'
+        'Summarize this:\n\n"""\nA short passage.\n"""<|end|>\n'
+        '<|assistant|>\n',
+      );
+      expect(prompt, isNot(contains('<|system|>')));
     });
 
     test('generic ChatML does not inherit the SmolLM2 system message', () {

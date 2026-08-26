@@ -135,6 +135,11 @@ function Resolve-LocalPromptFormat {
        $name.Contains('qwen_3'))) {
     return 'qwen3'
   }
+  if ($name.Contains('phi-3') -or
+      $name.Contains('phi3') -or
+      $name.Contains('phi_3')) {
+    return 'phi3'
+  }
   if ($name.Contains('gemma')) {
     return 'gemma'
   }
@@ -237,12 +242,14 @@ $license = if ([string]::IsNullOrWhiteSpace([string]$directLicenseValue)) {
 $licenseSourceRepository = ''
 $licenseSourceCommit = ''
 $licenseReviewAdded = $false
+$quantizedBaseModels = @(Get-QuantizedBaseModelRepositories `
+    -CardData $cardData `
+    -Tags $metadataTags)
+$upstreamMetadata = $null
+$upstreamRepository = ''
+$upstreamMetadataRequestFailed = $false
 
 if ($license -ieq 'Unknown') {
-  $quantizedBaseModels = @(Get-QuantizedBaseModelRepositories `
-      -CardData $cardData `
-      -Tags $metadataTags)
-
   if ($quantizedBaseModels.Count -gt 1) {
     $reviewReasons += 'More than one explicitly linked quantized base model was found; license inheritance is ambiguous.'
     $licenseReviewAdded = $true
@@ -285,6 +292,7 @@ if ($license -ieq 'Unknown') {
     } catch {
       $reviewReasons += ("The linked upstream model metadata request failed for '{0}'." -f $upstreamRepository)
       $licenseReviewAdded = $true
+      $upstreamMetadataRequestFailed = $true
     }
   }
 }
@@ -418,13 +426,76 @@ $parameterValues = @($parameterMatches | ForEach-Object {
   } | Select-Object -Unique)
 
 $parameterLabel = 'Unknown'
+$parameterCount = $null
+$parameterSourceRepository = ''
+$parameterSourceCommit = ''
 if ($parameterValues.Count -eq 0) {
-  $reviewReasons += 'The parameter count could not be determined from the repository or filename.'
+  if ($quantizedBaseModels.Count -gt 1) {
+    $reviewReasons += 'More than one explicitly linked quantized base model was found; parameter resolution is ambiguous.'
+  } elseif ($quantizedBaseModels.Count -eq 0) {
+    $reviewReasons += 'The parameter count could not be determined from the repository or filename.'
+  } else {
+    $parameterUpstreamRepository = [string]$quantizedBaseModels[0]
+
+    if ($null -eq $upstreamMetadata -and -not $upstreamMetadataRequestFailed) {
+      $upstreamRepository = $parameterUpstreamRepository
+      $encodedUpstreamRepository = ConvertTo-EncodedPath -Path $upstreamRepository
+      $upstreamApiUrl = "https://huggingface.co/api/models/${encodedUpstreamRepository}"
+
+      try {
+        $upstreamMetadata = Invoke-RestMethod `
+          -Uri $upstreamApiUrl `
+          -Method Get `
+          -Headers @{ 'User-Agent' = 'Local-AI-Lab-Curation-Tool/1.0' } `
+          -TimeoutSec 30
+      } catch {
+        $upstreamMetadataRequestFailed = $true
+      }
+    }
+
+    if ($upstreamMetadataRequestFailed -or $null -eq $upstreamMetadata) {
+      $reviewReasons += ("The linked upstream model metadata request failed for '{0}' while resolving parameters." -f $parameterUpstreamRepository)
+    } else {
+      $parameterUpstreamCommitValue = Get-PropertyValue -InputObject $upstreamMetadata -Name 'sha'
+      $parameterUpstreamCommit = if ($null -eq $parameterUpstreamCommitValue) {
+        ''
+      } else {
+        [string]$parameterUpstreamCommitValue
+      }
+      $safetensorsMetadata = Get-PropertyValue -InputObject $upstreamMetadata -Name 'safetensors'
+      $parameterTotalValue = if ($null -eq $safetensorsMetadata) {
+        $null
+      } else {
+        Get-PropertyValue -InputObject $safetensorsMetadata -Name 'total'
+      }
+      $parameterTotal = $null
+      if ($null -ne $parameterTotalValue) {
+        try {
+          $parameterTotal = [int64]$parameterTotalValue
+        } catch {
+          $parameterTotal = $null
+        }
+      }
+
+      if ($parameterUpstreamCommit -notmatch '^[0-9a-fA-F]{40}$') {
+        $reviewReasons += ("The linked upstream model '{0}' did not provide a complete 40-character commit hash for parameter provenance." -f $parameterUpstreamRepository)
+      } elseif ($null -eq $parameterTotal -or $parameterTotal -le 0) {
+        $reviewReasons += ("The linked upstream model '{0}' did not provide a valid Safetensors parameter total." -f $parameterUpstreamRepository)
+      } else {
+        $parameterCount = [double]$parameterTotal / 1000000000.0
+        $parameterSourceRepository = $parameterUpstreamRepository
+        $parameterSourceCommit = $parameterUpstreamCommit.ToLowerInvariant()
+      }
+    }
+  }
 } elseif ($parameterValues.Count -gt 1) {
   $parameterLabel = (($parameterValues | ForEach-Object { "{0}B" -f $_ }) -join ', ')
   $reviewReasons += ("More than one parameter count was detected ({0})." -f $parameterLabel)
 } else {
   $parameterCount = [double]$parameterValues[0]
+}
+
+if ($null -ne $parameterCount) {
   $parameterLabel = ("{0}B" -f $parameterCount.ToString(
       '0.###',
       [Globalization.CultureInfo]::InvariantCulture
@@ -462,6 +533,9 @@ if ($licenseSourceRepository) {
 }
 Write-Output ("Purpose        : {0}" -f $purpose)
 Write-Output ("Parameters     : {0}" -f $parameterLabel)
+if ($parameterSourceRepository) {
+  Write-Output ("Parameter source: {0} @ {1}" -f $parameterSourceRepository, $parameterSourceCommit)
+}
 Write-Output ("Q4_K_M files   : {0} total, {1} unsharded" -f $q4Files.Count, $unshardedQ4Files.Count)
 foreach ($candidateFile in $q4Files) {
   $candidateFileName = [string](Get-PropertyValue -InputObject $candidateFile -Name 'rfilename')
