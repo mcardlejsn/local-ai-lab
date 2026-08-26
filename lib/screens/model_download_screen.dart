@@ -3,12 +3,13 @@ import 'package:flutter/material.dart';
 import '../models/model_catalog.dart';
 import '../services/model_download_service.dart';
 import '../services/model_manager_service.dart';
+import 'gguf_discovery_screen.dart';
 
-/// Lists the bundled catalog and downloads entries on an explicit tap.
+/// Lists the bundled verified catalog and links to temporary GGUF discovery.
 ///
 /// No network call happens when this screen opens — [kModelCatalog] is compiled
-/// into the APK. The only outbound request in the app originates from the
-/// Download button below.
+/// into the APK and installed-state checks are local. Network activity requires
+/// an explicit Discover action on the discovery screen or Download below.
 class ModelDownloadScreen extends StatefulWidget {
   const ModelDownloadScreen({super.key, required this.modelManager});
 
@@ -172,6 +173,10 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
           children: [
             _buildPrivacyNote(),
             const SizedBox(height: 16),
+            _buildDiscoveryEntry(),
+            const SizedBox(height: 20),
+            _buildVerifiedHeading(),
+            const SizedBox(height: 10),
             for (final CatalogModel model in kModelCatalog) ...[
               _buildEntry(model),
               const SizedBox(height: 12),
@@ -208,10 +213,11 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
           ),
           SizedBox(height: 8),
           Text(
-            'Tapping Download fetches the model file from its source '
-            'repository. That is the only time this app uses the network. '
-            'Your text, prompts, results and benchmark numbers never leave '
-            'the device, and all inference runs locally.',
+            'Tapping Discover requests public model metadata from Hugging '
+            'Face. Tapping Download fetches a verified model file from its '
+            'source repository. Those explicit actions are the only times '
+            'this feature uses the network. Your text, prompts, results and '
+            'benchmark numbers never leave the device.',
             style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
           ),
           SizedBox(height: 8),
@@ -221,6 +227,82 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildDiscoveryEntry() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _surfaceColor,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.travel_explore_rounded, size: 19, color: _accentBlue),
+              SizedBox(width: 8),
+              Text(
+                'Discover GGUF candidates',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Search recent public, ungated Hugging Face repositories. Opening '
+            'the discovery screen is offline; its Discover button starts the '
+            'request. Results are candidates, not device-verified models.',
+            style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+          ),
+          const SizedBox(height: 12),
+          ElevatedButton.icon(
+            key: const Key('open-gguf-discovery-button'),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const GgufDiscoveryScreen(),
+                ),
+              );
+            },
+            icon: const Icon(Icons.manage_search_rounded, size: 18),
+            label: const Text('Open Discovery'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _accentBlue,
+              foregroundColor: Colors.black,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVerifiedHeading() {
+    return const Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Verified models',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+            fontSize: 16,
+          ),
+        ),
+        SizedBox(height: 4),
+        Text(
+          'These bundled entries remain separate from temporary discovery '
+          'candidates.',
+          style: TextStyle(color: Colors.white54, fontSize: 12),
+        ),
+      ],
     );
   }
 
@@ -278,8 +360,7 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
             LinearProgressIndicator(
               value: state.fraction,
               backgroundColor: Colors.white12,
-              valueColor:
-                  const AlwaysStoppedAnimation<Color>(_accentBlue),
+              valueColor: const AlwaysStoppedAnimation<Color>(_accentBlue),
               minHeight: 4,
             ),
             const SizedBox(height: 6),
