@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:llama_flutter_android/llama_flutter_android.dart';
 
 class LlamaGgufService {
@@ -14,6 +15,10 @@ class LlamaGgufService {
     int contextSize = 2048,
   }) async {
     if (_loadedModelPath == modelPath && _controller != null) {
+      // The plugin retains conversation context while a model remains loaded.
+      // Local AI Lab performs independent one-shot benchmarks, so ensure an
+      // already-resident model cannot carry an earlier request into run 1.
+      await _controller!.clearContext();
       return;
     }
 
