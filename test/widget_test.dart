@@ -35,6 +35,21 @@ void main() {
       );
     });
 
+    test('recognizes Qwen3 without changing Qwen3.5 or Qwen2.5', () {
+      expect(
+        resolvePromptFormat('Qwen_Qwen3-1.7B-Q4_K_M.gguf'),
+        PromptFormat.qwen3,
+      );
+      expect(
+        resolvePromptFormat('Qwen_Qwen3.5-2B-Q4_K_M.gguf'),
+        PromptFormat.chatml,
+      );
+      expect(
+        resolvePromptFormat('Qwen2.5-1.5B-Instruct-Q4_K_M.gguf'),
+        PromptFormat.chatml,
+      );
+    });
+
     test('recognizes existing supported filename families', () {
       expect(
         resolvePromptFormat('Llama-3.2-1B-Instruct-Q4_K_M.gguf'),
@@ -104,6 +119,22 @@ void main() {
         '<think>\n\n</think>\n',
       );
       expect(prompt, isNot(contains('Today Date:')));
+    });
+
+    test('Qwen3 uses the official hard non-thinking generation prompt', () {
+      final prompt = buildPrompt(
+        format: PromptFormat.qwen3,
+        instruction: instruction,
+        rawText: rawText,
+      );
+
+      expect(
+        prompt,
+        '<|im_start|>user\n'
+        'Summarize this:\n\n"""\nA short passage.\n"""<|im_end|>\n'
+        '<|im_start|>assistant\n'
+        '<think>\n\n</think>\n\n',
+      );
     });
 
     test('generic ChatML does not inherit the SmolLM2 system message', () {

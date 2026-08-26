@@ -12,7 +12,16 @@ enum ModelEngine { nano, mediapipe, gguf }
 /// The instruction-tuning wrapper a model expects around a prompt. This is not
 /// conversational state — it is the framing each fine-tune was trained on, and
 /// sending the wrong one pushes the model off-distribution.
-enum PromptFormat { plain, gemma, chatml, llama3, mistral, smollm2, smollm3 }
+enum PromptFormat {
+  plain,
+  gemma,
+  chatml,
+  qwen3,
+  llama3,
+  mistral,
+  smollm2,
+  smollm3,
+}
 
 extension PromptFormatLabel on PromptFormat {
   String get label {
@@ -23,6 +32,8 @@ extension PromptFormatLabel on PromptFormat {
         return 'gemma';
       case PromptFormat.chatml:
         return 'chatml';
+      case PromptFormat.qwen3:
+        return 'qwen3';
       case PromptFormat.llama3:
         return 'llama3';
       case PromptFormat.mistral:
@@ -49,6 +60,15 @@ PromptFormat resolvePromptFormat(String fileName) {
   // but Hermes 3 expects ChatML rather than the Llama 3 instruction wrapper.
   if (name.contains('chatml') || name.contains('hermes')) {
     return PromptFormat.chatml;
+  }
+  final bool isQwen35 = name.contains('qwen3.5') ||
+      name.contains('qwen-3.5') ||
+      name.contains('qwen_3.5');
+  if (!isQwen35 &&
+      (name.contains('qwen3') ||
+          name.contains('qwen-3') ||
+          name.contains('qwen_3'))) {
+    return PromptFormat.qwen3;
   }
   if (name.contains('gemma')) return PromptFormat.gemma;
   if (name.contains('llama-3') ||
@@ -81,6 +101,13 @@ String buildPrompt({
       return '<start_of_turn>user\n$body<end_of_turn>\n<start_of_turn>model\n';
     case PromptFormat.chatml:
       return '<|im_start|>user\n$body<|im_end|>\n<|im_start|>assistant\n';
+    case PromptFormat.qwen3:
+      // The raw llama.cpp path cannot pass enable_thinking=false to Qwen3's
+      // tokenizer template. Reproduce the official hard non-thinking
+      // generation prompt by prefilling an empty thinking block.
+      return '<|im_start|>user\n$body<|im_end|>\n'
+          '<|im_start|>assistant\n'
+          '<think>\n\n</think>\n\n';
     case PromptFormat.smollm2:
       return '<|im_start|>system\n'
           'You are a helpful AI assistant named SmolLM, trained by Hugging Face<|im_end|>\n'

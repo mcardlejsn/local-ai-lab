@@ -91,6 +91,15 @@ function Resolve-LocalPromptFormat {
   if ($name.Contains('chatml') -or $name.Contains('hermes')) {
     return 'chatml'
   }
+  $isQwen35 = $name.Contains('qwen3.5') -or
+    $name.Contains('qwen-3.5') -or
+    $name.Contains('qwen_3.5')
+  if (-not $isQwen35 -and
+      ($name.Contains('qwen3') -or
+       $name.Contains('qwen-3') -or
+       $name.Contains('qwen_3'))) {
+    return 'qwen3'
+  }
   if ($name.Contains('gemma')) {
     return 'gemma'
   }
