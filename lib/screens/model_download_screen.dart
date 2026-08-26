@@ -217,10 +217,12 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
           SizedBox(height: 8),
           Text(
             'Tapping Discover requests public model metadata from Hugging '
-            'Face. Tapping Download fetches a verified model file from its '
-            'source repository. Those explicit actions are the only times '
-            'this feature uses the network. Your text, prompts, results and '
-            'benchmark numbers never leave the device.',
+            'Face. Tapping Download fetches the selected exact model artifact '
+            'from its source repository. Discovery downloads remain '
+            'Candidates until they pass the benchmark. Those explicit '
+            'actions are the only times this feature uses the network. Your '
+            'text, prompts, results and benchmark numbers never leave the '
+            'device.',
             style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
           ),
           SizedBox(height: 8),
@@ -271,7 +273,9 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => const GgufDiscoveryScreen(),
+                  builder: (_) => GgufDiscoveryScreen(
+                    onModelInstalled: widget.modelManager.scanModels,
+                  ),
                 ),
               );
             },
