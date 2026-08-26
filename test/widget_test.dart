@@ -4,6 +4,54 @@ import 'package:local_ai_summarizer/screens/summarizer_screen.dart';
 import 'package:local_ai_summarizer/services/model_manager_service.dart';
 
 void main() {
+  group('prompt-format resolution', () {
+    test('Hermes takes ChatML precedence over its Llama base family', () {
+      expect(
+        resolvePromptFormat(
+          'Hermes-3-Llama-3.2-3B-Instruct-Q4_K_M.gguf',
+        ),
+        PromptFormat.chatml,
+      );
+    });
+
+    test('explicit ChatML takes precedence over a Llama family name', () {
+      expect(
+        resolvePromptFormat('Llama-3.2-1B-Instruct-ChatML-Q4_K_M.gguf'),
+        PromptFormat.chatml,
+      );
+    });
+
+    test('recognizes existing supported filename families', () {
+      expect(
+        resolvePromptFormat('Llama-3.2-1B-Instruct-Q4_K_M.gguf'),
+        PromptFormat.llama3,
+      );
+      expect(
+        resolvePromptFormat('Qwen2.5-1.5B-Instruct-Q4_K_M.gguf'),
+        PromptFormat.chatml,
+      );
+      expect(
+        resolvePromptFormat('gemma-3-1b-it-Q4_K_M.gguf'),
+        PromptFormat.gemma,
+      );
+      expect(
+        resolvePromptFormat('Mistral-7B-Instruct-Q4_K_M.gguf'),
+        PromptFormat.mistral,
+      );
+      expect(
+        resolvePromptFormat('Mixtral-8x7B-Instruct-Q4_K_M.gguf'),
+        PromptFormat.mistral,
+      );
+    });
+
+    test('falls back to plain for an unknown filename family', () {
+      expect(
+        resolvePromptFormat('unknown-model-Q4_K_M.gguf'),
+        PromptFormat.plain,
+      );
+    });
+  });
+
   group('inference prompt formatting', () {
     const instruction = 'Summarize this:';
     const rawText = 'A short passage.';

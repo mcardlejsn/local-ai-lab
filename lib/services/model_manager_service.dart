@@ -37,6 +37,12 @@ extension PromptFormatLabel on PromptFormat {
 PromptFormat resolvePromptFormat(String fileName) {
   final String name = fileName.toLowerCase();
 
+  // Explicit ChatML indicators take precedence over the underlying model
+  // family. For example, Hermes 3 filenames can also contain "Llama-3.2",
+  // but Hermes 3 expects ChatML rather than the Llama 3 instruction wrapper.
+  if (name.contains('chatml') || name.contains('hermes')) {
+    return PromptFormat.chatml;
+  }
   if (name.contains('gemma')) return PromptFormat.gemma;
   if (name.contains('llama-3') ||
       name.contains('llama3') ||
@@ -46,9 +52,7 @@ PromptFormat resolvePromptFormat(String fileName) {
   if (name.contains('mistral') || name.contains('mixtral')) {
     return PromptFormat.mistral;
   }
-  if (name.contains('qwen') ||
-      name.contains('chatml') ||
-      name.contains('hermes')) {
+  if (name.contains('qwen')) {
     return PromptFormat.chatml;
   }
 
@@ -169,7 +173,8 @@ class ModelManagerService extends ChangeNotifier {
       if (isNanoReady) {
         // Capture which AICore build is serving Nano, so results recorded on
         // different devices or dates can be attributed to a specific version.
-        final String? aiCoreVersion = await GeminiNanoService.getAiCoreVersion();
+        final String? aiCoreVersion =
+            await GeminiNanoService.getAiCoreVersion();
         discovered.add(
           ModelInfo(
             id: 'system_gemini_nano',
@@ -242,7 +247,8 @@ class ModelManagerService extends ChangeNotifier {
           return;
         } else {
           // Sync existing model reference and clear loading status message
-          _activeModel = _availableModels.firstWhere((m) => m.id == _activeModel!.id);
+          _activeModel =
+              _availableModels.firstWhere((m) => m.id == _activeModel!.id);
           _statusMessage = _activeModel!.engine == ModelEngine.nano
               ? 'Gemini Nano Ready (AICore NPU)'
               : 'Ready: ${_activeModel!.name}';
@@ -311,7 +317,8 @@ class ModelManagerService extends ChangeNotifier {
   /// has no file here, so it is refused rather than silently ignored.
   Future<bool> deleteModel(ModelInfo model) async {
     if (model.engine == ModelEngine.nano) {
-      _statusMessage = 'Gemini Nano is managed by Android and cannot be removed';
+      _statusMessage =
+          'Gemini Nano is managed by Android and cannot be removed';
       notifyListeners();
       return false;
     }
