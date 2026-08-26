@@ -286,6 +286,14 @@ if ($null -ne $selectedFile) {
 }
 
 $identityText = ("{0} {1}" -f $repositoryId, $fileName)
+
+# Qwen3.5 2B uses Gated DeltaNet layers. llama.cpp added the required
+# GATED_DELTA_NET operation in b8233, while Local AI Lab currently bundles
+# b8201 through llama_flutter_android 0.2.6.
+if ($identityText -match '(?i)qwen3\.5[-_]?2b') {
+  $failReasons += 'Qwen3.5 2B requires llama.cpp GATED_DELTA_NET support added in b8233; Local AI Lab bundles b8201.'
+}
+
 if ($identityText -match '(?i)(?:^|[-_./ ])base(?:$|[-_./ ])') {
   $purpose = 'base'
   $failReasons += 'The repository or artifact is explicitly labeled as a base model.'
