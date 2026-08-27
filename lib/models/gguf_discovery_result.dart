@@ -1,11 +1,11 @@
 import 'gguf_candidate_assessment.dart';
 
-/// The complete outcome of one explicit in-app discovery request.
+/// The user-facing outcome of one explicit in-app discovery request.
 ///
-/// Assessments retain Candidate, Needs review, and Rejected outcomes so a
-/// later UI can decide what to display without weakening the screening policy.
-/// Source failures are kept separately because unavailable metadata is not a
-/// compatibility judgment about the model itself.
+/// [assessments] contains only downloadable Candidates. Needs-review and
+/// rejected repositories are still screened but are not returned as model
+/// results. Source failures remain available for tests and diagnostics, but
+/// are not presented as model results on the discovery screen.
 class GgufDiscoveryResult {
   GgufDiscoveryResult({
     required Iterable<GgufCandidateAssessment> assessments,
@@ -17,15 +17,7 @@ class GgufDiscoveryResult {
   final List<GgufCandidateAssessment> assessments;
   final List<GgufDiscoverySourceFailure> sourceFailures;
 
-  int get candidateCount => _count(GgufCandidateDisposition.candidate);
-  int get needsReviewCount => _count(GgufCandidateDisposition.needsReview);
-  int get rejectedCount => _count(GgufCandidateDisposition.rejected);
-
-  int _count(GgufCandidateDisposition disposition) {
-    return assessments
-        .where((assessment) => assessment.disposition == disposition)
-        .length;
-  }
+  int get candidateCount => assessments.length;
 }
 
 /// A repository metadata request that could not be completed during discovery.

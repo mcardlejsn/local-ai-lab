@@ -1,5 +1,5 @@
 # Local AI Lab GGUF candidate repositories
-# One verified Hugging Face owner/name repository ID per line.
+# One maintained Hugging Face owner/name repository ID per line.
 # Blank lines and lines beginning with # are ignored.
 #
 # PASS means mechanically suitable only. Every exact pinned artifact must still

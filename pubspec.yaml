@@ -26,6 +26,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - tools/model_candidate_repositories.txt
 
 flutter_launcher_icons:
   android: true

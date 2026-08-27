@@ -1,27 +1,36 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/gguf_candidate_assessment.dart';
 import '../models/gguf_discovery_result.dart';
+import '../services/gguf_discovery_cache_service.dart';
 import '../services/gguf_discovery_service.dart';
+import '../services/gguf_discovery_seed_service.dart';
 import '../services/hugging_face_discovery_service.dart';
 import '../services/model_download_service.dart';
 
-/// Displays temporary GGUF discovery results after an explicit user action.
+/// Displays GGUF discovery results produced by an explicit user action.
 ///
 /// Opening this screen performs no network request. The discovery service is
 /// called only from [_discover], which is wired exclusively to the Discover
-/// button. Candidate downloads require a second explicit confirmation and
-/// remain mechanically screened rather than device verified.
+/// button. The last successful result may be restored from an app-private
+/// local cache. Candidate downloads require a second explicit confirmation
+/// and remain mechanically screened rather than device verified.
 class GgufDiscoveryScreen extends StatefulWidget {
   const GgufDiscoveryScreen({
     super.key,
     this.discoveryService,
+    this.discoveryCache,
     this.downloadService,
     this.onModelInstalled,
   });
 
   /// Injectable so widget tests can provide deterministic, offline responses.
   final GgufDiscoveryService? discoveryService;
+
+  /// Injectable so widget tests can avoid app-private filesystem access.
+  final GgufDiscoveryCache? discoveryCache;
 
   /// Injectable so widget tests never touch Android storage or the network.
   final ModelDownloadService? downloadService;
@@ -42,8 +51,10 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
   static const Color _rejectedRed = Color(0xFFEF9A9A);
 
   late final GgufDiscoveryService _discoveryService;
+  late final GgufDiscoveryCache _discoveryCache;
   late final ModelDownloadService _downloadService;
   GgufDiscoveryResult? _result;
+  DateTime? _lastRefreshedUtc;
   String? _errorMessage;
   bool _isDiscovering = false;
   int _discoveryGeneration = 0;
@@ -57,7 +68,9 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
   void initState() {
     super.initState();
     _discoveryService = widget.discoveryService ?? GgufDiscoveryService();
+    _discoveryCache = widget.discoveryCache ?? GgufDiscoveryCacheService();
     _downloadService = widget.downloadService ?? ModelDownloadService();
+    unawaited(_restoreCachedDiscovery());
   }
 
   @override
@@ -74,24 +87,65 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     setState(() {
       _isDiscovering = true;
       _errorMessage = null;
-      _result = null;
-      _downloadStates.clear();
     });
 
     try {
       final GgufDiscoveryResult result = await _discoveryService.discover();
+      final DateTime discoveredAtUtc = DateTime.now().toUtc();
+      await _saveDiscoveryCache(result, discoveredAtUtc);
       if (!mounted) return;
       setState(() {
         _result = result;
+        _lastRefreshedUtc = discoveredAtUtc;
         _isDiscovering = false;
+        _downloadStates.clear();
       });
       await _refreshCandidateStates(result, generation);
     } on HuggingFaceDiscoveryException catch (error) {
+      _showFailure(error.message);
+    } on GgufDiscoverySeedException catch (error) {
       _showFailure(error.message);
     } on ArgumentError catch (error) {
       _showFailure(
         error.message?.toString() ?? 'The discovery request was invalid.',
       );
+    }
+  }
+
+  Future<void> _restoreCachedDiscovery() async {
+    final int generation = _discoveryGeneration;
+    GgufDiscoveryCacheEntry? entry;
+    try {
+      entry = await _discoveryCache.load();
+    } on Object {
+      return;
+    }
+    if (entry == null || !mounted || generation != _discoveryGeneration) {
+      return;
+    }
+    final GgufDiscoveryCacheEntry restored = entry;
+    final GgufDiscoveryResult visibleResult =
+        _discoveryService.excludeVerifiedArtifacts(restored.result);
+
+    setState(() {
+      _result = visibleResult;
+      _lastRefreshedUtc = restored.discoveredAtUtc;
+      _downloadStates.clear();
+    });
+    await _refreshCandidateStates(visibleResult, generation);
+  }
+
+  Future<void> _saveDiscoveryCache(
+    GgufDiscoveryResult result,
+    DateTime discoveredAtUtc,
+  ) async {
+    try {
+      await _discoveryCache.save(
+        result,
+        discoveredAtUtc: discoveredAtUtc,
+      );
+    } on Object {
+      // Discovery remains usable when optional local cache storage fails.
     }
   }
 
@@ -161,15 +215,17 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     if (!assessment.canDownload || artifact == null || _hasActiveDownload) {
       return;
     }
-    final bool confirmed = await _confirmCandidateDownload(
-      assessment,
-      artifact,
-    );
-    if (!confirmed || !mounted || _hasActiveDownload) return;
-
     final String key = _artifactKey(artifact);
     final _CandidateDownloadState current =
         _downloadStates[key] ?? const _CandidateDownloadState();
+    if (current.partialBytes <= 0) {
+      final bool confirmed = await _confirmCandidateDownload(
+        assessment,
+        artifact,
+      );
+      if (!confirmed || !mounted || _hasActiveDownload) return;
+    }
+
     final DownloadCancelToken token = DownloadCancelToken();
     DateTime lastTick = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -219,10 +275,6 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     if (result.isSuccess && refreshed.installed) {
       await widget.onModelInstalled?.call();
     }
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
   }
 
   Future<bool> _confirmCandidateDownload(
@@ -383,33 +435,20 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
             ],
             if (result != null) ...[
               const SizedBox(height: 18),
-              _buildSummary(result),
+              _buildSummary(result, _lastRefreshedUtc),
+              if (result.sourceFailures.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _buildIncompleteDiscoveryWarning(
+                  result.sourceFailures.length,
+                ),
+              ],
               const SizedBox(height: 18),
-              if (result.assessments.isEmpty && result.sourceFailures.isEmpty)
-                _buildEmptyResult(),
+              if (result.assessments.isEmpty) _buildEmptyResult(),
               ..._buildAssessmentSection(
-                'Candidates',
+                'Downloadable Candidates',
                 result,
                 GgufCandidateDisposition.candidate,
               ),
-              ..._buildAssessmentSection(
-                'Needs review',
-                result,
-                GgufCandidateDisposition.needsReview,
-              ),
-              ..._buildAssessmentSection(
-                'Rejected',
-                result,
-                GgufCandidateDisposition.rejected,
-              ),
-              if (result.sourceFailures.isNotEmpty) ...[
-                _buildSectionHeading('Source errors'),
-                for (final GgufDiscoverySourceFailure failure
-                    in result.sourceFailures) ...[
-                  _buildSourceFailure(failure),
-                  const SizedBox(height: 10),
-                ],
-              ],
             ],
           ],
         ),
@@ -443,9 +482,9 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
           ),
           SizedBox(height: 8),
           Text(
-            'Opening this screen is offline. Tapping Discover requests a '
-            'bounded list of recent public, ungated GGUF repositories and '
-            'their public metadata from Hugging Face.',
+            'Opening this screen is offline. Tapping Discover checks a '
+            'bounded bootstrap list plus recent public GGUF repositories '
+            'using current public metadata from Hugging Face.',
             style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
           ),
           SizedBox(height: 8),
@@ -499,20 +538,44 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     );
   }
 
-  Widget _buildSummary(GgufDiscoveryResult result) {
-    return Text(
-      'Candidate ${result.candidateCount}  ·  '
-      'Needs review ${result.needsReviewCount}  ·  '
-      'Rejected ${result.rejectedCount}  ·  '
-      'Source errors ${result.sourceFailures.length}',
-      style: const TextStyle(color: Colors.white70, fontSize: 13),
+  Widget _buildSummary(
+    GgufDiscoveryResult result,
+    DateTime? lastRefreshedUtc,
+  ) {
+    final int count = result.candidateCount;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '$count downloadable '
+          '${count == 1 ? 'Candidate' : 'Candidates'} found',
+          style: const TextStyle(color: Colors.white70, fontSize: 13),
+        ),
+        if (lastRefreshedUtc != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            'Last refreshed: ${_formatTimestamp(lastRefreshedUtc)} · '
+            'saved locally',
+            key: const Key('discovery-last-refreshed'),
+            style: const TextStyle(color: Colors.white38, fontSize: 11),
+          ),
+        ],
+      ],
     );
   }
 
   Widget _buildEmptyResult() {
     return const Text(
-      'No public GGUF repositories were returned for this discovery request.',
+      'No downloadable Candidates were found in this discovery run.',
       style: TextStyle(color: Colors.white54, fontSize: 13),
+    );
+  }
+
+  Widget _buildIncompleteDiscoveryWarning(int failureCount) {
+    return Text(
+      'Some repositories could not be checked: $failureCount',
+      key: const Key('discovery-incomplete-warning'),
+      style: const TextStyle(color: _reviewAmber, fontSize: 12),
     );
   }
 
@@ -794,42 +857,6 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     );
   }
 
-  Widget _buildSourceFailure(GgufDiscoverySourceFailure failure) {
-    final String context = failure.requestedForRepositoryId == null
-        ? failure.repositoryId
-        : '${failure.repositoryId} '
-            '(needed by ${failure.requestedForRepositoryId})';
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: _surfaceColor,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            context,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            failure.message,
-            style: const TextStyle(
-              color: _rejectedRed,
-              fontSize: 12,
-              height: 1.35,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Color _statusColor(GgufCandidateDisposition disposition) {
     switch (disposition) {
       case GgufCandidateDisposition.candidate:
@@ -857,6 +884,29 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     const int mb = 1000 * 1000;
     if (bytes >= gb) return '${(bytes / gb).toStringAsFixed(2)} GB';
     return '${(bytes / mb).toStringAsFixed(0)} MB';
+  }
+
+  static String _formatTimestamp(DateTime utcTimestamp) {
+    const List<String> months = <String>[
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final DateTime local = utcTimestamp.toLocal();
+    final int twelveHour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final String minute = local.minute.toString().padLeft(2, '0');
+    final String period = local.hour < 12 ? 'AM' : 'PM';
+    return '${months[local.month - 1]} ${local.day}, ${local.year} at '
+        '$twelveHour:$minute $period';
   }
 }
 
