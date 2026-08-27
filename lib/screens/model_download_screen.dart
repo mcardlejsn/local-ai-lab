@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/model_catalog.dart';
 import '../services/model_download_service.dart';
 import '../services/model_manager_service.dart';
+import 'benchmark_screen.dart';
 import 'gguf_discovery_screen.dart';
 
 /// Lists the bundled verified catalog and links to temporary GGUF discovery.
@@ -154,6 +155,36 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
     await _refreshAll();
   }
 
+  Future<void> _openCandidateBenchmark(String fileName) async {
+    await widget.modelManager.scanModels();
+    if (!mounted) return;
+
+    final List<ModelInfo> matches = widget.modelManager.availableModels
+        .where(
+          (ModelInfo model) =>
+              model.engine == ModelEngine.gguf && model.name == fileName,
+        )
+        .toList(growable: false);
+    if (matches.length != 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'The installed Candidate could not be matched to exactly one '
+            'GGUF model. Reopen Discovery and try again.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BenchmarkScreen(targetModelId: matches.single.id),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -275,6 +306,7 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
                 MaterialPageRoute(
                   builder: (_) => GgufDiscoveryScreen(
                     onModelInstalled: widget.modelManager.scanModels,
+                    onBenchmarkCandidate: _openCandidateBenchmark,
                   ),
                 ),
               );

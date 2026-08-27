@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:local_ai_summarizer/main.dart';
+import 'package:local_ai_summarizer/screens/benchmark_screen.dart';
 import 'package:local_ai_summarizer/screens/summarizer_screen.dart';
 import 'package:local_ai_summarizer/services/model_manager_service.dart';
 
@@ -256,6 +257,49 @@ void main() {
     test('does not depend on streaming chunk boundaries', () {
       const chunks = ['1', '2', '3', '4', '5'];
       expect(estimateOutputTokens(chunks.join()), 2);
+    });
+  });
+
+  group('benchmark model targeting', () {
+    final ModelInfo nano = ModelInfo(
+      id: 'system_gemini_nano',
+      name: 'Gemini Nano',
+      path: 'system://aicore/nano',
+      engine: ModelEngine.nano,
+      sizeBytes: 0,
+      promptFormat: PromptFormat.plain,
+    );
+    final ModelInfo candidate = ModelInfo(
+      id: '/models/candidate.gguf',
+      name: 'candidate.gguf',
+      path: '/models/candidate.gguf',
+      engine: ModelEngine.gguf,
+      sizeBytes: 123,
+      promptFormat: PromptFormat.chatml,
+    );
+
+    test('normal suite retains every available model', () {
+      expect(
+        benchmarkModelsForTarget(<ModelInfo>[nano, candidate]),
+        <ModelInfo>[nano, candidate],
+      );
+    });
+
+    test('Candidate qualification selects only the exact GGUF path', () {
+      expect(
+        benchmarkModelsForTarget(
+          <ModelInfo>[nano, candidate],
+          targetModelId: candidate.id,
+        ),
+        <ModelInfo>[candidate],
+      );
+      expect(
+        benchmarkModelsForTarget(
+          <ModelInfo>[nano, candidate],
+          targetModelId: nano.id,
+        ),
+        isEmpty,
+      );
     });
   });
 

@@ -130,6 +130,36 @@ void main() {
       );
     });
 
+    testWidgets('installed Candidate exposes its exact benchmark action',
+        (WidgetTester tester) async {
+      String? benchmarkedFileName;
+      final _FakeModelDownloadService downloader = _FakeModelDownloadService(
+        status: InstalledArtifactStatus.matchesExpected,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GgufDiscoveryScreen(
+            discoveryService: _singleCandidateService(),
+            discoveryCache: _FakeGgufDiscoveryCache(),
+            downloadService: downloader,
+            onBenchmarkCandidate: (String fileName) async {
+              benchmarkedFileName = fileName;
+            },
+          ),
+        ),
+      );
+      await tester.tap(find.byKey(const Key('discover-gguf-button')));
+      await tester.pumpAndSettle();
+
+      const String fileName = 'qwen2.5-1.5b-instruct-q4_k_m.gguf';
+      const Key benchmarkKey = Key('candidate-benchmark-$fileName');
+      await _scrollAndTap(tester, find.byKey(benchmarkKey));
+
+      expect(benchmarkedFileName, fileName);
+      expect(find.text('Benchmark Candidate'), findsOneWidget);
+    });
+
     testWidgets('custom-license Candidate warns before download',
         (WidgetTester tester) async {
       final _FakeModelDownloadService downloader = _FakeModelDownloadService();

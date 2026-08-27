@@ -24,6 +24,7 @@ class GgufDiscoveryScreen extends StatefulWidget {
     this.discoveryCache,
     this.downloadService,
     this.onModelInstalled,
+    this.onBenchmarkCandidate,
   });
 
   /// Injectable so widget tests can provide deterministic, offline responses.
@@ -37,6 +38,9 @@ class GgufDiscoveryScreen extends StatefulWidget {
 
   /// Called after an exact candidate artifact is installed successfully.
   final Future<void> Function()? onModelInstalled;
+
+  /// Opens a qualification benchmark for the exact installed Candidate file.
+  final Future<void> Function(String fileName)? onBenchmarkCandidate;
 
   @override
   State<GgufDiscoveryScreen> createState() => _GgufDiscoveryScreenState();
@@ -750,6 +754,23 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
             Text(
               state.message!,
               style: const TextStyle(color: Colors.white60, fontSize: 12),
+            ),
+          ],
+          if (widget.onBenchmarkCandidate != null) ...[
+            const SizedBox(height: 10),
+            ElevatedButton.icon(
+              key: ValueKey<String>(
+                'candidate-benchmark-${artifact.fileName}',
+              ),
+              onPressed: _hasActiveDownload
+                  ? null
+                  : () => widget.onBenchmarkCandidate!(artifact.fileName),
+              icon: const Icon(Icons.speed_rounded, size: 18),
+              label: const Text('Benchmark Candidate'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _accentBlue,
+                foregroundColor: Colors.black,
+              ),
             ),
           ],
         ],

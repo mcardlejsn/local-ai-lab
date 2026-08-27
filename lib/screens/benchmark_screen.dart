@@ -20,10 +20,41 @@ export '../models/benchmark_session.dart'
     show BenchmarkModelResult, BenchmarkAggregate;
 
 class BenchmarkScreen extends StatefulWidget {
-  const BenchmarkScreen({super.key});
+  const BenchmarkScreen({
+    super.key,
+    this.targetModelId,
+  });
+
+  /// When set, the benchmark runs only this exact installed GGUF model.
+  ///
+  /// Ordinary navigation leaves this null and retains the existing all-model
+  /// comparison suite.
+  final String? targetModelId;
+
+  bool get isCandidateQualification => targetModelId != null;
 
   @override
   State<BenchmarkScreen> createState() => _BenchmarkScreenState();
+}
+
+/// Returns the models that belong in the current benchmark run.
+///
+/// Candidate qualification is deliberately limited to the exact GGUF path
+/// selected from Discovery. A normal suite has no target and keeps every
+/// discovered model.
+List<ModelInfo> benchmarkModelsForTarget(
+  List<ModelInfo> availableModels, {
+  String? targetModelId,
+}) {
+  if (targetModelId == null) {
+    return List<ModelInfo>.unmodifiable(availableModels);
+  }
+  return List<ModelInfo>.unmodifiable(
+    availableModels.where(
+      (ModelInfo model) =>
+          model.id == targetModelId && model.engine == ModelEngine.gguf,
+    ),
+  );
 }
 
 class _BenchmarkScreenState extends State<BenchmarkScreen> {
@@ -47,6 +78,9 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.isCandidateQualification) {
+      _currentStatus = 'Finding the installed Candidate...';
+    }
     _modelManager.addListener(_onModelManagerStateChanged);
     // The picker's selection is derived from the passage text, so edits typed
     // straight into the field have to redraw it.
@@ -59,20 +93,22 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   }
 
   Future<void> _initializeScreen() async {
-    try {
-      await _restoreLatestBenchmark();
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _currentStatus = 'Could not restore the latest benchmark: $e';
-        });
+    if (!widget.isCandidateQualification) {
+      try {
+        await _restoreLatestBenchmark();
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _currentStatus = 'Could not restore the latest benchmark: $e';
+          });
+        }
       }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isRestoring = false;
-        });
-      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _isRestoring = false;
+      });
     }
 
     if (mounted) {
@@ -142,17 +178,30 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     if (mounted) {
       setState(() {
         if (!_isRunning && !_isRestoring && !_hasRestoredSession) {
-          final models = _modelManager.availableModels;
-          _currentStatus = models.isEmpty
-              ? 'No models found to benchmark.'
-              : 'Found ${models.length} models ready for testing.';
+          final List<ModelInfo> models = benchmarkModelsForTarget(
+            _modelManager.availableModels,
+            targetModelId: widget.targetModelId,
+          );
+          if (models.isEmpty) {
+            _currentStatus = widget.isCandidateQualification
+                ? 'The selected Candidate is no longer installed.'
+                : 'No models found to benchmark.';
+          } else if (widget.isCandidateQualification) {
+            _currentStatus =
+                'Candidate ready for qualification: ${models.single.name}';
+          } else {
+            _currentStatus = 'Found ${models.length} models ready for testing.';
+          }
         }
       });
     }
   }
 
   Future<void> _runBenchmarkSuite() async {
-    final models = _modelManager.availableModels;
+    final List<ModelInfo> models = benchmarkModelsForTarget(
+      _modelManager.availableModels,
+      targetModelId: widget.targetModelId,
+    );
     if (models.isEmpty || _isRunning) return;
 
     setState(() {
@@ -231,11 +280,19 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         _hasRestoredSession = saveError == null;
         _currentRunningIndex = -1;
         _currentRunNumber = 0;
-        _currentStatus = saveError == null
-            ? 'Benchmark suite completed and saved: '
-                '${_aggregates.length} models × $runsPerModel runs.'
-            : 'Benchmark suite completed, but the grouped session '
-                'could not be saved: $saveError';
+        if (saveError == null) {
+          _currentStatus = widget.isCandidateQualification
+              ? 'Candidate benchmark completed and saved: '
+                  '$runsPerModel ${runsPerModel == 1 ? 'run' : 'runs'}.'
+              : 'Benchmark suite completed and saved: '
+                  '${_aggregates.length} models × $runsPerModel runs.';
+        } else {
+          _currentStatus = widget.isCandidateQualification
+              ? 'Candidate benchmark completed, but the session could not '
+                  'be saved: $saveError'
+              : 'Benchmark suite completed, but the grouped session '
+                  'could not be saved: $saveError';
+        }
       });
     }
 
@@ -499,7 +556,10 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     const surfaceColor = Color(0xFF1E1E1E);
     const accentBlue = Color(0xFF90CAF9);
 
-    final models = _modelManager.availableModels;
+    final List<ModelInfo> models = benchmarkModelsForTarget(
+      _modelManager.availableModels,
+      targetModelId: widget.targetModelId,
+    );
     final isScanning = _modelManager.isLoading;
 
     return Scaffold(
@@ -507,9 +567,11 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
       appBar: AppBar(
         backgroundColor: surfaceColor,
         elevation: 0,
-        title: const Text(
-          'Model Benchmark Suite',
-          style: TextStyle(
+        title: Text(
+          widget.isCandidateQualification
+              ? 'Candidate Benchmark'
+              : 'Model Benchmark Suite',
+          style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.w600,
             fontSize: 18,
@@ -666,7 +728,9 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                     : _isRunning
                         ? 'Model ${_currentRunningIndex + 1}/${models.length} '
                             '• Run $_currentRunNumber/$_runsPerModel'
-                        : 'Run Automated Benchmark Suite',
+                        : widget.isCandidateQualification
+                            ? 'Benchmark Candidate'
+                            : 'Run Automated Benchmark Suite',
                 style: const TextStyle(
                   color: Colors.black,
                   fontWeight: FontWeight.bold,
@@ -683,9 +747,11 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
             ),
             const SizedBox(height: 20),
             if (_aggregates.isNotEmpty) ...[
-              const Text(
-                'Comparative Results:',
-                style: TextStyle(
+              Text(
+                widget.isCandidateQualification
+                    ? 'Candidate Result:'
+                    : 'Comparative Results:',
+                style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.bold,
                     fontSize: 15),
