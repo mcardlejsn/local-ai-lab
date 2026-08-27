@@ -103,7 +103,7 @@ void main() {
         'candidate-license-qwen2.5-1.5b-instruct-q4_k_m.gguf',
       );
       await _scrollAndTap(tester, find.byKey(licenseKey));
-      expect(find.text('View license terms'), findsOneWidget);
+      expect(find.text('View license information'), findsOneWidget);
       expect(
         openedLicenseUri,
         Uri.parse('https://www.apache.org/licenses/LICENSE-2.0'),
@@ -309,7 +309,7 @@ void main() {
       await tester.scrollUntilVisible(find.byKey(licenseKey), 250);
       await tester.pumpAndSettle();
 
-      expect(find.text('View license terms'), findsOneWidget);
+      expect(find.text('View license information'), findsOneWidget);
       expect(find.textContaining('Warning: Custom license'), findsNothing);
     });
 
@@ -355,7 +355,7 @@ void main() {
       );
       await _scrollAndTap(tester, find.byKey(licenseKey));
 
-      expect(find.text('View license source'), findsOneWidget);
+      expect(find.text('View license information'), findsOneWidget);
       expect(
         openedUri,
         Uri.parse(

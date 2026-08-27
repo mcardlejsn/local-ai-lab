@@ -100,10 +100,8 @@ class GgufCandidateArtifact {
         );
   }
 
-  /// Describes whether the link opens direct terms or their recorded source.
-  String get licenseLinkLabel => _knownLicenseTermsUri == null
-      ? 'View license source'
-      : 'View license terms';
+  /// Consistent wording for direct terms and recorded license sources.
+  String get licenseLinkLabel => 'View license information';
 
   Uri? get _knownLicenseTermsUri {
     switch (license.trim().toLowerCase()) {
@@ -128,11 +126,6 @@ class GgufCandidateArtifact {
       case 'gemma':
       case 'gemma terms of use':
         return Uri.parse('https://ai.google.dev/gemma/terms');
-      case 'falcon-llm-license':
-      case 'falcon-llm license':
-        return Uri.parse(
-          'https://falconllm.tii.ae/falcon-terms-and-conditions.html',
-        );
       default:
         return null;
     }

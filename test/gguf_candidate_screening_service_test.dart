@@ -56,8 +56,12 @@ void main() {
       expect(
         assessment.artifact!.licenseTermsUri,
         Uri.parse(
-          'https://falconllm.tii.ae/falcon-terms-and-conditions.html',
+          'https://huggingface.co/tiiuae/Falcon-H1-0.5B-Instruct-GGUF',
         ),
+      );
+      expect(
+        assessment.artifact!.licenseLinkLabel,
+        'View license information',
       );
       expect(assessment.warnings, isEmpty);
     });

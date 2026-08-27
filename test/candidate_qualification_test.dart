@@ -77,10 +77,6 @@ void main() {
         'Gemma Terms of Use',
         'https://ai.google.dev/gemma/terms',
       ),
-      'falcon-llm-license': (
-        'Falcon-LLM License',
-        'https://falconllm.tii.ae/falcon-terms-and-conditions.html',
-      ),
     };
 
     for (final MapEntry<String, (String, String)> entry in expected.entries) {
@@ -92,24 +88,31 @@ void main() {
       );
       expect(artifact.licenseDisplayName, entry.value.$1);
       expect(artifact.licenseTermsUri.toString(), entry.value.$2);
-      expect(artifact.licenseLinkLabel, 'View license terms');
+      expect(artifact.licenseLinkLabel, 'View license information');
     }
   });
 
   test('unmapped usable license links to its recorded source repository', () {
-    final GgufCandidateArtifact artifact = _artifact(
-      sha256:
-          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      license: 'future-publisher-license',
-      hasCustomLicense: true,
-    );
+    final Map<String, String> expectedNames = <String, String>{
+      'falcon-llm-license': 'Falcon-LLM License',
+      'future-publisher-license': 'future-publisher-license',
+    };
 
-    expect(artifact.licenseDisplayName, 'future-publisher-license');
-    expect(
-      artifact.licenseTermsUri.toString(),
-      'https://huggingface.co/Publisher/Model-GGUF',
-    );
-    expect(artifact.licenseLinkLabel, 'View license source');
+    for (final MapEntry<String, String> entry in expectedNames.entries) {
+      final GgufCandidateArtifact artifact = _artifact(
+        sha256:
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        license: entry.key,
+        hasCustomLicense: true,
+      );
+
+      expect(artifact.licenseDisplayName, entry.value);
+      expect(
+        artifact.licenseTermsUri.toString(),
+        'https://huggingface.co/Publisher/Model-GGUF',
+      );
+      expect(artifact.licenseLinkLabel, 'View license information');
+    }
   });
 }
 
