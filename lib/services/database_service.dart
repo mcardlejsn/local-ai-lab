@@ -3,6 +3,23 @@ import 'package:sqflite/sqflite.dart';
 
 import '../models/summary_record.dart';
 
+enum CandidateQualificationStatus { notRun, completed, failed }
+
+/// Classifies the newest exact-artifact qualification session.
+///
+/// Null means no session exists. A saved session with no runs or any runtime
+/// error requires another qualification attempt. Output quality remains a
+/// separate human review rather than an automatic Verified decision.
+CandidateQualificationStatus candidateQualificationStatusFromRuns(
+  List<Map<String, Object?>>? runs,
+) {
+  if (runs == null) return CandidateQualificationStatus.notRun;
+  if (runs.isEmpty || runs.any((run) => run['error_message'] != null)) {
+    return CandidateQualificationStatus.failed;
+  }
+  return CandidateQualificationStatus.completed;
+}
+
 class DatabaseService {
   static final DatabaseService instance = DatabaseService._init();
   static Database? _database;
@@ -21,7 +38,7 @@ class DatabaseService {
 
     return openDatabase(
       path,
-      version: 6,
+      version: 7,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -58,7 +75,8 @@ class DatabaseService {
         instruction TEXT NOT NULL,
         runs_per_model INTEGER NOT NULL,
         model_count INTEGER NOT NULL,
-        completed_at TEXT NOT NULL
+        completed_at TEXT NOT NULL,
+        qualification_artifact_id TEXT
       )
     ''');
 
@@ -93,6 +111,11 @@ class DatabaseService {
     await db.execute('''
       CREATE INDEX IF NOT EXISTS idx_benchmark_runs_session_id
       ON benchmark_runs (session_id)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_benchmark_sessions_qualification
+      ON benchmark_sessions (qualification_artifact_id, completed_at, id)
     ''');
   }
 
@@ -142,6 +165,16 @@ class DatabaseService {
         await db.execute(
           'ALTER TABLE benchmark_runs ADD COLUMN missed_fact_ids TEXT;',
         );
+      }
+      if (oldVersion < 7) {
+        await db.execute(
+          'ALTER TABLE benchmark_sessions '
+          'ADD COLUMN qualification_artifact_id TEXT;',
+        );
+        await db.execute('''
+          CREATE INDEX IF NOT EXISTS idx_benchmark_sessions_qualification
+          ON benchmark_sessions (qualification_artifact_id, completed_at, id)
+        ''');
       }
     }
   }
@@ -225,6 +258,7 @@ class DatabaseService {
     required int runsPerModel,
     required int modelCount,
     required List<Map<String, Object?>> runs,
+    String? qualificationArtifactId,
   }) async {
     final db = await instance.database;
 
@@ -235,6 +269,7 @@ class DatabaseService {
         'runs_per_model': runsPerModel,
         'model_count': modelCount,
         'completed_at': DateTime.now().toUtc().toIso8601String(),
+        'qualification_artifact_id': qualificationArtifactId,
       });
 
       for (final run in runs) {
@@ -248,10 +283,13 @@ class DatabaseService {
     });
   }
 
-  Future<Map<String, Object?>?> getLatestCompletedBenchmark() async {
+  Future<Map<String, Object?>?> getLatestCompletedBenchmark({
+    bool comparisonOnly = false,
+  }) async {
     final db = await instance.database;
     final sessions = await db.query(
       'benchmark_sessions',
+      where: comparisonOnly ? 'qualification_artifact_id IS NULL' : null,
       orderBy: 'completed_at DESC, id DESC',
       limit: 1,
     );
@@ -259,6 +297,29 @@ class DatabaseService {
     if (sessions.isEmpty) return null;
 
     return _loadSessionWithRuns(db, sessions.first);
+  }
+
+  /// Returns the newest local qualification outcome for one exact artifact.
+  Future<CandidateQualificationStatus> getCandidateQualificationStatus(
+    String qualificationArtifactId,
+  ) async {
+    final db = await instance.database;
+    final sessions = await db.query(
+      'benchmark_sessions',
+      where: 'qualification_artifact_id = ?',
+      whereArgs: [qualificationArtifactId],
+      orderBy: 'completed_at DESC, id DESC',
+      limit: 1,
+    );
+    if (sessions.isEmpty) {
+      return CandidateQualificationStatus.notRun;
+    }
+
+    final Map<String, Object?> session =
+        await _loadSessionWithRuns(db, sessions.first);
+    final List<Map<String, Object?>> runs =
+        (session['runs'] as List).cast<Map<String, Object?>>();
+    return candidateQualificationStatusFromRuns(runs);
   }
 
   /// Loads one saved session by id, with all of its ordered run records.

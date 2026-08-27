@@ -53,4 +53,12 @@ class GgufCandidateArtifact {
   final bool hasCustomLicense;
   final String modelFamily;
   final PromptFormat promptFormat;
+
+  /// Stable identity for qualification history.
+  ///
+  /// Repository, commit, filename, and digest together prevent a benchmark
+  /// for an older same-named file from qualifying different bytes later.
+  String get qualificationArtifactId =>
+      '$repositoryId@${commitSha.toLowerCase()}/$fileName#'
+      '${sha256.toLowerCase()}';
 }

@@ -4,11 +4,15 @@ import 'package:flutter/material.dart';
 
 import '../models/gguf_candidate_assessment.dart';
 import '../models/gguf_discovery_result.dart';
+import '../services/database_service.dart';
 import '../services/gguf_discovery_cache_service.dart';
 import '../services/gguf_discovery_service.dart';
 import '../services/gguf_discovery_seed_service.dart';
 import '../services/hugging_face_discovery_service.dart';
 import '../services/model_download_service.dart';
+
+typedef CandidateQualificationLookup = Future<CandidateQualificationStatus>
+    Function(String qualificationArtifactId);
 
 /// Displays GGUF discovery results produced by an explicit user action.
 ///
@@ -25,6 +29,7 @@ class GgufDiscoveryScreen extends StatefulWidget {
     this.downloadService,
     this.onModelInstalled,
     this.onBenchmarkCandidate,
+    this.qualificationLookup,
   });
 
   /// Injectable so widget tests can provide deterministic, offline responses.
@@ -40,7 +45,11 @@ class GgufDiscoveryScreen extends StatefulWidget {
   final Future<void> Function()? onModelInstalled;
 
   /// Opens a qualification benchmark for the exact installed Candidate file.
-  final Future<void> Function(String fileName)? onBenchmarkCandidate;
+  final Future<void> Function(GgufCandidateArtifact artifact)?
+      onBenchmarkCandidate;
+
+  /// Injectable so widget tests can avoid the platform database.
+  final CandidateQualificationLookup? qualificationLookup;
 
   @override
   State<GgufDiscoveryScreen> createState() => _GgufDiscoveryScreenState();
@@ -57,6 +66,7 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
   late final GgufDiscoveryService _discoveryService;
   late final GgufDiscoveryCache _discoveryCache;
   late final ModelDownloadService _downloadService;
+  late final CandidateQualificationLookup _qualificationLookup;
   GgufDiscoveryResult? _result;
   DateTime? _lastRefreshedUtc;
   String? _errorMessage;
@@ -74,6 +84,8 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     _discoveryService = widget.discoveryService ?? GgufDiscoveryService();
     _discoveryCache = widget.discoveryCache ?? GgufDiscoveryCacheService();
     _downloadService = widget.downloadService ?? ModelDownloadService();
+    _qualificationLookup = widget.qualificationLookup ??
+        DatabaseService.instance.getCandidateQualificationStatus;
     unawaited(_restoreCachedDiscovery());
   }
 
@@ -201,6 +213,17 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     final int partialBytes = status == InstalledArtifactStatus.absent
         ? await _downloadService.partialBytes(artifact.fileName)
         : 0;
+    CandidateQualificationStatus qualificationStatus =
+        CandidateQualificationStatus.notRun;
+    if (status == InstalledArtifactStatus.matchesExpected) {
+      try {
+        qualificationStatus = await _qualificationLookup(
+          artifact.qualificationArtifactId,
+        );
+      } on Object {
+        // A local history read must not make installed model controls unusable.
+      }
+    }
     return _CandidateDownloadState(
       installed: status == InstalledArtifactStatus.matchesExpected,
       fileConflict: status == InstalledArtifactStatus.differentFile,
@@ -209,7 +232,22 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
       receivedBytes: partialBytes,
       totalBytes: artifact.sizeBytes,
       message: message,
+      qualificationStatus: qualificationStatus,
     );
+  }
+
+  Future<void> _benchmarkCandidate(GgufCandidateArtifact artifact) async {
+    final callback = widget.onBenchmarkCandidate;
+    if (callback == null || _hasActiveDownload) return;
+    await callback(artifact);
+    if (!mounted) return;
+
+    final _CandidateDownloadState refreshed =
+        await _readArtifactState(artifact);
+    if (!mounted) return;
+    setState(() {
+      _downloadStates[_artifactKey(artifact)] = refreshed;
+    });
   }
 
   Future<void> _startCandidateDownload(
@@ -405,7 +443,7 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
   }
 
   String _artifactKey(GgufCandidateArtifact artifact) {
-    return '${artifact.repositoryId}@${artifact.commitSha}/${artifact.fileName}';
+    return artifact.qualificationArtifactId;
   }
 
   @override
@@ -733,18 +771,39 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     }
 
     if (state.installed) {
+      final CandidateQualificationStatus qualificationStatus =
+          state.qualificationStatus;
+      final String statusText;
+      final Color statusColor;
+      final IconData statusIcon;
+      switch (qualificationStatus) {
+        case CandidateQualificationStatus.notRun:
+          statusText = 'Installed Candidate — benchmark required';
+          statusColor = _candidateGreen;
+          statusIcon = Icons.check_circle_rounded;
+          break;
+        case CandidateQualificationStatus.completed:
+          statusText = 'Benchmark completed — review required';
+          statusColor = _reviewAmber;
+          statusIcon = Icons.fact_check_outlined;
+          break;
+        case CandidateQualificationStatus.failed:
+          statusText = 'Benchmark failed — retry required';
+          statusColor = _rejectedRed;
+          statusIcon = Icons.error_outline_rounded;
+          break;
+      }
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.check_circle_rounded,
-                  size: 16, color: _candidateGreen),
-              SizedBox(width: 6),
+              Icon(statusIcon, size: 16, color: statusColor),
+              const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  'Installed Candidate — benchmark required',
-                  style: TextStyle(color: _candidateGreen, fontSize: 12),
+                  statusText,
+                  style: TextStyle(color: statusColor, fontSize: 12),
                 ),
               ),
             ],
@@ -764,7 +823,7 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
               ),
               onPressed: _hasActiveDownload
                   ? null
-                  : () => widget.onBenchmarkCandidate!(artifact.fileName),
+                  : () => _benchmarkCandidate(artifact),
               icon: const Icon(Icons.speed_rounded, size: 18),
               label: const Text('Benchmark Candidate'),
               style: ElevatedButton.styleFrom(
@@ -943,6 +1002,7 @@ class _CandidateDownloadState {
     this.totalBytes = 0,
     this.message,
     this.cancelToken,
+    this.qualificationStatus = CandidateQualificationStatus.notRun,
   });
 
   final bool isChecking;
@@ -955,6 +1015,7 @@ class _CandidateDownloadState {
   final int totalBytes;
   final String? message;
   final DownloadCancelToken? cancelToken;
+  final CandidateQualificationStatus qualificationStatus;
 
   double? get fraction {
     if (totalBytes <= 0) return null;
@@ -984,6 +1045,7 @@ class _CandidateDownloadState {
     DownloadCancelToken? cancelToken,
     bool clearMessage = false,
     bool clearCancelToken = false,
+    CandidateQualificationStatus? qualificationStatus,
   }) {
     return _CandidateDownloadState(
       isChecking: isChecking ?? this.isChecking,
@@ -996,6 +1058,7 @@ class _CandidateDownloadState {
       totalBytes: totalBytes ?? this.totalBytes,
       message: clearMessage ? null : (message ?? this.message),
       cancelToken: clearCancelToken ? null : (cancelToken ?? this.cancelToken),
+      qualificationStatus: qualificationStatus ?? this.qualificationStatus,
     );
   }
 }

@@ -5,6 +5,7 @@ import 'package:local_ai_summarizer/models/gguf_compatibility_policy.dart';
 import 'package:local_ai_summarizer/models/gguf_discovery_result.dart';
 import 'package:local_ai_summarizer/models/model_catalog.dart';
 import 'package:local_ai_summarizer/screens/gguf_discovery_screen.dart';
+import 'package:local_ai_summarizer/services/database_service.dart';
 import 'package:local_ai_summarizer/services/gguf_discovery_cache_service.dart';
 import 'package:local_ai_summarizer/services/gguf_discovery_service.dart';
 import 'package:local_ai_summarizer/services/hugging_face_discovery_service.dart';
@@ -132,7 +133,8 @@ void main() {
 
     testWidgets('installed Candidate exposes its exact benchmark action',
         (WidgetTester tester) async {
-      String? benchmarkedFileName;
+      GgufCandidateArtifact? benchmarkedArtifact;
+      CandidateQualificationStatus status = CandidateQualificationStatus.notRun;
       final _FakeModelDownloadService downloader = _FakeModelDownloadService(
         status: InstalledArtifactStatus.matchesExpected,
       );
@@ -143,8 +145,12 @@ void main() {
             discoveryService: _singleCandidateService(),
             discoveryCache: _FakeGgufDiscoveryCache(),
             downloadService: downloader,
-            onBenchmarkCandidate: (String fileName) async {
-              benchmarkedFileName = fileName;
+            qualificationLookup: (String qualificationArtifactId) async {
+              return status;
+            },
+            onBenchmarkCandidate: (GgufCandidateArtifact artifact) async {
+              benchmarkedArtifact = artifact;
+              status = CandidateQualificationStatus.completed;
             },
           ),
         ),
@@ -154,9 +160,51 @@ void main() {
 
       const String fileName = 'qwen2.5-1.5b-instruct-q4_k_m.gguf';
       const Key benchmarkKey = Key('candidate-benchmark-$fileName');
+      expect(
+        find.text('Installed Candidate — benchmark required'),
+        findsOneWidget,
+      );
       await _scrollAndTap(tester, find.byKey(benchmarkKey));
 
-      expect(benchmarkedFileName, fileName);
+      expect(benchmarkedArtifact?.fileName, fileName);
+      expect(
+        benchmarkedArtifact?.qualificationArtifactId,
+        'Qwen/Qwen2.5-1.5B-Instruct-GGUF@'
+        '0123456789abcdef0123456789abcdef01234567/'
+        'qwen2.5-1.5b-instruct-q4_k_m.gguf#'
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      );
+      expect(find.text('Benchmark Candidate'), findsOneWidget);
+      expect(
+        find.text('Benchmark completed — review required'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('failed exact qualification requires a retry',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GgufDiscoveryScreen(
+            discoveryService: _singleCandidateService(),
+            discoveryCache: _FakeGgufDiscoveryCache(),
+            downloadService: _FakeModelDownloadService(
+              status: InstalledArtifactStatus.matchesExpected,
+            ),
+            qualificationLookup: (String qualificationArtifactId) async {
+              return CandidateQualificationStatus.failed;
+            },
+            onBenchmarkCandidate: (GgufCandidateArtifact artifact) async {},
+          ),
+        ),
+      );
+      await tester.tap(find.byKey(const Key('discover-gguf-button')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Benchmark failed — retry required'),
+        findsOneWidget,
+      );
       expect(find.text('Benchmark Candidate'), findsOneWidget);
     });
 

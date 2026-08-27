@@ -23,13 +23,21 @@ class BenchmarkScreen extends StatefulWidget {
   const BenchmarkScreen({
     super.key,
     this.targetModelId,
-  });
+    this.qualificationArtifactId,
+  }) : assert(
+          (targetModelId == null) == (qualificationArtifactId == null),
+          'Candidate target and exact artifact identity must be supplied '
+          'together.',
+        );
 
   /// When set, the benchmark runs only this exact installed GGUF model.
   ///
   /// Ordinary navigation leaves this null and retains the existing all-model
   /// comparison suite.
   final String? targetModelId;
+
+  /// Exact Discovery artifact associated with a Candidate qualification run.
+  final String? qualificationArtifactId;
 
   bool get isCandidateQualification => targetModelId != null;
 
@@ -117,7 +125,9 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   }
 
   Future<void> _restoreLatestBenchmark() async {
-    final saved = await DatabaseService.instance.getLatestCompletedBenchmark();
+    final saved = await DatabaseService.instance.getLatestCompletedBenchmark(
+      comparisonOnly: true,
+    );
     if (saved == null || !mounted) return;
 
     final runMaps = (saved['runs'] as List).cast<Map<String, Object?>>();
@@ -138,10 +148,11 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     });
   }
 
-  /// Re-reads the most recently saved session's runs into the displayed
-  /// results, so the table shows the recall grades written at save time.
-  Future<void> _reloadSavedRuns() async {
-    final saved = await DatabaseService.instance.getLatestCompletedBenchmark();
+  /// Re-reads the session that was just saved, so the table shows the recall
+  /// grades written at save time without confusing it with another run type.
+  Future<void> _reloadSavedRuns(int sessionId) async {
+    final saved =
+        await DatabaseService.instance.getCompletedBenchmarkById(sessionId);
     if (saved == null || !mounted) return;
 
     final runMaps = (saved['runs'] as List).cast<Map<String, Object?>>();
@@ -262,14 +273,14 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
 
     String? saveError;
     try {
-      await _saveCompletedBenchmark(
+      final int sessionId = await _saveCompletedBenchmark(
         passage: rawText,
         instruction: instruction,
         runsPerModel: runsPerModel,
       );
       // Re-read what was just written so the displayed runs carry their
       // stored recall grades.
-      await _reloadSavedRuns();
+      await _reloadSavedRuns(sessionId);
     } catch (e) {
       saveError = e.toString();
     }
@@ -309,7 +320,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     }
   }
 
-  Future<void> _saveCompletedBenchmark({
+  Future<int> _saveCompletedBenchmark({
     required String passage,
     required String instruction,
     required int runsPerModel,
@@ -358,12 +369,13 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
       );
     }
 
-    await DatabaseService.instance.insertCompletedBenchmark(
+    return DatabaseService.instance.insertCompletedBenchmark(
       passage: passage,
       instruction: instruction,
       runsPerModel: runsPerModel,
       modelCount: _aggregates.length,
       runs: runRows,
+      qualificationArtifactId: widget.qualificationArtifactId,
     );
   }
 

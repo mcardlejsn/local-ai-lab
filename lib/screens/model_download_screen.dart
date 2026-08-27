@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/gguf_candidate_assessment.dart';
 import '../models/model_catalog.dart';
 import '../services/model_download_service.dart';
 import '../services/model_manager_service.dart';
@@ -155,14 +156,15 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
     await _refreshAll();
   }
 
-  Future<void> _openCandidateBenchmark(String fileName) async {
+  Future<void> _openCandidateBenchmark(GgufCandidateArtifact artifact) async {
     await widget.modelManager.scanModels();
     if (!mounted) return;
 
     final List<ModelInfo> matches = widget.modelManager.availableModels
         .where(
           (ModelInfo model) =>
-              model.engine == ModelEngine.gguf && model.name == fileName,
+              model.engine == ModelEngine.gguf &&
+              model.name == artifact.fileName,
         )
         .toList(growable: false);
     if (matches.length != 1) {
@@ -180,7 +182,10 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => BenchmarkScreen(targetModelId: matches.single.id),
+        builder: (_) => BenchmarkScreen(
+          targetModelId: matches.single.id,
+          qualificationArtifactId: artifact.qualificationArtifactId,
+        ),
       ),
     );
   }
