@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/gguf_candidate_assessment.dart';
 import '../models/gguf_discovery_result.dart';
@@ -13,6 +14,7 @@ import '../services/model_download_service.dart';
 
 typedef CandidateQualificationLookup = Future<CandidateQualificationStatus>
     Function(String qualificationArtifactId);
+typedef ExternalUriLauncher = Future<bool> Function(Uri uri);
 
 /// Displays GGUF discovery results produced by an explicit user action.
 ///
@@ -30,6 +32,7 @@ class GgufDiscoveryScreen extends StatefulWidget {
     this.onModelInstalled,
     this.onBenchmarkCandidate,
     this.qualificationLookup,
+    this.externalUriLauncher,
   });
 
   /// Injectable so widget tests can provide deterministic, offline responses.
@@ -51,6 +54,9 @@ class GgufDiscoveryScreen extends StatefulWidget {
   /// Injectable so widget tests can avoid the platform database.
   final CandidateQualificationLookup? qualificationLookup;
 
+  /// Injectable so widget tests never open an external application.
+  final ExternalUriLauncher? externalUriLauncher;
+
   @override
   State<GgufDiscoveryScreen> createState() => _GgufDiscoveryScreenState();
 }
@@ -67,6 +73,7 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
   late final GgufDiscoveryCache _discoveryCache;
   late final ModelDownloadService _downloadService;
   late final CandidateQualificationLookup _qualificationLookup;
+  late final ExternalUriLauncher _externalUriLauncher;
   GgufDiscoveryResult? _result;
   DateTime? _lastRefreshedUtc;
   String? _errorMessage;
@@ -86,7 +93,12 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     _downloadService = widget.downloadService ?? ModelDownloadService();
     _qualificationLookup = widget.qualificationLookup ??
         DatabaseService.instance.getCandidateQualificationStatus;
+    _externalUriLauncher = widget.externalUriLauncher ?? _launchExternalUri;
     unawaited(_restoreCachedDiscovery());
+  }
+
+  Future<bool> _launchExternalUri(Uri uri) {
+    return launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   @override
@@ -250,6 +262,28 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     });
   }
 
+  Future<void> _openLicenseTerms(GgufCandidateArtifact artifact) async {
+    bool opened = false;
+    try {
+      opened = await _externalUriLauncher(artifact.licenseTermsUri);
+    } on Object {
+      opened = false;
+    }
+    if (!mounted || opened) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Could not open the license information.'),
+      ),
+    );
+  }
+
+  Iterable<String> _visibleWarnings(GgufCandidateAssessment assessment) {
+    return assessment.warnings.where(
+      (String warning) =>
+          !warning.trim().toLowerCase().startsWith('custom license — review'),
+    );
+  }
+
   Future<void> _startCandidateDownload(
     GgufCandidateAssessment assessment,
   ) async {
@@ -354,7 +388,8 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '${_formatBytes(artifact.sizeBytes)}  ·  ${artifact.license}',
+                  '${_formatBytes(artifact.sizeBytes)}  ·  '
+                  '${artifact.licenseDisplayName}',
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
                 ),
                 const SizedBox(height: 6),
@@ -362,19 +397,20 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
                   artifact.sourcePage.toString(),
                   style: const TextStyle(color: Colors.white38, fontSize: 11),
                 ),
-                if (artifact.hasCustomLicense) ...[
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Custom license — review its terms at the source before '
-                    'continuing.',
-                    style: TextStyle(
-                      color: _reviewAmber,
-                      fontSize: 12,
-                      height: 1.35,
-                    ),
+                const SizedBox(height: 6),
+                TextButton.icon(
+                  key: const Key('candidate-dialog-license-terms'),
+                  onPressed: () => _openLicenseTerms(artifact),
+                  style: TextButton.styleFrom(
+                    foregroundColor: _accentBlue,
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(0, 36),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
-                ],
-                for (final String warning in assessment.warnings) ...[
+                  icon: const Icon(Icons.open_in_new, size: 16),
+                  label: Text(artifact.licenseLinkLabel),
+                ),
+                for (final String warning in _visibleWarnings(assessment)) ...[
                   const SizedBox(height: 8),
                   Text(
                     warning,
@@ -708,14 +744,27 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
             ),
             const SizedBox(height: 4),
             Text(
-              '${_formatBytes(artifact.sizeBytes)}  ·  ${artifact.license}  ·  '
-              '${artifact.modelFamily}',
+              '${_formatBytes(artifact.sizeBytes)}  ·  '
+              '${artifact.licenseDisplayName}  ·  ${artifact.modelFamily}',
               style: const TextStyle(color: Colors.white54, fontSize: 12),
             ),
             const SizedBox(height: 4),
             Text(
               artifact.sourcePage.toString(),
               style: const TextStyle(color: Colors.white38, fontSize: 11),
+            ),
+            const SizedBox(height: 4),
+            TextButton.icon(
+              key: Key('candidate-license-${artifact.fileName}'),
+              onPressed: () => _openLicenseTerms(artifact),
+              style: TextButton.styleFrom(
+                foregroundColor: _accentBlue,
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(0, 36),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              icon: const Icon(Icons.open_in_new, size: 16),
+              label: Text(artifact.licenseLinkLabel),
             ),
           ],
           for (final String reason in assessment.reasons) ...[
@@ -725,7 +774,7 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
               style: TextStyle(color: statusColor, fontSize: 12, height: 1.35),
             ),
           ],
-          for (final String warning in assessment.warnings) ...[
+          for (final String warning in _visibleWarnings(assessment)) ...[
             const SizedBox(height: 8),
             Text(
               'Warning: $warning',

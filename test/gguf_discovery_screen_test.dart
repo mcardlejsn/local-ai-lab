@@ -46,6 +46,7 @@ void main() {
         (WidgetTester tester) async {
       int requests = 0;
       int rescans = 0;
+      Uri? openedLicenseUri;
       final _FakeModelDownloadService downloader = _FakeModelDownloadService();
       final _FakeGgufDiscoveryCache cache = _FakeGgufDiscoveryCache();
       final GgufDiscoveryService service = GgufDiscoveryService(
@@ -73,6 +74,10 @@ void main() {
             discoveryService: service,
             discoveryCache: cache,
             downloadService: downloader,
+            externalUriLauncher: (Uri uri) async {
+              openedLicenseUri = uri;
+              return true;
+            },
             onModelInstalled: () async {
               rescans++;
             },
@@ -92,6 +97,16 @@ void main() {
       expect(
         find.byKey(const Key('discovery-incomplete-warning')),
         findsNothing,
+      );
+
+      const Key licenseKey = Key(
+        'candidate-license-qwen2.5-1.5b-instruct-q4_k_m.gguf',
+      );
+      await _scrollAndTap(tester, find.byKey(licenseKey));
+      expect(find.text('View license terms'), findsOneWidget);
+      expect(
+        openedLicenseUri,
+        Uri.parse('https://www.apache.org/licenses/LICENSE-2.0'),
       );
 
       const Key downloadKey = Key(
@@ -208,22 +223,23 @@ void main() {
       expect(find.text('Benchmark Candidate'), findsOneWidget);
     });
 
-    testWidgets('custom-license Candidate warns before download',
+    testWidgets('custom-license Candidate links to readable terms',
         (WidgetTester tester) async {
       final _FakeModelDownloadService downloader = _FakeModelDownloadService();
+      Uri? openedUri;
       final GgufDiscoveryService service = GgufDiscoveryService(
         loadSeedRepositories: _noSeeds,
         source: HuggingFaceDiscoveryService(
           fetchJson: (Uri uri) async {
             if (uri.path == '/api/models') {
               return <Object?>[
-                _summary('Qwen/Custom-License-1.5B-Instruct-GGUF'),
+                _summary('bartowski/Llama-3.2-1B-Instruct-GGUF'),
               ];
             }
             return _repository(
-              id: 'Qwen/Custom-License-1.5B-Instruct-GGUF',
-              license: 'custom-local-ai-license',
-              fileName: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
+              id: 'bartowski/Llama-3.2-1B-Instruct-GGUF',
+              license: 'llama3.2',
+              fileName: 'Llama-3.2-1B-Instruct-Q4_K_M.gguf',
             );
           },
         ),
@@ -235,20 +251,117 @@ void main() {
             discoveryService: service,
             discoveryCache: _FakeGgufDiscoveryCache(),
             downloadService: downloader,
+            externalUriLauncher: (Uri uri) async {
+              openedUri = uri;
+              return true;
+            },
           ),
         ),
       );
       await tester.tap(find.byKey(const Key('discover-gguf-button')));
       await tester.pumpAndSettle();
 
+      const Key licenseKey = Key(
+        'candidate-license-Llama-3.2-1B-Instruct-Q4_K_M.gguf',
+      );
+      await _scrollAndTap(tester, find.byKey(licenseKey));
+      expect(find.textContaining('Warning: Custom license'), findsNothing);
+      expect(
+        openedUri,
+        Uri.parse('https://developer.meta.com/ai/llama3_2/license/'),
+      );
+
       const Key downloadKey = Key(
-        'candidate-download-qwen2.5-1.5b-instruct-q4_k_m.gguf',
+        'candidate-download-Llama-3.2-1B-Instruct-Q4_K_M.gguf',
       );
       await _scrollAndTap(tester, find.byKey(downloadKey));
 
-      expect(find.textContaining('Custom license'), findsWidgets);
-      expect(find.textContaining('review its terms'), findsOneWidget);
+      expect(
+        find.byKey(const Key('candidate-dialog-license-terms')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('review its terms'), findsNothing);
       expect(downloader.downloadCalls, 0);
+    });
+
+    testWidgets('legacy cached custom-license warning stays hidden',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GgufDiscoveryScreen(
+            discoveryService: _singleCandidateService(),
+            discoveryCache: _FakeGgufDiscoveryCache(
+              entry: GgufDiscoveryCacheEntry(
+                result: _cachedCustomLicenseResult(),
+                discoveredAtUtc: DateTime.utc(2026, 8, 27, 11, 22),
+              ),
+            ),
+            downloadService: _FakeModelDownloadService(),
+            externalUriLauncher: (Uri uri) async => true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      const Key licenseKey = Key(
+        'candidate-license-google_gemma-3-1b-it-Q4_K_M.gguf',
+      );
+      await tester.scrollUntilVisible(find.byKey(licenseKey), 250);
+      await tester.pumpAndSettle();
+
+      expect(find.text('View license terms'), findsOneWidget);
+      expect(find.textContaining('Warning: Custom license'), findsNothing);
+    });
+
+    testWidgets('unmapped usable license links to its metadata source',
+        (WidgetTester tester) async {
+      Uri? openedUri;
+      final GgufDiscoveryService service = GgufDiscoveryService(
+        loadSeedRepositories: _noSeeds,
+        source: HuggingFaceDiscoveryService(
+          fetchJson: (Uri uri) async {
+            if (uri.path == '/api/models') {
+              return <Object?>[
+                _summary('Publisher/Future-1B-Instruct-GGUF'),
+              ];
+            }
+            return _repository(
+              id: 'Publisher/Future-1B-Instruct-GGUF',
+              license: 'future-publisher-license',
+              fileName: 'qwen-future-1b-instruct-q4_k_m.gguf',
+            );
+          },
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GgufDiscoveryScreen(
+            discoveryService: service,
+            discoveryCache: _FakeGgufDiscoveryCache(),
+            downloadService: _FakeModelDownloadService(),
+            externalUriLauncher: (Uri uri) async {
+              openedUri = uri;
+              return true;
+            },
+          ),
+        ),
+      );
+      await tester.tap(find.byKey(const Key('discover-gguf-button')));
+      await tester.pumpAndSettle();
+
+      const Key licenseKey = Key(
+        'candidate-license-qwen-future-1b-instruct-q4_k_m.gguf',
+      );
+      await _scrollAndTap(tester, find.byKey(licenseKey));
+
+      expect(find.text('View license source'), findsOneWidget);
+      expect(
+        openedUri,
+        Uri.parse(
+          'https://huggingface.co/Publisher/Future-1B-Instruct-GGUF',
+        ),
+      );
     });
 
     testWidgets('different same-named file blocks Candidate download',
@@ -677,6 +790,43 @@ GgufDiscoveryResult _cachedCandidateResult() {
           hasCustomLicense: false,
           modelFamily: 'Qwen/ChatML',
           promptFormat: PromptFormat.chatml,
+        ),
+      ),
+    ],
+    sourceFailures: const <GgufDiscoverySourceFailure>[],
+  );
+}
+
+GgufDiscoveryResult _cachedCustomLicenseResult() {
+  return GgufDiscoveryResult(
+    assessments: <GgufCandidateAssessment>[
+      GgufCandidateAssessment(
+        repositoryId: 'bartowski/google_gemma-3-1b-it-GGUF',
+        disposition: GgufCandidateDisposition.candidate,
+        reasons: const <String>[],
+        warnings: const <String>[
+          'Custom license — review gemma terms before download.',
+        ],
+        artifact: GgufCandidateArtifact(
+          repositoryId: 'bartowski/google_gemma-3-1b-it-GGUF',
+          commitSha: '0123456789abcdef0123456789abcdef01234567',
+          fileName: 'google_gemma-3-1b-it-Q4_K_M.gguf',
+          sizeBytes: 806000000,
+          sha256:
+              'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          downloadUri: Uri.parse(
+            'https://huggingface.co/bartowski/google_gemma-3-1b-it-GGUF/'
+            'resolve/0123456789abcdef0123456789abcdef01234567/'
+            'google_gemma-3-1b-it-Q4_K_M.gguf',
+          ),
+          sourcePage: Uri.parse(
+            'https://huggingface.co/bartowski/google_gemma-3-1b-it-GGUF',
+          ),
+          license: 'gemma',
+          licenseSourceRepository: 'bartowski/google_gemma-3-1b-it-GGUF',
+          hasCustomLicense: true,
+          modelFamily: 'Gemma',
+          promptFormat: PromptFormat.gemma,
         ),
       ),
     ],

@@ -37,7 +37,7 @@ void main() {
       );
     });
 
-    test('allows an identified custom license with a warning', () {
+    test('allows an identified custom license with review details', () {
       final assessment = service.assess(
         _metadata(
           id: 'tiiuae/Falcon-H1-0.5B-Instruct-GGUF',
@@ -52,7 +52,14 @@ void main() {
       expect(assessment.canDownload, isTrue);
       expect(assessment.artifact!.license, 'Falcon-LLM License');
       expect(assessment.artifact!.hasCustomLicense, isTrue);
-      expect(assessment.warnings.single, contains('Custom license'));
+      expect(assessment.artifact!.licenseDisplayName, 'Falcon-LLM License');
+      expect(
+        assessment.artifact!.licenseTermsUri,
+        Uri.parse(
+          'https://falconllm.tii.ae/falcon-terms-and-conditions.html',
+        ),
+      );
+      expect(assessment.warnings, isEmpty);
     });
 
     test('requires unresolved linked license metadata for review', () {

@@ -80,12 +80,6 @@ class GgufCandidateScreeningService {
       upstreamMetadata,
       reviewReasons,
     );
-    if (resolvedLicense?.isCustom ?? false) {
-      warnings.add(
-        'Custom license — review ${resolvedLicense!.label} terms before download.',
-      );
-    }
-
     final GgufCandidateDisposition disposition;
     if (failures.isNotEmpty) {
       disposition = GgufCandidateDisposition.rejected;

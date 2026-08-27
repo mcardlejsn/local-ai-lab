@@ -54,6 +54,90 @@ class GgufCandidateArtifact {
   final String modelFamily;
   final PromptFormat promptFormat;
 
+  /// Human-readable license name for Discovery and download confirmation.
+  ///
+  /// Cached discovery results may still contain Hugging Face license IDs, so
+  /// this is derived at display time instead of changing the cache schema.
+  String get licenseDisplayName {
+    switch (license.trim().toLowerCase()) {
+      case 'qwen-research':
+      case 'qwen research license':
+        return 'Qwen Research License';
+      case 'llama3':
+      case 'llama 3 community license':
+        return 'Llama 3 Community License';
+      case 'llama3.1':
+      case 'llama 3.1 community license':
+        return 'Llama 3.1 Community License';
+      case 'llama3.2':
+      case 'llama 3.2 community license':
+        return 'Llama 3.2 Community License';
+      case 'gemma':
+      case 'gemma terms of use':
+        return 'Gemma Terms of Use';
+      case 'falcon-llm-license':
+      case 'falcon-llm license':
+        return 'Falcon-LLM License';
+      default:
+        return license;
+    }
+  }
+
+  /// Best available public page for reviewing this license.
+  ///
+  /// Known licenses use their canonical terms. A usable license that does not
+  /// yet have a direct mapping falls back to the repository that supplied the
+  /// license metadata.
+  Uri get licenseTermsUri {
+    return _knownLicenseTermsUri ??
+        Uri(
+          scheme: 'https',
+          host: 'huggingface.co',
+          pathSegments: licenseSourceRepository
+              .split('/')
+              .where((String part) => part.isNotEmpty)
+              .toList(growable: false),
+        );
+  }
+
+  /// Describes whether the link opens direct terms or their recorded source.
+  String get licenseLinkLabel => _knownLicenseTermsUri == null
+      ? 'View license source'
+      : 'View license terms';
+
+  Uri? get _knownLicenseTermsUri {
+    switch (license.trim().toLowerCase()) {
+      case 'apache-2.0':
+        return Uri.parse('https://www.apache.org/licenses/LICENSE-2.0');
+      case 'mit':
+        return Uri.parse('https://opensource.org/license/mit');
+      case 'qwen-research':
+      case 'qwen research license':
+        return Uri.parse(
+          'https://huggingface.co/Qwen/Qwen2.5-3B/blob/main/LICENSE',
+        );
+      case 'llama3':
+      case 'llama 3 community license':
+        return Uri.parse('https://developer.meta.com/ai/llama3/license/');
+      case 'llama3.1':
+      case 'llama 3.1 community license':
+        return Uri.parse('https://developer.meta.com/ai/llama3_1/license/');
+      case 'llama3.2':
+      case 'llama 3.2 community license':
+        return Uri.parse('https://developer.meta.com/ai/llama3_2/license/');
+      case 'gemma':
+      case 'gemma terms of use':
+        return Uri.parse('https://ai.google.dev/gemma/terms');
+      case 'falcon-llm-license':
+      case 'falcon-llm license':
+        return Uri.parse(
+          'https://falconllm.tii.ae/falcon-terms-and-conditions.html',
+        );
+      default:
+        return null;
+    }
+  }
+
   /// Stable identity for qualification history.
   ///
   /// Repository, commit, filename, and digest together prevent a benchmark
