@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:local_ai_summarizer/models/gguf_candidate_assessment.dart';
+import 'package:local_ai_summarizer/models/gguf_compatibility_policy.dart';
+import 'package:local_ai_summarizer/models/gguf_discovery_result.dart';
 import 'package:local_ai_summarizer/models/model_catalog.dart';
 import 'package:local_ai_summarizer/services/gguf_discovery_service.dart';
 import 'package:local_ai_summarizer/services/hugging_face_discovery_service.dart';
@@ -344,6 +346,48 @@ void main() {
       expect(result.candidateCount, 0);
     });
 
+    test('pins and excludes only the qualified Falcon-H1 artifact', () {
+      final CatalogModel model = kModelCatalog.singleWhere(
+        (CatalogModel candidate) =>
+            candidate.id == 'falcon-h1-0.5b-instruct-q4_k_m',
+      );
+      expect(model.displayName, 'Falcon-H1 0.5B Instruct (Q4_K_M)');
+      expect(model.fileName, 'Falcon-H1-0.5B-Instruct-Q4_K_M.gguf');
+      expect(
+        model.url,
+        'https://huggingface.co/tiiuae/Falcon-H1-0.5B-Instruct-GGUF/'
+        'resolve/9bf0c2d4391cf4850aa62bfee1d8fe71afba8be2/'
+        'Falcon-H1-0.5B-Instruct-Q4_K_M.gguf',
+      );
+      expect(model.sizeBytes, 314806560);
+      expect(
+        model.sha256,
+        '138a37a94b9e313af4e22d4af46b8119b76a31afdd61cabbeae7010ae45d2ac6',
+      );
+      expect(model.license, 'Falcon-LLM License');
+      expect(
+        model.sourcePage,
+        'https://huggingface.co/tiiuae/Falcon-H1-0.5B-Instruct-GGUF',
+      );
+
+      const String differentSha256 =
+          'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
+      final GgufDiscoveryResult filtered = GgufDiscoveryService(
+        loadSeedRepositories: _noSeeds,
+      ).excludeVerifiedArtifacts(
+        GgufDiscoveryResult(
+          assessments: <GgufCandidateAssessment>[
+            _falconCandidate(model),
+            _falconCandidate(model, sha256: differentSha256),
+          ],
+          sourceFailures: const <GgufDiscoverySourceFailure>[],
+        ),
+      );
+
+      expect(filtered.assessments, hasLength(1));
+      expect(filtered.assessments.single.artifact!.sha256, differentSha256);
+    });
+
     test('rejects an uncontrolled live search limit', () async {
       int seedLoads = 0;
       final GgufDiscoveryService service = GgufDiscoveryService(
@@ -360,6 +404,33 @@ void main() {
       expect(seedLoads, 0);
     });
   });
+}
+
+GgufCandidateAssessment _falconCandidate(
+  CatalogModel model, {
+  String? sha256,
+}) {
+  const String repositoryId = 'tiiuae/Falcon-H1-0.5B-Instruct-GGUF';
+  return GgufCandidateAssessment(
+    repositoryId: repositoryId,
+    disposition: GgufCandidateDisposition.candidate,
+    reasons: const <String>[],
+    warnings: const <String>[],
+    artifact: GgufCandidateArtifact(
+      repositoryId: repositoryId,
+      commitSha: '9bf0c2d4391cf4850aa62bfee1d8fe71afba8be2',
+      fileName: model.fileName,
+      sizeBytes: model.sizeBytes,
+      sha256: sha256 ?? model.sha256,
+      downloadUri: model.uri,
+      sourcePage: Uri.parse(model.sourcePage),
+      license: model.license,
+      licenseSourceRepository: repositoryId,
+      hasCustomLicense: true,
+      modelFamily: 'Falcon-H1 0.5B',
+      promptFormat: PromptFormat.falconH1,
+    ),
+  );
 }
 
 Future<List<String>> _noSeeds() async => const <String>[];

@@ -104,4 +104,16 @@ const List<CatalogModel> kModelCatalog = <CatalogModel>[
     license: 'Apache-2.0',
     sourcePage: 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF',
   ),
+  CatalogModel(
+    id: 'falcon-h1-0.5b-instruct-q4_k_m',
+    displayName: 'Falcon-H1 0.5B Instruct (Q4_K_M)',
+    fileName: 'Falcon-H1-0.5B-Instruct-Q4_K_M.gguf',
+    url: 'https://huggingface.co/tiiuae/Falcon-H1-0.5B-Instruct-GGUF/'
+        'resolve/9bf0c2d4391cf4850aa62bfee1d8fe71afba8be2/'
+        'Falcon-H1-0.5B-Instruct-Q4_K_M.gguf',
+    sizeBytes: 314806560,
+    sha256: '138a37a94b9e313af4e22d4af46b8119b76a31afdd61cabbeae7010ae45d2ac6',
+    license: 'Falcon-LLM License',
+    sourcePage: 'https://huggingface.co/tiiuae/Falcon-H1-0.5B-Instruct-GGUF',
+  ),
 ];
