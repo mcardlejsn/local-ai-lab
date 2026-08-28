@@ -10,8 +10,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_gemma: ^1.6.0
-  flutter_gemma_mediapipe: ^1.0.5
   llama_flutter_android: ^0.2.6
   path: ^1.9.1
   crypto: ^3.0.6

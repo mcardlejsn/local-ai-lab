@@ -1,8 +1,7 @@
 # Local AI Lab
 
-An Android app for comparing on-device text summarization across three different
-local inference runtimes on the same hardware, with the same passage and the same
-instruction.
+An Android app for comparing on-device text summarization across local inference
+runtimes on the same hardware, with the same passage and the same instruction.
 
 Everything runs locally. No cloud inference API is called by this app.
 
@@ -12,19 +11,14 @@ Plenty of demos show a language model running on a phone. Very few hold the inpu
 the instruction, and the device constant while swapping the runtime underneath, which
 is the only way to see what each approach actually costs.
 
-The three paths differ in more than speed:
+The available paths differ in more than speed:
 
 | Path | Model choice | Runtime | Control |
 | --- | --- | --- | --- |
 | Gemini Nano | none — system-provided | AICore, managed by Google | temperature, top-K, max output tokens |
-| MediaPipe | Google-published Gemma builds | flutter_gemma | temperature, top-K |
 | GGUF | any compatible quantized model | llama.cpp | threads, context, sampling, max output tokens |
 
-Managed, vendor-supported, and open — with the trade-offs that come with each.
-
-Max output tokens is absent from the MediaPipe row because that runtime takes the
-limit when the model is installed rather than when a session is created, so it cannot
-be changed per run without reinstalling the model.
+Managed and open — with the trade-offs that come with each.
 
 ## What it does
 
@@ -33,17 +27,19 @@ be changed per run without reinstalling the model.
 Latency, time to first token, estimated tokens, and throughput are shown for the run,
 and the result can be saved.
 
-**Benchmark** — run every discovered model against one passage and instruction, N times
-each (1, 3, or 5). Both fields are editable, so the suite can be pointed at any text
-rather than only the sample it opens with. Results are reported as the median across
-runs with the min–max latency range, and each model's representative output is
-viewable. A completed suite can be saved as a session.
+**Benchmark** — select any two or more discovered models, or select all, and run them
+against one passage and instruction N times each (1, 3, or 5). Both fields are
+editable, so the suite can be pointed at any text rather than only the sample it opens
+with. Results are reported as the median across runs with the min–max latency range,
+and each model's representative output is viewable. A completed suite can be saved as
+a session.
 
 **Saved sessions** — an archive of saved benchmark runs, with a detail view per session
 and a comparison view that pairs two sessions model by model to show what moved between
 them.
 
-**History** — saved outputs, searchable by text, task, model name, or engine (nano, mediapipe, gguf), and filterable by task type.
+**History** — saved outputs, searchable by text, task, model name, or engine (for
+example, nano or gguf), and filterable by task type.
 
 ## Models
 
@@ -57,7 +53,6 @@ Other models are loaded from files placed in the app's external storage director
 /Android/data/com.mycarejournals.local_ai_summarizer/files/models/
 ```
 
-- `.task` / `.bin` → MediaPipe
 - `.gguf` → llama.cpp
 
 ## Prompt formats
@@ -66,11 +61,11 @@ Instruction-tuned models expect their prompts wrapped in the framing they were t
 on. Sending a bare instruction to a model that expects one pushes it off-distribution,
 so the format is resolved per model rather than assumed.
 
-MediaPipe builds use the Gemma format. GGUF files are matched from the filename —
-gemma, chatml (Qwen, Hermes), llama3, and mistral are recognized, and anything
-unrecognized falls back to an unwrapped instruction, since a wrong wrapper is worse
-than none. The resolved format is shown in the status line when a GGUF model loads.
-Gemini Nano's Prompt API takes the instruction directly.
+GGUF files are matched from the filename — Gemma, ChatML (Qwen, Hermes), Llama 3,
+Mistral, and the other audited families are recognized. Anything unrecognized falls
+back to an unwrapped instruction, since a wrong wrapper is worse than none. The
+resolved format is shown in the status line when a GGUF model loads. Gemini Nano's
+Prompt API takes the instruction directly.
 
 ## Recall
 
@@ -102,9 +97,9 @@ Two things this does and does not tell you:
 Some things about the numbers this app produces are worth stating plainly:
 
 - **Token counts are estimated as output characters ÷ 4.** They are not tokenizer
-  output, and the three runtimes use different tokenizers. The displayed rate divides
-  that estimate by total latency, including prompt processing and time to first token,
-  so it is an end-to-end throughput proxy rather than pure decode speed.
+  output, and the models can use different tokenizers. The displayed rate divides that
+  estimate by total latency, including prompt processing and time to first token, so it
+  is an end-to-end throughput proxy rather than pure decode speed.
 - **Gemini Nano's Prompt API does not stream**, so time to first token cannot be
   measured for it. Total latency is shown in that column instead.
 - **Models run in discovery order**, so a model benchmarked later runs on a warmer

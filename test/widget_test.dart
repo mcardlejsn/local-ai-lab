@@ -222,9 +222,8 @@ void main() {
       expect(prompt, startsWith('<|im_start|>user\n'));
     });
 
-    test('MediaPipe retains the manual Gemma template required by .bin', () {
+    test('GGUF Gemma retains its resolved Gemma instruction template', () {
       final prompt = buildInferencePrompt(
-        engine: ModelEngine.mediapipe,
         format: PromptFormat.gemma,
         instruction: instruction,
         rawText: rawText,
@@ -238,7 +237,6 @@ void main() {
 
     test('GGUF retains its resolved instruction template', () {
       final prompt = buildInferencePrompt(
-        engine: ModelEngine.gguf,
         format: PromptFormat.llama3,
         instruction: instruction,
         rawText: rawText,
@@ -260,7 +258,23 @@ void main() {
     });
   });
 
+  group('active model file discovery', () {
+    test('accepts GGUF files and ignores retired MediaPipe file types', () {
+      expect(isActiveModelFilePath('/models/model.gguf'), isTrue);
+      expect(isActiveModelFilePath('/models/MODEL.GGUF'), isTrue);
+      expect(isActiveModelFilePath('/models/model.task'), isFalse);
+      expect(isActiveModelFilePath('/models/model.bin'), isFalse);
+    });
+  });
+
   group('benchmark model targeting', () {
+    test('retains the legacy MediaPipe saved-record identity', () {
+      expect(
+        ModelEngine.values.byName('mediapipe'),
+        ModelEngine.mediapipe,
+      );
+    });
+
     final ModelInfo nano = ModelInfo(
       id: 'system_gemini_nano',
       name: 'Gemini Nano',

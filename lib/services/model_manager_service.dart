@@ -6,11 +6,18 @@ import 'package:path_provider/path_provider.dart';
 import '../models/gguf_compatibility_policy.dart';
 import 'gemini_nano_service.dart';
 import 'llama_gguf_service.dart';
-import 'mediapipe_gemma_service.dart';
 
 export '../models/gguf_compatibility_policy.dart';
 
-enum ModelEngine { nano, mediapipe, gguf }
+enum ModelEngine {
+  nano,
+
+  /// Retained only so previously saved benchmark rows remain readable.
+  /// Active discovery and inference no longer create MediaPipe models.
+  mediapipe,
+
+  gguf,
+}
 
 /// Wraps [instruction] and [rawText] in the framing [format] expects.
 String buildPrompt({
@@ -67,20 +74,16 @@ String buildPrompt({
   }
 }
 
-/// Builds the prompt delivered to an inference runtime.
-///
-/// The current MediaPipe path installs Gemma models from `.bin` or `.task`
-/// files. MediaPipe `.bin` models require the Gemma conversation framing to be
-/// supplied manually. GGUF runtimes also receive a plain string and require
-/// their filename-selected instruction template to be applied here.
+/// Builds the prompt delivered to an inference runtime. GGUF models receive a
+/// plain string and require their filename-selected instruction template to be
+/// applied here. Gemini Nano uses [PromptFormat.plain].
 String buildInferencePrompt({
-  required ModelEngine engine,
   required PromptFormat format,
   required String instruction,
   required String rawText,
 }) {
   return buildPrompt(
-    format: engine == ModelEngine.mediapipe ? PromptFormat.gemma : format,
+    format: format,
     instruction: instruction,
     rawText: rawText,
   );
@@ -91,6 +94,10 @@ String buildInferencePrompt({
 /// Estimate once from the accumulated output so streaming chunk boundaries do
 /// not inflate the result through repeated rounding.
 int estimateOutputTokens(String output) => (output.length / 4.0).ceil();
+
+/// Whether [filePath] can be discovered by the active file-model runtime.
+bool isActiveModelFilePath(String filePath) =>
+    p.extension(filePath).toLowerCase() == '.gguf';
 
 class ModelInfo {
   final String id;
@@ -172,7 +179,7 @@ class ModelManagerService extends ChangeNotifier {
         );
       }
 
-      // 2. Scan sandbox filesystem for MediaPipe (.bin, .task) and GGUF (.gguf)
+      // 2. Scan sandbox filesystem for GGUF models.
       final directories = await _searchDirectories;
       for (final dir in directories) {
         if (await dir.exists()) {
@@ -180,25 +187,9 @@ class ModelManagerService extends ChangeNotifier {
             final entities = await dir.list(recursive: false).toList();
             for (final entity in entities) {
               if (entity is File) {
-                final ext = p.extension(entity.path).toLowerCase();
                 final fileName = p.basename(entity.path);
 
-                if (ext == '.bin' || ext == '.task') {
-                  if (!discovered.any((m) => m.path == entity.path)) {
-                    final stat = await entity.stat();
-                    discovered.add(
-                      ModelInfo(
-                        id: entity.path,
-                        name: fileName,
-                        path: entity.path,
-                        engine: ModelEngine.mediapipe,
-                        sizeBytes: stat.size,
-                        // installModel pins ModelType.gemmaIt, so these are Gemma builds.
-                        promptFormat: PromptFormat.gemma,
-                      ),
-                    );
-                  }
-                } else if (ext == '.gguf') {
+                if (isActiveModelFilePath(entity.path)) {
                   if (!discovered.any((m) => m.path == entity.path)) {
                     final stat = await entity.stat();
                     discovered.add(
@@ -261,11 +252,6 @@ class ModelManagerService extends ChangeNotifier {
       if (model.engine == ModelEngine.nano) {
         _activeModel = model;
         _statusMessage = 'Gemini Nano Ready (AICore NPU)';
-      } else if (model.engine == ModelEngine.mediapipe) {
-        await MediaPipeGemmaService.install(model.path);
-        await MediaPipeGemmaService.createSession();
-        _activeModel = model;
-        _statusMessage = 'MediaPipe Ready: ${model.name}';
       } else if (model.engine == ModelEngine.gguf) {
         await LlamaGgufService.loadModel(
           modelPath: model.path,
@@ -273,8 +259,10 @@ class ModelManagerService extends ChangeNotifier {
           contextSize: 2048,
         );
         _activeModel = model;
-        _statusMessage =
-            'GGUF Engine Ready: ${model.name} · ${model.promptFormat.label} prompt format';
+        _statusMessage = 'GGUF Engine Ready: ${model.name} · '
+            '${model.promptFormat.label} prompt format';
+      } else {
+        throw UnsupportedError('This saved engine is no longer active.');
       }
     } catch (e) {
       _statusMessage = 'Failed loading ${model.name}: $e';
@@ -287,10 +275,7 @@ class ModelManagerService extends ChangeNotifier {
   }
 
   Future<void> unloadAllEngines() async {
-    // 1. Free MediaPipe references
-    await MediaPipeGemmaService.release();
-
-    // 2. Free GGUF / llama.cpp memory
+    // Free GGUF / llama.cpp memory. Gemini Nano is managed by AICore.
     await LlamaGgufService.unloadModel();
   }
 

@@ -6,7 +6,6 @@ import '../models/summary_record.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
 import '../services/llama_gguf_service.dart';
-import '../services/mediapipe_gemma_service.dart';
 import '../services/model_manager_service.dart';
 import 'benchmark_screen.dart';
 import 'history_screen.dart';
@@ -179,7 +178,6 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     }
 
     final fullPrompt = buildInferencePrompt(
-      engine: activeModel.engine,
       format: activeModel.promptFormat,
       instruction: instruction,
       rawText: rawText,
@@ -299,75 +297,10 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
       return;
     }
 
-    // 3. MediaPipe Engine (Gemma .task / .bin)
-    if (activeModel.engine == ModelEngine.mediapipe) {
-      try {
-        await MediaPipeGemmaService.recreateSession(
-          temperature: _temperature,
-          topK: _topK,
-        );
-
-        if (!MediaPipeGemmaService.hasSession) {
-          throw Exception('MediaPipe session is not initialized.');
-        }
-
-        final stream = await MediaPipeGemmaService.generate(fullPrompt);
-
-        bool isFirstChunk = true;
-
-        _streamSubscription = stream.listen(
-          (chunk) {
-            if (isFirstChunk) {
-              _ttftStopwatch.stop();
-              _timeToFirstTokenSeconds =
-                  _ttftStopwatch.elapsedMilliseconds / 1000.0;
-              isFirstChunk = false;
-            }
-
-            if (mounted) {
-              setState(() {
-                _generatedOutput += chunk;
-                _estimatedTokenCount = estimateOutputTokens(_generatedOutput);
-
-                final double currentSec =
-                    _inferenceStopwatch.elapsedMilliseconds / 1000.0;
-                if (currentSec > 0) {
-                  _tokensPerSecond = _estimatedTokenCount / currentSec;
-                }
-              });
-              _autoScroll();
-            }
-          },
-          onError: (error) {
-            _stopTimers();
-            if (mounted) {
-              setState(() => _isStreaming = false);
-              _showSnackBar('MediaPipe Stream Error: $error');
-            }
-          },
-          onDone: () {
-            _stopTimers();
-            if (mounted) {
-              setState(() {
-                _isStreaming = false;
-                _totalLatencySeconds =
-                    _inferenceStopwatch.elapsedMilliseconds / 1000.0;
-                if (_totalLatencySeconds! > 0) {
-                  _tokensPerSecond =
-                      _estimatedTokenCount / _totalLatencySeconds!;
-                }
-              });
-            }
-          },
-          cancelOnError: true,
-        );
-      } catch (e) {
-        _stopTimers();
-        if (mounted) {
-          setState(() => _isStreaming = false);
-          _showSnackBar('MediaPipe Inference Failed: $e');
-        }
-      }
+    _stopTimers();
+    if (mounted) {
+      setState(() => _isStreaming = false);
+      _showSnackBar('The selected model engine is no longer supported.');
     }
   }
 
@@ -823,12 +756,6 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
 
   Widget _buildControlsCard(
       Color surfaceColor, Color bgColor, Color accentBlue) {
-    // MediaPipe has no session-level output cap. The plugin accepts the
-    // argument and ignores it, so the control is inert on that engine and is
-    // disabled rather than left looking live.
-    final bool capSupported =
-        _modelManager.activeModel?.engine != ModelEngine.mediapipe;
-
     return Material(
       color: surfaceColor,
       shape: RoundedRectangleBorder(
@@ -866,10 +793,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                   border: Border.all(color: Colors.white12),
                 ),
                 child: Text(
-                  capSupported
-                      ? 'T: ${_temperature.toStringAsFixed(2)} | '
-                          'K: $_topK | Max: $_maxTokens'
-                      : 'T: ${_temperature.toStringAsFixed(2)} | K: $_topK',
+                  'T: ${_temperature.toStringAsFixed(2)} | '
+                  'K: $_topK | Max: $_maxTokens',
                   style: TextStyle(
                     color: accentBlue,
                     fontWeight: FontWeight.bold,
@@ -939,42 +864,33 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Max Output Tokens',
-                    style: TextStyle(
-                        color: capSupported ? Colors.white70 : Colors.white38,
-                        fontSize: 13)),
+                const Text('Max Output Tokens',
+                    style: TextStyle(color: Colors.white70, fontSize: 13)),
                 Text(
-                  capSupported ? '$_maxTokens' : '--',
+                  '$_maxTokens',
                   style: TextStyle(
-                      color: capSupported ? accentBlue : Colors.white38,
-                      fontWeight: FontWeight.bold),
+                    color: accentBlue,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ],
             ),
             SliderTheme(
               data: SliderTheme.of(context).copyWith(
-                activeTrackColor: capSupported ? accentBlue : Colors.white24,
+                activeTrackColor: accentBlue,
                 inactiveTrackColor: Colors.white24,
-                thumbColor: capSupported ? accentBlue : Colors.white38,
+                thumbColor: accentBlue,
               ),
               child: Slider(
                 value: _maxTokens.toDouble(),
                 min: 64,
                 max: 1024,
                 divisions: 15,
-                onChanged: (_isStreaming || !capSupported)
+                onChanged: _isStreaming
                     ? null
                     : (v) => setState(() => _maxTokens = v.round()),
               ),
             ),
-            if (!capSupported)
-              const Padding(
-                padding: EdgeInsets.only(top: 2),
-                child: Text(
-                  'MediaPipe does not support a per-run output cap.',
-                  style: TextStyle(color: Colors.white38, fontSize: 11),
-                ),
-              ),
           ],
         ),
       ),

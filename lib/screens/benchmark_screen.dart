@@ -8,7 +8,6 @@ import '../models/recall_checklist.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
 import '../services/llama_gguf_service.dart';
-import '../services/mediapipe_gemma_service.dart';
 import '../services/model_manager_service.dart';
 import '../widgets/benchmark_results_table.dart';
 import 'saved_benchmark_sessions_screen.dart';
@@ -328,7 +327,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
       });
 
       final fullPrompt = buildInferencePrompt(
-        engine: model.engine,
         format: model.promptFormat,
         instruction: instruction,
         rawText: rawText,
@@ -390,11 +388,9 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
       });
     }
 
-    // Restore the model the user has selected. The suite leaves whichever model
-    // ran last resident, so without this the summarizer would either find no
-    // engine or, for MediaPipe, silently run on the last benchmarked model.
-    // loadModel releases every engine before loading, so this also handles the
-    // cleanup of whatever the suite left behind.
+    // Restore the model the user has selected. The suite leaves its last GGUF
+    // model resident, so loadModel also cleans that runtime up before restoring
+    // the user's selection.
     final selectedModel = _modelManager.activeModel;
     if (selectedModel == null) {
       await _modelManager.unloadAllEngines();
@@ -551,63 +547,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         await subscription.cancel();
         totalStopwatch.stop();
         await LlamaGgufService.unloadModel();
-
-        tokenCount = estimateOutputTokens(output);
-        final double totalSec = totalStopwatch.elapsedMilliseconds / 1000.0;
-        final double speed = totalSec > 0 ? (tokenCount / totalSec) : 0;
-
-        final res = BenchmarkModelResult(
-          modelName: model.name,
-          engine: model.engine,
-          ttftSeconds: timeToFirstToken,
-          totalLatencySeconds: totalSec,
-          tokenCount: tokenCount,
-          tokensPerSecond: speed,
-          outputText: output,
-        );
-
-        return res;
-      }
-
-      // 3. MEDIAPIPE (Gemma)
-      if (model.engine == ModelEngine.mediapipe) {
-        await MediaPipeGemmaService.install(model.path);
-        await MediaPipeGemmaService.createSession(
-          temperature: 0.2,
-          topK: 40,
-          randomSeed: 1,
-        );
-
-        final stream = await MediaPipeGemmaService.generate(fullPrompt);
-
-        final Completer<void> streamCompleter = Completer<void>();
-        bool isFirstChunk = true;
-        totalStopwatch.start();
-        ttftStopwatch.start();
-
-        final subscription = stream.listen(
-          (chunk) {
-            if (isFirstChunk) {
-              ttftStopwatch.stop();
-              timeToFirstToken = ttftStopwatch.elapsedMilliseconds / 1000.0;
-              isFirstChunk = false;
-            }
-            output += chunk;
-          },
-          onError: (err) {
-            if (!streamCompleter.isCompleted) {
-              streamCompleter.completeError(err);
-            }
-          },
-          onDone: () {
-            if (!streamCompleter.isCompleted) streamCompleter.complete();
-          },
-          cancelOnError: true,
-        );
-
-        await streamCompleter.future;
-        await subscription.cancel();
-        totalStopwatch.stop();
 
         tokenCount = estimateOutputTokens(output);
         final double totalSec = totalStopwatch.elapsedMilliseconds / 1000.0;

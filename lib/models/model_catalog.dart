@@ -8,9 +8,8 @@
 ///
 /// v1 constraints, deliberate:
 ///
-///   * GGUF only. MediaPipe/Gemma stays manually sideloaded, because
-///     `MediaPipeGemmaService.install` pins `ModelType.gemmaIt` and every
-///     litert-community Gemma repo is license-gated.
+///   * GGUF only. Gemini Nano is provided by Android through AICore and is not
+///     a downloadable model artifact.
 ///   * Ungated only. Nothing here requires a Hugging Face login or a license
 ///     click-through. Gated models wait on a separate auth feature.
 ///   * `Q4_K_M` only, so download size and quality are comparable across
