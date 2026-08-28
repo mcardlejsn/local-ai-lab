@@ -48,21 +48,41 @@ class BenchmarkScreen extends StatefulWidget {
 /// Returns the models that belong in the current benchmark run.
 ///
 /// Candidate qualification is deliberately limited to the exact GGUF path
-/// selected from Discovery. A normal suite has no target and keeps every
-/// discovered model.
+/// selected from Discovery. A normal suite may filter the available models by
+/// the user's screen-local selection. Omitting [selectedModelIds] preserves
+/// the original all-model behavior.
 List<ModelInfo> benchmarkModelsForTarget(
   List<ModelInfo> availableModels, {
   String? targetModelId,
+  Set<String>? selectedModelIds,
 }) {
-  if (targetModelId == null) {
+  if (targetModelId != null) {
+    return List<ModelInfo>.unmodifiable(
+      availableModels.where(
+        (ModelInfo model) =>
+            model.id == targetModelId && model.engine == ModelEngine.gguf,
+      ),
+    );
+  }
+
+  if (selectedModelIds == null) {
     return List<ModelInfo>.unmodifiable(availableModels);
   }
+
   return List<ModelInfo>.unmodifiable(
     availableModels.where(
-      (ModelInfo model) =>
-          model.id == targetModelId && model.engine == ModelEngine.gguf,
+      (ModelInfo model) => selectedModelIds.contains(model.id),
     ),
   );
+}
+
+/// Candidate qualification needs its one exact target. The ordinary
+/// comparison suite intentionally requires at least two selected models.
+bool canRunBenchmarkModels(
+  List<ModelInfo> models, {
+  required bool isCandidateQualification,
+}) {
+  return isCandidateQualification ? models.isNotEmpty : models.length >= 2;
 }
 
 class _BenchmarkScreenState extends State<BenchmarkScreen> {
@@ -75,10 +95,12 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   );
 
   final List<BenchmarkAggregate> _aggregates = [];
+  final Set<String> _selectedModelIds = <String>{};
   int _runsPerModel = 3;
   bool _isRunning = false;
   bool _isRestoring = true;
   bool _hasRestoredSession = false;
+  bool _hasInitializedModelSelection = false;
   int _currentRunningIndex = -1;
   int _currentRunNumber = 0;
   String _currentStatus = 'Ready to benchmark.';
@@ -188,32 +210,93 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   void _onModelManagerStateChanged() {
     if (mounted) {
       setState(() {
+        final List<ModelInfo> availableModels = benchmarkModelsForTarget(
+          _modelManager.availableModels,
+          targetModelId: widget.targetModelId,
+        );
+
+        if (!widget.isCandidateQualification &&
+            !_modelManager.isLoading &&
+            availableModels.isNotEmpty) {
+          final Set<String> availableIds =
+              availableModels.map((ModelInfo model) => model.id).toSet();
+          if (!_hasInitializedModelSelection) {
+            _selectedModelIds
+              ..clear()
+              ..addAll(availableIds);
+            _hasInitializedModelSelection = true;
+          } else {
+            _selectedModelIds.retainAll(availableIds);
+          }
+        }
+
         if (!_isRunning && !_isRestoring && !_hasRestoredSession) {
           final List<ModelInfo> models = benchmarkModelsForTarget(
             _modelManager.availableModels,
             targetModelId: widget.targetModelId,
+            selectedModelIds:
+                widget.isCandidateQualification ? null : _selectedModelIds,
           );
-          if (models.isEmpty) {
+          if (availableModels.isEmpty) {
             _currentStatus = widget.isCandidateQualification
                 ? 'The selected Candidate is no longer installed.'
                 : 'No models found to benchmark.';
           } else if (widget.isCandidateQualification) {
             _currentStatus =
                 'Candidate ready for qualification: ${models.single.name}';
+          } else if (availableModels.length < 2) {
+            _currentStatus =
+                'At least 2 installed models are required for comparison.';
           } else {
-            _currentStatus = 'Found ${models.length} models ready for testing.';
+            _currentStatus =
+                '${models.length} of ${availableModels.length} models selected.';
           }
         }
       });
     }
   }
 
+  void _setModelSelected(String modelId, bool selected) {
+    if (_isRunning || _isRestoring || _modelManager.isLoading) return;
+
+    setState(() {
+      if (selected) {
+        _selectedModelIds.add(modelId);
+      } else {
+        _selectedModelIds.remove(modelId);
+      }
+      _currentStatus = _selectedModelIds.length < 2
+          ? 'Select at least 2 models to run the comparison suite.'
+          : '${_selectedModelIds.length} models selected for comparison.';
+    });
+  }
+
+  void _selectAllModels(List<ModelInfo> availableModels) {
+    if (_isRunning || _isRestoring || _modelManager.isLoading) return;
+
+    setState(() {
+      _selectedModelIds
+        ..clear()
+        ..addAll(availableModels.map((ModelInfo model) => model.id));
+      _currentStatus =
+          'All ${availableModels.length} models selected for comparison.';
+    });
+  }
+
   Future<void> _runBenchmarkSuite() async {
     final List<ModelInfo> models = benchmarkModelsForTarget(
       _modelManager.availableModels,
       targetModelId: widget.targetModelId,
+      selectedModelIds:
+          widget.isCandidateQualification ? null : _selectedModelIds,
     );
-    if (models.isEmpty || _isRunning) return;
+    if (_isRunning ||
+        !canRunBenchmarkModels(
+          models,
+          isCandidateQualification: widget.isCandidateQualification,
+        )) {
+      return;
+    }
 
     setState(() {
       _isRunning = true;
@@ -562,15 +645,114 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     }
   }
 
+  Widget _buildModelSelection({
+    required List<ModelInfo> availableModels,
+    required bool disabled,
+    required Color surfaceColor,
+    required Color accentBlue,
+  }) {
+    final int selectedCount = availableModels
+        .where((ModelInfo model) => _selectedModelIds.contains(model.id))
+        .length;
+    final bool allSelected =
+        availableModels.isNotEmpty && selectedCount == availableModels.length;
+
+    return Container(
+      key: const Key('benchmark-model-selection'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: surfaceColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Models to benchmark',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              TextButton(
+                key: const Key('benchmark-select-all-models'),
+                onPressed: disabled || allSelected || availableModels.isEmpty
+                    ? null
+                    : () => _selectAllModels(availableModels),
+                child: const Text('Select all'),
+              ),
+            ],
+          ),
+          Text(
+            '$selectedCount of ${availableModels.length} selected',
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+          const SizedBox(height: 4),
+          for (final ModelInfo model in availableModels)
+            CheckboxListTile(
+              key: Key('benchmark-model-${model.id}'),
+              value: _selectedModelIds.contains(model.id),
+              onChanged: disabled
+                  ? null
+                  : (bool? selected) =>
+                      _setModelSelected(model.id, selected ?? false),
+              activeColor: accentBlue,
+              checkColor: Colors.black,
+              controlAffinity: ListTileControlAffinity.leading,
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: Text(
+                model.name,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+              ),
+              subtitle: Text(
+                '${model.engine.name.toUpperCase()}  ·  ${model.formattedSize}',
+                style: const TextStyle(color: Colors.white38, fontSize: 11),
+              ),
+            ),
+          if (availableModels.length < 2) ...[
+            const SizedBox(height: 4),
+            const Text(
+              'Install at least 2 models to run a comparison.',
+              style: TextStyle(color: Colors.orangeAccent, fontSize: 12),
+            ),
+          ] else if (selectedCount < 2) ...[
+            const SizedBox(height: 4),
+            const Text(
+              'Select at least 2 models to run a comparison.',
+              style: TextStyle(color: Colors.orangeAccent, fontSize: 12),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     const bgColor = Color(0xFF121212);
     const surfaceColor = Color(0xFF1E1E1E);
     const accentBlue = Color(0xFF90CAF9);
 
+    final List<ModelInfo> availableModels = benchmarkModelsForTarget(
+      _modelManager.availableModels,
+      targetModelId: widget.targetModelId,
+    );
     final List<ModelInfo> models = benchmarkModelsForTarget(
       _modelManager.availableModels,
       targetModelId: widget.targetModelId,
+      selectedModelIds:
+          widget.isCandidateQualification ? null : _selectedModelIds,
+    );
+    final bool canRun = canRunBenchmarkModels(
+      models,
+      isCandidateQualification: widget.isCandidateQualification,
     );
     final isScanning = _modelManager.isLoading;
 
@@ -613,7 +795,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                   Icon(
                     _isRunning
                         ? Icons.hourglass_top_rounded
-                        : (models.isEmpty
+                        : (!canRun
                             ? Icons.error_outline_rounded
                             : Icons.check_circle_outline_rounded),
                     color: _isRunning ? accentBlue : const Color(0xFF81C784),
@@ -684,6 +866,15 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
               ),
             ),
             const SizedBox(height: 16),
+            if (!widget.isCandidateQualification) ...[
+              _buildModelSelection(
+                availableModels: availableModels,
+                disabled: isScanning || _isRunning || _isRestoring,
+                surfaceColor: surfaceColor,
+                accentBlue: accentBlue,
+              ),
+              const SizedBox(height: 16),
+            ],
             Row(
               children: [
                 const Text(
@@ -722,10 +913,9 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
             ),
             const SizedBox(height: 16),
             ElevatedButton.icon(
-              onPressed:
-                  (isScanning || _isRunning || _isRestoring || models.isEmpty)
-                      ? null
-                      : _runBenchmarkSuite,
+              onPressed: (isScanning || _isRunning || _isRestoring || !canRun)
+                  ? null
+                  : _runBenchmarkSuite,
               icon: _isRunning
                   ? const SizedBox(
                       width: 16,

@@ -285,11 +285,36 @@ void main() {
       );
     });
 
+    test('normal suite retains only selected models in available order', () {
+      expect(
+        benchmarkModelsForTarget(
+          <ModelInfo>[nano, candidate],
+          selectedModelIds: <String>{candidate.id},
+        ),
+        <ModelInfo>[candidate],
+      );
+      expect(
+        benchmarkModelsForTarget(
+          <ModelInfo>[nano, candidate],
+          selectedModelIds: <String>{candidate.id, nano.id},
+        ),
+        <ModelInfo>[nano, candidate],
+      );
+      expect(
+        benchmarkModelsForTarget(
+          <ModelInfo>[nano, candidate],
+          selectedModelIds: <String>{'not-installed'},
+        ),
+        isEmpty,
+      );
+    });
+
     test('Candidate qualification selects only the exact GGUF path', () {
       expect(
         benchmarkModelsForTarget(
           <ModelInfo>[nano, candidate],
           targetModelId: candidate.id,
+          selectedModelIds: <String>{nano.id},
         ),
         <ModelInfo>[candidate],
       );
@@ -299,6 +324,37 @@ void main() {
           targetModelId: nano.id,
         ),
         isEmpty,
+      );
+    });
+
+    test('main suite requires two models but Candidate requires one', () {
+      expect(
+        canRunBenchmarkModels(
+          <ModelInfo>[nano],
+          isCandidateQualification: false,
+        ),
+        isFalse,
+      );
+      expect(
+        canRunBenchmarkModels(
+          <ModelInfo>[nano, candidate],
+          isCandidateQualification: false,
+        ),
+        isTrue,
+      );
+      expect(
+        canRunBenchmarkModels(
+          <ModelInfo>[candidate],
+          isCandidateQualification: true,
+        ),
+        isTrue,
+      );
+      expect(
+        canRunBenchmarkModels(
+          <ModelInfo>[],
+          isCandidateQualification: true,
+        ),
+        isFalse,
       );
     });
   });
