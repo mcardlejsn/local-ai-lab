@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'screens/summarizer_screen.dart';
+import 'screens/app_shell.dart';
 import 'theme/app_theme.dart';
 
 void main() {
@@ -18,7 +18,7 @@ class LocalAiApp extends StatelessWidget {
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.system,
-      home: const SummarizerScreen(),
+      home: const AppShell(),
     );
   }
 }

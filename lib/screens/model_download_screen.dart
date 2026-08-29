@@ -6,6 +6,7 @@ import '../services/model_download_service.dart';
 import '../services/model_manager_service.dart';
 import 'benchmark_screen.dart';
 import 'gguf_discovery_screen.dart';
+import 'settings_screen.dart';
 
 /// Lists the bundled verified catalog and links to temporary GGUF discovery.
 ///
@@ -54,8 +55,9 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
   Future<void> _refreshAll() async {
     for (final CatalogModel model in kModelCatalog) {
       final bool installed = await _downloader.isInstalled(model.fileName);
-      final int partial =
-          installed ? 0 : await _downloader.partialBytes(model.fileName);
+      final int partial = installed
+          ? 0
+          : await _downloader.partialBytes(model.fileName);
       if (!mounted) return;
       setState(() {
         _states[model.id] = _states[model.id]!.copyWith(
@@ -122,9 +124,7 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
     if (!mounted) return;
     final String? note = _messageFor(result);
     if (note != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(note)),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(note)));
     }
   }
 
@@ -198,13 +198,20 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
         backgroundColor: _surfaceColor,
         elevation: 0,
         title: const Text(
-          'Download Models',
+          'Models',
           style: TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.w600,
             fontSize: 18,
           ),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined, color: _accentBlue),
+            tooltip: 'Settings',
+            onPressed: () => openSettings(context),
+          ),
+        ],
       ),
       body: SafeArea(
         child: ListView(
@@ -378,8 +385,11 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
               if (state.installed)
                 const Row(
                   children: [
-                    Icon(Icons.check_circle_rounded,
-                        size: 16, color: _successGreen),
+                    Icon(
+                      Icons.check_circle_rounded,
+                      size: 16,
+                      color: _successGreen,
+                    ),
                     SizedBox(width: 4),
                     Text(
                       'Installed',
@@ -516,8 +526,9 @@ class _EntryState {
   }
 
   String get progressLabel {
-    final String received =
-        _ModelDownloadScreenState._formatBytes(receivedBytes);
+    final String received = _ModelDownloadScreenState._formatBytes(
+      receivedBytes,
+    );
     if (totalBytes <= 0) return received;
     final String total = _ModelDownloadScreenState._formatBytes(totalBytes);
     final double pct = (fraction ?? 0) * 100;

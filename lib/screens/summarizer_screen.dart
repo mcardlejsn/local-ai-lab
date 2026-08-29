@@ -8,16 +8,16 @@ import '../services/gemini_nano_service.dart';
 import '../services/litertlm_service.dart';
 import '../services/llama_gguf_service.dart';
 import '../services/model_manager_service.dart';
-import 'benchmark_screen.dart';
-import 'history_screen.dart';
-import 'model_download_screen.dart';
+import 'settings_screen.dart';
 
 bool supportsAdjustableSamplingControls(ModelEngine? engine) {
   return engine != ModelEngine.litertlm;
 }
 
 class SummarizerScreen extends StatefulWidget {
-  const SummarizerScreen({super.key});
+  const SummarizerScreen({super.key, required this.modelManager});
+
+  final ModelManagerService modelManager;
 
   @override
   State<SummarizerScreen> createState() => _SummarizerScreenState();
@@ -31,7 +31,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
       'settings screen still needs a small layout correction. The team will '
       'meet again Monday at 9:30 AM to review the release candidate.';
 
-  final ModelManagerService _modelManager = ModelManagerService();
+  late final ModelManagerService _modelManager;
   final TextEditingController _inputController = TextEditingController();
   final TextEditingController _customPromptController = TextEditingController(
     text: 'Extract the 3 most critical points',
@@ -71,6 +71,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
   @override
   void initState() {
     super.initState();
+    _modelManager = widget.modelManager;
     _modelManager.addListener(_onModelManagerStateChanged);
     _modelManager.scanModels();
   }
@@ -405,7 +406,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
         backgroundColor: surfaceColor,
         elevation: 0,
         title: const Text(
-          'Local AI Lab',
+          'Playground',
           style: TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.w600,
@@ -413,20 +414,6 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
           ),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.speed_rounded, color: accentBlue),
-            tooltip: 'Run Benchmark Suite',
-            onPressed: _isStreaming
-                ? null
-                : () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const BenchmarkScreen(),
-                      ),
-                    );
-                  },
-          ),
           IconButton(
             icon: const Icon(
               Icons.content_paste_rounded,
@@ -436,27 +423,9 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
             onPressed: _isStreaming ? null : _pasteFromClipboard,
           ),
           IconButton(
-            icon: const Icon(Icons.cloud_download_rounded, color: accentBlue),
-            tooltip: 'Download Models',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) =>
-                      ModelDownloadScreen(modelManager: _modelManager),
-                ),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.history_rounded, color: accentBlue),
-            tooltip: 'Saved Summaries',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const HistoryScreen()),
-              );
-            },
+            icon: const Icon(Icons.settings_outlined, color: accentBlue),
+            tooltip: 'Settings',
+            onPressed: () => openSettings(context),
           ),
         ],
       ),

@@ -11,6 +11,7 @@ import '../services/llama_gguf_service.dart';
 import '../services/model_manager_service.dart';
 import '../widgets/benchmark_results_table.dart';
 import 'saved_benchmark_sessions_screen.dart';
+import 'settings_screen.dart';
 
 // The result classes moved to lib/models/benchmark_session.dart so the archive
 // screens can share them. Re-exported here so existing imports of this file
@@ -24,10 +25,10 @@ class BenchmarkScreen extends StatefulWidget {
     this.targetModelId,
     this.qualificationArtifactId,
   }) : assert(
-          (targetModelId == null) == (qualificationArtifactId == null),
-          'Candidate target and exact artifact identity must be supplied '
-          'together.',
-        );
+         (targetModelId == null) == (qualificationArtifactId == null),
+         'Candidate target and exact artifact identity must be supplied '
+         'together.',
+       );
 
   /// When set, the benchmark runs only this exact installed GGUF model.
   ///
@@ -153,8 +154,9 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
 
     final runMaps = (saved['runs'] as List).cast<Map<String, Object?>>();
     final restored = buildAggregatesFromSavedRuns(runMaps);
-    final completedAt =
-        DateTime.parse(saved['completed_at'] as String).toLocal();
+    final completedAt = DateTime.parse(
+      saved['completed_at'] as String,
+    ).toLocal();
 
     setState(() {
       _promptController.text = saved['passage'] as String;
@@ -164,7 +166,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         ..clear()
         ..addAll(restored);
       _hasRestoredSession = true;
-      _currentStatus = 'Restored benchmark completed '
+      _currentStatus =
+          'Restored benchmark completed '
           '${formatBenchmarkDateTime(completedAt)}.';
     });
   }
@@ -172,8 +175,9 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   /// Re-reads the session that was just saved, so the table shows the recall
   /// grades written at save time without confusing it with another run type.
   Future<void> _reloadSavedRuns(int sessionId) async {
-    final saved =
-        await DatabaseService.instance.getCompletedBenchmarkById(sessionId);
+    final saved = await DatabaseService.instance.getCompletedBenchmarkById(
+      sessionId,
+    );
     if (saved == null || !mounted) return;
 
     final runMaps = (saved['runs'] as List).cast<Map<String, Object?>>();
@@ -191,9 +195,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
 
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => const SavedBenchmarkSessionsScreen(),
-      ),
+      MaterialPageRoute(builder: (_) => const SavedBenchmarkSessionsScreen()),
     );
   }
 
@@ -217,8 +219,9 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         if (!widget.isCandidateQualification &&
             !_modelManager.isLoading &&
             availableModels.isNotEmpty) {
-          final Set<String> availableIds =
-              availableModels.map((ModelInfo model) => model.id).toSet();
+          final Set<String> availableIds = availableModels
+              .map((ModelInfo model) => model.id)
+              .toSet();
           if (!_hasInitializedModelSelection) {
             _selectedModelIds
               ..clear()
@@ -233,8 +236,9 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
           final List<ModelInfo> models = benchmarkModelsForTarget(
             _modelManager.availableModels,
             targetModelId: widget.targetModelId,
-            selectedModelIds:
-                widget.isCandidateQualification ? null : _selectedModelIds,
+            selectedModelIds: widget.isCandidateQualification
+                ? null
+                : _selectedModelIds,
           );
           if (availableModels.isEmpty) {
             _currentStatus = widget.isCandidateQualification
@@ -286,8 +290,9 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     final List<ModelInfo> models = benchmarkModelsForTarget(
       _modelManager.availableModels,
       targetModelId: widget.targetModelId,
-      selectedModelIds:
-          widget.isCandidateQualification ? null : _selectedModelIds,
+      selectedModelIds: widget.isCandidateQualification
+          ? null
+          : _selectedModelIds,
     );
     if (_isRunning ||
         !canRunBenchmarkModels(
@@ -375,15 +380,15 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         if (saveError == null) {
           _currentStatus = widget.isCandidateQualification
               ? 'Candidate benchmark completed and saved: '
-                  '$runsPerModel ${runsPerModel == 1 ? 'run' : 'runs'}.'
+                    '$runsPerModel ${runsPerModel == 1 ? 'run' : 'runs'}.'
               : 'Benchmark suite completed and saved: '
-                  '${_aggregates.length} models × $runsPerModel runs.';
+                    '${_aggregates.length} models × $runsPerModel runs.';
         } else {
           _currentStatus = widget.isCandidateQualification
               ? 'Candidate benchmark completed, but the session could not '
-                  'be saved: $saveError'
+                    'be saved: $saveError'
               : 'Benchmark suite completed, but the grouped session '
-                  'could not be saved: $saveError';
+                    'could not be saved: $saveError';
         }
       });
     }
@@ -434,8 +439,9 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
           'error_message': run.errorMessage,
           'recall_found': recall?.found,
           'recall_total': recall?.total,
-          'missed_fact_ids':
-              recall == null ? null : jsonEncode(recall.missedTokens),
+          'missed_fact_ids': recall == null
+              ? null
+              : jsonEncode(recall.missedTokens),
         });
       }
     }
@@ -640,7 +646,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
               onChanged: disabled
                   ? null
                   : (bool? selected) =>
-                      _setModelSelected(model.id, selected ?? false),
+                        _setModelSelected(model.id, selected ?? false),
               activeColor: accentBlue,
               checkColor: Colors.black,
               controlAffinity: ListTileControlAffinity.leading,
@@ -686,8 +692,9 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     final List<ModelInfo> models = benchmarkModelsForTarget(
       _modelManager.availableModels,
       targetModelId: widget.targetModelId,
-      selectedModelIds:
-          widget.isCandidateQualification ? null : _selectedModelIds,
+      selectedModelIds: widget.isCandidateQualification
+          ? null
+          : _selectedModelIds,
     );
     final bool canRun = canRunBenchmarkModels(
       models,
@@ -701,9 +708,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         backgroundColor: surfaceColor,
         elevation: 0,
         title: Text(
-          widget.isCandidateQualification
-              ? 'Candidate Benchmark'
-              : 'Model Benchmark Suite',
+          widget.isCandidateQualification ? 'Candidate Benchmark' : 'Benchmark',
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.w600,
@@ -711,11 +716,20 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
           ),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.folder_open_rounded, color: accentBlue),
-            tooltip: 'Saved sessions',
-            onPressed: (_isRunning || _isRestoring) ? null : _openSavedSessions,
-          ),
+          if (widget.isCandidateQualification)
+            IconButton(
+              icon: const Icon(Icons.folder_open_rounded, color: accentBlue),
+              tooltip: 'Saved sessions',
+              onPressed: (_isRunning || _isRestoring)
+                  ? null
+                  : _openSavedSessions,
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.settings_outlined, color: accentBlue),
+              tooltip: 'Settings',
+              onPressed: () => openSettings(context),
+            ),
         ],
       ),
       body: SafeArea(
@@ -735,8 +749,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                     _isRunning
                         ? Icons.hourglass_top_rounded
                         : (!canRun
-                            ? Icons.error_outline_rounded
-                            : Icons.check_circle_outline_rounded),
+                              ? Icons.error_outline_rounded
+                              : Icons.check_circle_outline_rounded),
                     color: _isRunning ? accentBlue : const Color(0xFF81C784),
                     size: 22,
                   ),
@@ -744,8 +758,10 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                   Expanded(
                     child: Text(
                       _currentStatus,
-                      style:
-                          const TextStyle(color: Colors.white70, fontSize: 13),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
                 ],
@@ -755,9 +771,10 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
             const Text(
               'Benchmark Instruction:',
               style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14),
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
             ),
             const SizedBox(height: 6),
             Container(
@@ -781,9 +798,10 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
             const Text(
               'Passage:',
               style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14),
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
             ),
             const SizedBox(height: 6),
             Container(
@@ -797,7 +815,10 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                 maxLines: 4,
                 enabled: !_isRunning && !_isRestoring,
                 style: const TextStyle(
-                    color: Colors.white, fontSize: 13, height: 1.4),
+                  color: Colors.white,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
                 decoration: const InputDecoration(
                   contentPadding: EdgeInsets.all(10),
                   border: InputBorder.none,
@@ -819,9 +840,10 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                 const Text(
                   'Runs per model:',
                   style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14),
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 ...[1, 3, 5].map((n) {
@@ -860,18 +882,20 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.black),
+                        strokeWidth: 2,
+                        color: Colors.black,
+                      ),
                     )
                   : const Icon(Icons.play_arrow_rounded, color: Colors.black),
               label: Text(
                 _isRestoring
                     ? 'Restoring Last Benchmark...'
                     : _isRunning
-                        ? 'Model ${_currentRunningIndex + 1}/${models.length} '
-                            '• Run $_currentRunNumber/$_runsPerModel'
-                        : widget.isCandidateQualification
-                            ? 'Benchmark Candidate'
-                            : 'Run Automated Benchmark Suite',
+                    ? 'Model ${_currentRunningIndex + 1}/${models.length} '
+                          '• Run $_currentRunNumber/$_runsPerModel'
+                    : widget.isCandidateQualification
+                    ? 'Benchmark Candidate'
+                    : 'Run Automated Benchmark Suite',
                 style: const TextStyle(
                   color: Colors.black,
                   fontWeight: FontWeight.bold,
@@ -883,7 +907,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                 disabledBackgroundColor: Colors.white24,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8)),
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
             ),
             const SizedBox(height: 20),
@@ -893,9 +918,10 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                     ? 'Candidate Result:'
                     : 'Comparative Results:',
                 style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15),
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                ),
               ),
               const SizedBox(height: 8),
               BenchmarkResultsTable(
