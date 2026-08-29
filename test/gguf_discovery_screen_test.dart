@@ -13,8 +13,9 @@ import 'package:local_ai_summarizer/services/model_download_service.dart';
 
 void main() {
   group('GGUF discovery screen', () {
-    testWidgets('opening the screen performs no network request',
-        (WidgetTester tester) async {
+    testWidgets('opening the screen performs no network request', (
+      WidgetTester tester,
+    ) async {
       int requests = 0;
       final GgufDiscoveryService service = GgufDiscoveryService(
         loadSeedRepositories: _noSeeds,
@@ -38,116 +39,123 @@ void main() {
 
       expect(requests, 0);
       expect(find.byKey(const Key('discover-gguf-button')), findsOneWidget);
-      expect(find.textContaining('Opening this screen is offline'),
-          findsOneWidget);
+      expect(
+        find.textContaining('Opening Discovery is offline'),
+        findsOneWidget,
+      );
     });
 
-    testWidgets('Candidate download requires confirmation and stays Candidate',
-        (WidgetTester tester) async {
-      int requests = 0;
-      int rescans = 0;
-      Uri? openedLicenseUri;
-      final _FakeModelDownloadService downloader = _FakeModelDownloadService();
-      final _FakeGgufDiscoveryCache cache = _FakeGgufDiscoveryCache();
-      final GgufDiscoveryService service = GgufDiscoveryService(
-        loadSeedRepositories: _noSeeds,
-        source: HuggingFaceDiscoveryService(
-          fetchJson: (Uri uri) async {
-            requests++;
-            if (uri.path == '/api/models') {
-              return <Object?>[
-                _summary('Qwen/Qwen2.5-1.5B-Instruct-GGUF'),
-              ];
-            }
-            return _repository(
-              id: 'Qwen/Qwen2.5-1.5B-Instruct-GGUF',
-              license: 'apache-2.0',
-              fileName: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
-            );
-          },
-        ),
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: GgufDiscoveryScreen(
-            discoveryService: service,
-            discoveryCache: cache,
-            downloadService: downloader,
-            externalUriLauncher: (Uri uri) async {
-              openedLicenseUri = uri;
-              return true;
-            },
-            onModelInstalled: () async {
-              rescans++;
+    testWidgets(
+      'Candidate download requires confirmation and stays Candidate',
+      (WidgetTester tester) async {
+        int requests = 0;
+        int rescans = 0;
+        Uri? openedLicenseUri;
+        final _FakeModelDownloadService downloader =
+            _FakeModelDownloadService();
+        final _FakeGgufDiscoveryCache cache = _FakeGgufDiscoveryCache();
+        final GgufDiscoveryService service = GgufDiscoveryService(
+          loadSeedRepositories: _noSeeds,
+          source: HuggingFaceDiscoveryService(
+            fetchJson: (Uri uri) async {
+              requests++;
+              if (uri.path == '/api/models') {
+                return <Object?>[_summary('Qwen/Qwen2.5-1.5B-Instruct-GGUF')];
+              }
+              return _repository(
+                id: 'Qwen/Qwen2.5-1.5B-Instruct-GGUF',
+                license: 'apache-2.0',
+                fileName: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
+              );
             },
           ),
-        ),
-      );
-      expect(requests, 0);
+        );
 
-      await tester.tap(find.byKey(const Key('discover-gguf-button')));
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: GgufDiscoveryScreen(
+              discoveryService: service,
+              discoveryCache: cache,
+              downloadService: downloader,
+              externalUriLauncher: (Uri uri) async {
+                openedLicenseUri = uri;
+                return true;
+              },
+              onModelInstalled: () async {
+                rescans++;
+              },
+            ),
+          ),
+        );
+        expect(requests, 0);
 
-      expect(requests, 2);
-      expect(cache.saveCalls, 1);
-      expect(find.text('Qwen/Qwen2.5-1.5B-Instruct-GGUF'), findsOneWidget);
-      expect(find.text('Candidate — not device verified'), findsOneWidget);
-      expect(find.text('1 downloadable Candidate found'), findsOneWidget);
-      expect(
-        find.byKey(const Key('discovery-incomplete-warning')),
-        findsNothing,
-      );
+        await tester.tap(find.byKey(const Key('discover-gguf-button')));
+        await tester.pumpAndSettle();
 
-      const Key licenseKey = Key(
-        'candidate-license-qwen2.5-1.5b-instruct-q4_k_m.gguf',
-      );
-      await _scrollAndTap(tester, find.byKey(licenseKey));
-      expect(find.text('View license information'), findsOneWidget);
-      expect(
-        openedLicenseUri,
-        Uri.parse('https://www.apache.org/licenses/LICENSE-2.0'),
-      );
+        expect(requests, 2);
+        expect(cache.saveCalls, 1);
+        expect(find.text('Qwen/Qwen2.5-1.5B-Instruct-GGUF'), findsOneWidget);
+        expect(find.text('Candidate — not device verified'), findsOneWidget);
+        expect(find.text('1 downloadable Candidate found'), findsOneWidget);
+        expect(
+          find.byKey(const Key('discovery-incomplete-warning')),
+          findsNothing,
+        );
 
-      const Key downloadKey = Key(
-        'candidate-download-qwen2.5-1.5b-instruct-q4_k_m.gguf',
-      );
-      await _scrollAndTap(tester, find.byKey(downloadKey));
+        const Key licenseKey = Key(
+          'candidate-license-qwen2.5-1.5b-instruct-q4_k_m.gguf',
+        );
+        await _scrollAndTap(tester, find.byKey(licenseKey));
+        expect(find.text('View license information'), findsOneWidget);
+        expect(
+          openedLicenseUri,
+          Uri.parse('https://www.apache.org/licenses/LICENSE-2.0'),
+        );
 
-      expect(downloader.downloadCalls, 0);
-      expect(find.text('Download Candidate?'), findsOneWidget);
-      expect(
-          find.textContaining('has not been device verified'), findsOneWidget);
-      final Finder dialog = find.byType(AlertDialog);
-      expect(
+        const Key downloadKey = Key(
+          'candidate-download-qwen2.5-1.5b-instruct-q4_k_m.gguf',
+        );
+        await _scrollAndTap(tester, find.byKey(downloadKey));
+
+        expect(downloader.downloadCalls, 0);
+        expect(find.text('Download Candidate?'), findsOneWidget);
+        expect(
+          find.textContaining('has not been device verified'),
+          findsOneWidget,
+        );
+        final Finder dialog = find.byType(AlertDialog);
+        expect(
           find.descendant(
             of: dialog,
             matching: find.text('qwen2.5-1.5b-instruct-q4_k_m.gguf'),
           ),
-          findsOneWidget);
-      expect(
-        find.descendant(
-          of: dialog,
-          matching: find.textContaining('Apache-2.0'),
-        ),
-        findsOneWidget,
-      );
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: dialog,
+            matching: find.textContaining('Apache-2.0'),
+          ),
+          findsOneWidget,
+        );
 
-      await tester.tap(
-        find.byKey(const Key('confirm-candidate-download-button')),
-      );
-      await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const Key('confirm-candidate-download-button')),
+        );
+        await tester.pumpAndSettle();
 
-      expect(downloader.downloadCalls, 1);
-      expect(rescans, 1);
-      expect(
-        find.text('Installed Candidate — benchmark required'),
-        findsOneWidget,
-      );
-    });
+        expect(downloader.downloadCalls, 1);
+        expect(rescans, 1);
+        expect(
+          find.text('Installed Candidate — benchmark required'),
+          findsOneWidget,
+        );
+      },
+    );
 
-    testWidgets('installed Candidate exposes its exact benchmark action',
-        (WidgetTester tester) async {
+    testWidgets('installed Candidate exposes its exact benchmark action', (
+      WidgetTester tester,
+    ) async {
       GgufCandidateArtifact? benchmarkedArtifact;
       CandidateQualificationStatus status = CandidateQualificationStatus.notRun;
       final _FakeModelDownloadService downloader = _FakeModelDownloadService(
@@ -196,8 +204,9 @@ void main() {
       );
     });
 
-    testWidgets('failed exact qualification requires a retry',
-        (WidgetTester tester) async {
+    testWidgets('failed exact qualification requires a retry', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(
         MaterialApp(
           home: GgufDiscoveryScreen(
@@ -216,15 +225,13 @@ void main() {
       await tester.tap(find.byKey(const Key('discover-gguf-button')));
       await tester.pumpAndSettle();
 
-      expect(
-        find.text('Benchmark failed — retry required'),
-        findsOneWidget,
-      );
+      expect(find.text('Benchmark failed — retry required'), findsOneWidget);
       expect(find.text('Benchmark Candidate'), findsOneWidget);
     });
 
-    testWidgets('custom-license Candidate links to readable terms',
-        (WidgetTester tester) async {
+    testWidgets('custom-license Candidate links to readable terms', (
+      WidgetTester tester,
+    ) async {
       final _FakeModelDownloadService downloader = _FakeModelDownloadService();
       Uri? openedUri;
       final GgufDiscoveryService service = GgufDiscoveryService(
@@ -284,8 +291,9 @@ void main() {
       expect(downloader.downloadCalls, 0);
     });
 
-    testWidgets('legacy cached custom-license warning stays hidden',
-        (WidgetTester tester) async {
+    testWidgets('legacy cached custom-license warning stays hidden', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(
         MaterialApp(
           home: GgufDiscoveryScreen(
@@ -313,17 +321,16 @@ void main() {
       expect(find.textContaining('Warning: Custom license'), findsNothing);
     });
 
-    testWidgets('unmapped usable license links to its metadata source',
-        (WidgetTester tester) async {
+    testWidgets('unmapped usable license links to its metadata source', (
+      WidgetTester tester,
+    ) async {
       Uri? openedUri;
       final GgufDiscoveryService service = GgufDiscoveryService(
         loadSeedRepositories: _noSeeds,
         source: HuggingFaceDiscoveryService(
           fetchJson: (Uri uri) async {
             if (uri.path == '/api/models') {
-              return <Object?>[
-                _summary('Publisher/Future-1B-Instruct-GGUF'),
-              ];
+              return <Object?>[_summary('Publisher/Future-1B-Instruct-GGUF')];
             }
             return _repository(
               id: 'Publisher/Future-1B-Instruct-GGUF',
@@ -358,14 +365,13 @@ void main() {
       expect(find.text('View license information'), findsOneWidget);
       expect(
         openedUri,
-        Uri.parse(
-          'https://huggingface.co/Publisher/Future-1B-Instruct-GGUF',
-        ),
+        Uri.parse('https://huggingface.co/Publisher/Future-1B-Instruct-GGUF'),
       );
     });
 
-    testWidgets('different same-named file blocks Candidate download',
-        (WidgetTester tester) async {
+    testWidgets('different same-named file blocks Candidate download', (
+      WidgetTester tester,
+    ) async {
       final _FakeModelDownloadService downloader = _FakeModelDownloadService(
         status: InstalledArtifactStatus.differentFile,
       );
@@ -392,8 +398,9 @@ void main() {
       expect(downloader.downloadCalls, 0);
     });
 
-    testWidgets('partial Candidate resumes without another confirmation',
-        (WidgetTester tester) async {
+    testWidgets('partial Candidate resumes without another confirmation', (
+      WidgetTester tester,
+    ) async {
       final _FakeModelDownloadService downloader = _FakeModelDownloadService(
         partial: 125000000,
       );
@@ -429,8 +436,9 @@ void main() {
       );
     });
 
-    testWidgets('stopped message appears only in the Candidate card',
-        (WidgetTester tester) async {
+    testWidgets('stopped message appears only in the Candidate card', (
+      WidgetTester tester,
+    ) async {
       final _FakeModelDownloadService downloader = _FakeModelDownloadService(
         partial: 125000000,
         outcome: DownloadOutcome.cancelled,
@@ -463,8 +471,9 @@ void main() {
       expect(find.byType(SnackBar), findsNothing);
     });
 
-    testWidgets('partial Candidate can be discarded',
-        (WidgetTester tester) async {
+    testWidgets('partial Candidate can be discarded', (
+      WidgetTester tester,
+    ) async {
       final _FakeModelDownloadService downloader = _FakeModelDownloadService(
         partial: 125000000,
       );
@@ -497,58 +506,57 @@ void main() {
     });
 
     testWidgets(
-        'restores cached Candidates and partial state without networking',
-        (WidgetTester tester) async {
-      int requests = 0;
-      final _FakeGgufDiscoveryCache cache = _FakeGgufDiscoveryCache(
-        entry: GgufDiscoveryCacheEntry(
-          result: _cachedCandidateResult(),
-          discoveredAtUtc: DateTime.utc(2026, 8, 27, 5, 2),
-        ),
-      );
-      final _FakeModelDownloadService downloader = _FakeModelDownloadService(
-        partial: 82000000,
-      );
-      final GgufDiscoveryService service = GgufDiscoveryService(
-        loadSeedRepositories: _noSeeds,
-        source: HuggingFaceDiscoveryService(
-          fetchJson: (Uri uri) async {
-            requests++;
-            return <Object?>[];
-          },
-        ),
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: GgufDiscoveryScreen(
-            discoveryService: service,
-            discoveryCache: cache,
-            downloadService: downloader,
+      'restores cached Candidates and partial state without networking',
+      (WidgetTester tester) async {
+        int requests = 0;
+        final _FakeGgufDiscoveryCache cache = _FakeGgufDiscoveryCache(
+          entry: GgufDiscoveryCacheEntry(
+            result: _cachedCandidateResult(),
+            discoveredAtUtc: DateTime.utc(2026, 8, 27, 5, 2),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        final _FakeModelDownloadService downloader = _FakeModelDownloadService(
+          partial: 82000000,
+        );
+        final GgufDiscoveryService service = GgufDiscoveryService(
+          loadSeedRepositories: _noSeeds,
+          source: HuggingFaceDiscoveryService(
+            fetchJson: (Uri uri) async {
+              requests++;
+              return <Object?>[];
+            },
+          ),
+        );
 
-      expect(requests, 0);
-      expect(cache.loadCalls, 1);
-      expect(find.text('1 downloadable Candidate found'), findsOneWidget);
-      expect(
-        find.text('Qwen/Qwen2.5-1.5B-Instruct-GGUF'),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const Key('discovery-last-refreshed')),
-        findsOneWidget,
-      );
-      expect(find.textContaining('saved locally'), findsOneWidget);
-      expect(find.textContaining('Partial download: 82 MB'), findsOneWidget);
-      expect(find.text('Resume'), findsOneWidget);
-      expect(find.text('Discard'), findsOneWidget);
-    });
+        await tester.pumpWidget(
+          MaterialApp(
+            home: GgufDiscoveryScreen(
+              discoveryService: service,
+              discoveryCache: cache,
+              downloadService: downloader,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-    testWidgets('failed refresh keeps the last cached Candidate visible',
-        (WidgetTester tester) async {
+        expect(requests, 0);
+        expect(cache.loadCalls, 1);
+        expect(find.text('1 downloadable Candidate found'), findsOneWidget);
+        expect(find.text('Qwen/Qwen2.5-1.5B-Instruct-GGUF'), findsOneWidget);
+        expect(
+          find.byKey(const Key('discovery-last-refreshed')),
+          findsOneWidget,
+        );
+        expect(find.textContaining('saved locally'), findsOneWidget);
+        expect(find.textContaining('Partial download: 82 MB'), findsOneWidget);
+        expect(find.text('Resume'), findsOneWidget);
+        expect(find.text('Discard'), findsOneWidget);
+      },
+    );
+
+    testWidgets('failed refresh keeps the last cached Candidate visible', (
+      WidgetTester tester,
+    ) async {
       final _FakeGgufDiscoveryCache cache = _FakeGgufDiscoveryCache(
         entry: GgufDiscoveryCacheEntry(
           result: _cachedCandidateResult(),
@@ -576,10 +584,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(
-        find.text('Qwen/Qwen2.5-1.5B-Instruct-GGUF'),
-        findsOneWidget,
-      );
+      expect(find.text('Qwen/Qwen2.5-1.5B-Instruct-GGUF'), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('discover-gguf-button')));
       await tester.pumpAndSettle();
@@ -588,15 +593,13 @@ void main() {
         find.textContaining('Hugging Face is temporarily unavailable.'),
         findsOneWidget,
       );
-      expect(
-        find.text('Qwen/Qwen2.5-1.5B-Instruct-GGUF'),
-        findsOneWidget,
-      );
+      expect(find.text('Qwen/Qwen2.5-1.5B-Instruct-GGUF'), findsOneWidget);
       expect(cache.saveCalls, 0);
     });
 
-    testWidgets('cached exact Verified artifacts remain excluded',
-        (WidgetTester tester) async {
+    testWidgets('cached exact Verified artifacts remain excluded', (
+      WidgetTester tester,
+    ) async {
       final _FakeGgufDiscoveryCache cache = _FakeGgufDiscoveryCache(
         entry: GgufDiscoveryCacheEntry(
           result: _cachedVerifiedCandidateResult(),
@@ -622,15 +625,13 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('0 downloadable Candidates found'), findsOneWidget);
-      expect(
-        find.text(kModelCatalog.first.fileName),
-        findsNothing,
-      );
+      expect(find.text(kModelCatalog.first.fileName), findsNothing);
       expect(find.text('Download'), findsNothing);
     });
 
-    testWidgets('hides review, rejection, and repository source errors',
-        (WidgetTester tester) async {
+    testWidgets('hides review, rejection, and repository source errors', (
+      WidgetTester tester,
+    ) async {
       final GgufDiscoveryService service = GgufDiscoveryService(
         loadSeedRepositories: _noSeeds,
         source: HuggingFaceDiscoveryService(
@@ -698,8 +699,9 @@ void main() {
       expect(find.textContaining('Source errors'), findsNothing);
     });
 
-    testWidgets('shows a search failure without inventing model results',
-        (WidgetTester tester) async {
+    testWidgets('shows a search failure without inventing model results', (
+      WidgetTester tester,
+    ) async {
       final GgufDiscoveryService service = GgufDiscoveryService(
         loadSeedRepositories: _noSeeds,
         source: HuggingFaceDiscoveryService(
@@ -746,9 +748,7 @@ GgufDiscoveryService _singleCandidateService() {
     source: HuggingFaceDiscoveryService(
       fetchJson: (Uri uri) async {
         if (uri.path == '/api/models') {
-          return <Object?>[
-            _summary('Qwen/Qwen2.5-1.5B-Instruct-GGUF'),
-          ];
+          return <Object?>[_summary('Qwen/Qwen2.5-1.5B-Instruct-GGUF')];
         }
         return _repository(
           id: 'Qwen/Qwen2.5-1.5B-Instruct-GGUF',
@@ -839,10 +839,9 @@ GgufDiscoveryResult _cachedVerifiedCandidateResult() {
   final Uri downloadUri = model.uri;
   final int resolveIndex = downloadUri.pathSegments.indexOf('resolve');
   final String commitSha = downloadUri.pathSegments[resolveIndex + 1];
-  final String repositoryId = Uri.parse(model.sourcePage)
-      .pathSegments
-      .where((String segment) => segment.isNotEmpty)
-      .join('/');
+  final String repositoryId = Uri.parse(
+    model.sourcePage,
+  ).pathSegments.where((String segment) => segment.isNotEmpty).join('/');
   return GgufDiscoveryResult(
     assessments: <GgufCandidateAssessment>[
       GgufCandidateAssessment(
@@ -937,10 +936,7 @@ class _FakeModelDownloadService extends ModelDownloadService {
   }) async {
     downloadCalls++;
     onProgress?.call(
-      const DownloadProgress(
-        receivedBytes: 1000000000,
-        totalBytes: 1000000000,
-      ),
+      const DownloadProgress(receivedBytes: 1000000000, totalBytes: 1000000000),
     );
     if (outcome == DownloadOutcome.completed) {
       status = InstalledArtifactStatus.matchesExpected;
