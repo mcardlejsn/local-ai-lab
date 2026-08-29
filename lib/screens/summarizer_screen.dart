@@ -15,9 +15,17 @@ bool supportsAdjustableSamplingControls(ModelEngine? engine) {
 }
 
 class SummarizerScreen extends StatefulWidget {
-  const SummarizerScreen({super.key, required this.modelManager});
+  const SummarizerScreen({
+    super.key,
+    required this.modelManager,
+    this.scanModelsOnInit = true,
+  });
 
   final ModelManagerService modelManager;
+
+  /// Lets focused widget tests render the screen without starting platform
+  /// model discovery. Production callers keep the default behavior.
+  final bool scanModelsOnInit;
 
   @override
   State<SummarizerScreen> createState() => _SummarizerScreenState();
@@ -73,7 +81,9 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     super.initState();
     _modelManager = widget.modelManager;
     _modelManager.addListener(_onModelManagerStateChanged);
-    _modelManager.scanModels();
+    if (widget.scanModelsOnInit) {
+      _modelManager.scanModels();
+    }
   }
 
   @override
@@ -382,365 +392,349 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
   void _showSnackBar(String text) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(text, style: const TextStyle(color: Colors.white)),
-        backgroundColor: const Color(0xFF1E1E1E),
-        duration: const Duration(seconds: 2),
-      ),
+      SnackBar(content: Text(text), duration: const Duration(seconds: 2)),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    const bgColor = Color(0xFF121212);
-    const surfaceColor = Color(0xFF1E1E1E);
-    const accentBlue = Color(0xFF90CAF9);
-    const successGreen = Color(0xFF81C784);
-
     final activeModel = _modelManager.activeModel;
     final isReady = activeModel != null && !_modelManager.isLoading;
+    final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: bgColor,
       appBar: AppBar(
-        backgroundColor: surfaceColor,
-        elevation: 0,
-        title: const Text(
-          'Playground',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w600,
-            fontSize: 18,
-          ),
+        toolbarHeight: 80,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Playground'),
+            const SizedBox(height: 2),
+            Text(
+              'Local AI Lab · On-device',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(
-              Icons.content_paste_rounded,
-              color: Colors.white70,
-            ),
-            tooltip: 'Paste from Clipboard',
-            onPressed: _isStreaming ? null : _pasteFromClipboard,
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings_outlined, color: accentBlue),
+            icon: const Icon(Icons.settings_outlined),
             tooltip: 'Settings',
             onPressed: () => openSettings(context),
           ),
+          const SizedBox(width: 8),
         ],
       ),
       body: SafeArea(
         child: ListView(
           controller: _scrollController,
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           children: [
-            _buildModelSelectorCard(surfaceColor, accentBlue, successGreen),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'Input Note / Passage:',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                    ),
-                  ),
-                ),
-                ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: _inputController,
-                  builder: (_, value, __) {
-                    if (value.text.isNotEmpty) {
-                      return const SizedBox.shrink();
-                    }
-                    return TextButton.icon(
-                      onPressed: _isStreaming ? null : _loadSamplePassage,
-                      icon: const Icon(Icons.article_outlined, size: 16),
-                      label: const Text('Load Sample'),
-                      style: TextButton.styleFrom(
-                        foregroundColor: accentBlue,
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        minimumSize: const Size(0, 36),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        textStyle: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Container(
-              decoration: BoxDecoration(
-                color: surfaceColor,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.white24),
-              ),
-              child: TextField(
-                controller: _inputController,
-                maxLines: 6,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  height: 1.4,
-                ),
-                decoration: InputDecoration(
-                  hintText: 'Enter or paste passage here...',
-                  hintStyle: const TextStyle(color: Colors.white38),
-                  contentPadding: const EdgeInsets.all(12),
-                  border: InputBorder.none,
-                  suffixIcon: ValueListenableBuilder<TextEditingValue>(
-                    valueListenable: _inputController,
-                    builder: (_, value, __) {
-                      if (value.text.isEmpty) return const SizedBox.shrink();
-                      return IconButton(
-                        icon: const Icon(
-                          Icons.close_rounded,
-                          size: 18,
-                          color: Colors.white38,
-                        ),
-                        tooltip: 'Clear Input',
-                        onPressed: _isStreaming ? null : _clearInput,
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Select AI Action:',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 15,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _presetPrompts.keys.map((action) {
-                final isSelected = _selectedAction == action;
-                return ChoiceChip(
-                  label: Text(action),
-                  selected: isSelected,
-                  selectedColor: accentBlue.withValues(alpha: 0.3),
-                  backgroundColor: surfaceColor,
-                  labelStyle: TextStyle(
-                    color: isSelected ? accentBlue : Colors.white70,
-                    fontWeight: isSelected
-                        ? FontWeight.bold
-                        : FontWeight.normal,
-                    fontSize: 13,
-                  ),
-                  side: BorderSide(
-                    color: isSelected ? accentBlue : Colors.white24,
-                  ),
-                  onSelected: (selected) {
-                    if (selected) {
-                      setState(() => _selectedAction = action);
-                    }
-                  },
-                );
-              }).toList(),
-            ),
+            _buildModelSelectorCard(),
+            const SizedBox(height: 24),
+            _buildTaskSection(),
             if (_selectedAction == 'Custom') ...[
-              const SizedBox(height: 10),
-              _buildCustomInstructionField(surfaceColor, accentBlue),
+              const SizedBox(height: 12),
+              _buildCustomInstructionField(),
             ],
-            const SizedBox(height: 14),
-            ElevatedButton.icon(
+            const SizedBox(height: 24),
+            _buildInputSection(),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              key: const Key('playground-run-button'),
               onPressed: !isReady
                   ? null
                   : (_isStreaming ? _stopGeneration : _runInference),
               icon: _isStreaming
-                  ? const Icon(Icons.stop_circle_rounded, color: Colors.white)
-                  : const Icon(Icons.bolt_rounded, color: Colors.black),
-              label: Text(
-                _isStreaming ? 'Stop Generation' : 'Summarize On-Device',
-                style: TextStyle(
-                  color: _isStreaming ? Colors.white : Colors.black,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _isStreaming
-                    ? Colors.redAccent.shade700
-                    : accentBlue,
-                disabledBackgroundColor: Colors.white24,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
+                  ? const Icon(Icons.stop_circle_outlined)
+                  : const Icon(Icons.auto_awesome_outlined),
+              label: Text(_isStreaming ? 'Stop generation' : 'Run on device'),
+              style: _isStreaming
+                  ? FilledButton.styleFrom(
+                      backgroundColor: theme.colorScheme.error,
+                      foregroundColor: theme.colorScheme.onError,
+                    )
+                  : null,
             ),
-            const SizedBox(height: 14),
-            _buildBenchmarkTelemetryBar(surfaceColor, accentBlue),
-            const SizedBox(height: 14),
-            _buildOutputCard(surfaceColor, accentBlue),
-            const SizedBox(height: 16),
-            _buildControlsCard(surfaceColor, bgColor, accentBlue),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
+            _buildOutputCard(),
+            const SizedBox(height: 20),
+            _buildControlsCard(),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildModelSelectorCard(
-    Color surfaceColor,
-    Color accentBlue,
-    Color successGreen,
-  ) {
+  Widget _buildModelSelectorCard() {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final available = _modelManager.summarizerModels;
     final active = _modelManager.activeModel;
     final isLoading = _modelManager.isLoading;
     final status = _modelManager.statusMessage ?? 'Ready';
+    final readyColor = theme.brightness == Brightness.dark
+        ? const Color(0xFF81C784)
+        : const Color(0xFF2E7D32);
 
     if (available.isEmpty && !isLoading) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: surfaceColor,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.redAccent, width: 1.2),
-        ),
-        child: Row(
-          children: [
-            const Icon(
-              Icons.error_outline_rounded,
-              color: Colors.redAccent,
-              size: 20,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                status,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
+      return Card(
+        key: const Key('playground-model-card'),
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'MODEL',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  letterSpacing: 1,
                 ),
-                overflow: TextOverflow.ellipsis,
               ),
-            ),
-            IconButton(
-              icon: const Icon(
-                Icons.refresh_rounded,
-                color: Colors.white70,
-                size: 20,
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Icon(Icons.error_outline, color: scheme.error),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(status, style: theme.textTheme.bodyMedium),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.refresh_rounded),
+                    tooltip: 'Rescan models',
+                    onPressed: _modelManager.scanModels,
+                  ),
+                ],
               ),
-              tooltip: 'Rescan Directory',
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-              onPressed: _modelManager.scanModels,
-            ),
-          ],
+            ],
+          ),
         ),
       );
     }
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: surfaceColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: active != null && !isLoading ? successGreen : accentBlue,
-          width: 1.2,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                isLoading
-                    ? Icons.sync_rounded
-                    : (active != null
-                          ? Icons.bolt_rounded
-                          : Icons.info_outline_rounded),
-                color: active != null && !isLoading ? successGreen : accentBlue,
-                size: 20,
+    return Card(
+      key: const Key('playground-model-card'),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'MODEL',
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: scheme.onSurfaceVariant,
+                letterSpacing: 1,
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: active?.id,
-                    isExpanded: true,
-                    dropdownColor: surfaceColor,
-                    icon: Icon(
-                      Icons.arrow_drop_down_rounded,
-                      color: accentBlue,
-                    ),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                    ),
-                    items: available.map((m) {
-                      return DropdownMenuItem<String>(
-                        value: m.id,
-                        child: Text(
-                          '${m.name} (${m.formattedSize})',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (_isStreaming || isLoading)
-                        ? null
-                        : (newId) {
-                            if (newId != null && newId != active?.id) {
-                              final target = available.firstWhere(
-                                (m) => m.id == newId,
-                              );
-                              _modelManager.loadModel(target);
-                            }
-                          },
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: scheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(
+                    Icons.memory_rounded,
+                    color: scheme.onSecondaryContainer,
                   ),
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline_rounded, size: 20),
-                color: Colors.white54,
-                disabledColor: Colors.white24,
-                tooltip: 'Remove Model File',
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                onPressed:
-                    (_isStreaming ||
-                        isLoading ||
-                        active == null ||
-                        active.engine == ModelEngine.nano)
-                    ? null
-                    : () => _confirmDeleteModel(active),
-              ),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Text(
-            status,
-            style: TextStyle(
-              color: active != null && !isLoading
-                  ? successGreen
-                  : Colors.white60,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: active?.id,
+                      isExpanded: true,
+                      icon: const Icon(Icons.expand_more_rounded),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: scheme.onSurface,
+                      ),
+                      items: available.map((model) {
+                        return DropdownMenuItem<String>(
+                          value: model.id,
+                          child: Text(
+                            '${model.name} · ${model.formattedSize}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (_isStreaming || isLoading)
+                          ? null
+                          : (newId) {
+                              if (newId != null && newId != active?.id) {
+                                final target = available.firstWhere(
+                                  (model) => model.id == newId,
+                                );
+                                _modelManager.loadModel(target);
+                              }
+                            },
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline_rounded),
+                  tooltip: 'Remove model file',
+                  onPressed:
+                      (_isStreaming ||
+                          isLoading ||
+                          active == null ||
+                          active.engine == ModelEngine.nano)
+                      ? null
+                      : () => _confirmDeleteModel(active),
+                ),
+              ],
             ),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(
+                  isLoading ? Icons.sync_rounded : Icons.circle,
+                  size: isLoading ? 16 : 10,
+                  color: active != null && !isLoading
+                      ? readyColor
+                      : scheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    status,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: active != null && !isLoading
+                          ? readyColor
+                          : scheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildTaskSection() {
+    final theme = Theme.of(context);
+    final descriptions = <String, String>{
+      '2-Sentence Summary': 'Exactly two clear, concise sentences',
+      'Key Events': 'Significant events, milestones, and timestamps',
+      'Action Items': 'Next steps, deliverables, and assignments',
+      'Custom': 'Follow the instruction you provide below',
+    };
+
+    return Column(
+      key: const Key('playground-task-section'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Task', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: _buildTaskButton('2-Sentence Summary')),
+            const SizedBox(width: 12),
+            Expanded(child: _buildTaskButton('Key Events')),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: _buildTaskButton('Action Items')),
+            const SizedBox(width: 12),
+            Expanded(child: _buildTaskButton('Custom')),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Text(
+          descriptions[_selectedAction]!,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTaskButton(String action) {
+    final selected = _selectedAction == action;
+    final label = action == 'Custom' ? 'Custom instruction' : action;
+    final onPressed = _isStreaming
+        ? null
+        : () => setState(() => _selectedAction = action);
+
+    return Semantics(
+      selected: selected,
+      child: SizedBox(
+        height: 64,
+        child: selected
+            ? FilledButton.tonal(
+                key: Key('playground-task-$action'),
+                onPressed: onPressed,
+                child: Text(label, textAlign: TextAlign.center),
+              )
+            : OutlinedButton(
+                key: Key('playground-task-$action'),
+                onPressed: onPressed,
+                child: Text(label, textAlign: TextAlign.center),
+              ),
+      ),
+    );
+  }
+
+  Widget _buildInputSection() {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(child: Text('Input', style: theme.textTheme.titleMedium)),
+            TextButton.icon(
+              key: const Key('playground-paste-button'),
+              onPressed: _isStreaming ? null : _pasteFromClipboard,
+              icon: const Icon(Icons.content_paste_outlined, size: 20),
+              label: const Text('Paste'),
+            ),
+            TextButton.icon(
+              key: const Key('playground-sample-button'),
+              onPressed: _isStreaming ? null : _loadSamplePassage,
+              icon: const Icon(Icons.description_outlined, size: 20),
+              label: const Text('Sample'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          key: const Key('playground-input-field'),
+          controller: _inputController,
+          minLines: 5,
+          maxLines: 8,
+          decoration: InputDecoration(
+            hintText: 'Enter or paste text here…',
+            suffixIcon: ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _inputController,
+              builder: (_, value, __) {
+                if (value.text.isEmpty) return const SizedBox.shrink();
+                return IconButton(
+                  icon: const Icon(Icons.close_rounded),
+                  tooltip: 'Clear input',
+                  onPressed: _isStreaming ? null : _clearInput,
+                );
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -748,25 +742,21 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     final bool? confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text(
-          'Remove model file?',
-          style: TextStyle(color: Colors.white, fontSize: 16),
-        ),
+        title: const Text('Remove model file?'),
         content: Text(
           '${model.name} (${model.formattedSize}) will be deleted from your '
           'device. Saved summaries and benchmark sessions are not affected.',
-          style: const TextStyle(color: Colors.white70, fontSize: 13),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            style: TextButton.styleFrom(foregroundColor: Colors.white54),
             child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(dialogContext).colorScheme.error,
+            ),
             child: const Text('Remove'),
           ),
         ],
@@ -788,92 +778,45 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     );
   }
 
-  Widget _buildControlsCard(
-    Color surfaceColor,
-    Color bgColor,
-    Color accentBlue,
-  ) {
+  Widget _buildControlsCard() {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final bool samplingControlsAvailable = supportsAdjustableSamplingControls(
       _modelManager.activeModel?.engine,
     );
     final String controlsSummary = samplingControlsAvailable
-        ? 'T: ${_temperature.toStringAsFixed(2)} | '
-              'K: $_topK | Max: $_maxTokens'
-        : 'T: Fixed | K: Fixed | Max: $_maxTokens';
+        ? 'T ${_temperature.toStringAsFixed(2)} · K $_topK · Max $_maxTokens'
+        : 'T fixed · K fixed · Max $_maxTokens';
 
-    return Material(
-      color: surfaceColor,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: const BorderSide(color: Colors.white12),
-      ),
-      clipBehavior: Clip.antiAlias,
+    return Card(
+      key: const Key('playground-runtime-controls'),
+      margin: EdgeInsets.zero,
       child: Theme(
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
           initiallyExpanded: false,
-          tilePadding: const EdgeInsets.symmetric(horizontal: 14),
-          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-          iconColor: accentBlue,
-          collapsedIconColor: Colors.white54,
-          title: Row(
-            children: [
-              const Flexible(
-                child: Text(
-                  'Runtime Model Controls',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: bgColor,
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.white12),
-                ),
-                child: Text(
-                  controlsSummary,
-                  style: TextStyle(
-                    color: accentBlue,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 11,
-                  ),
-                ),
-              ),
-            ],
+          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          leading: Icon(Icons.tune_rounded, color: scheme.primary),
+          title: Text('Runtime controls', style: theme.textTheme.titleMedium),
+          subtitle: Text(
+            controlsSummary,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+            ),
           ),
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Temperature',
-                  style: TextStyle(color: Colors.white70, fontSize: 13),
-                ),
-                Text(
-                  samplingControlsAvailable
-                      ? _temperature.toStringAsFixed(2)
-                      : '${LiteRtLmService.fixedGpuTemperature.toStringAsFixed(2)} (fixed)',
-                  style: TextStyle(
-                    color: samplingControlsAvailable
-                        ? accentBlue
-                        : Colors.white54,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+            _buildControlLabel(
+              'Temperature',
+              samplingControlsAvailable
+                  ? _temperature.toStringAsFixed(2)
+                  : '${LiteRtLmService.fixedGpuTemperature.toStringAsFixed(2)} (fixed)',
+              enabled: samplingControlsAvailable,
             ),
             SliderTheme(
               data: SliderTheme.of(context).copyWith(
-                activeTrackColor: accentBlue,
-                inactiveTrackColor: Colors.white24,
-                thumbColor: accentBlue,
+                activeTrackColor: scheme.primary,
+                thumbColor: scheme.primary,
               ),
               child: Slider(
                 value: samplingControlsAvailable
@@ -887,31 +830,17 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                     : (v) => setState(() => _temperature = v),
               ),
             ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Top-K Sampling',
-                  style: TextStyle(color: Colors.white70, fontSize: 13),
-                ),
-                Text(
-                  samplingControlsAvailable
-                      ? '$_topK'
-                      : '${LiteRtLmService.fixedGpuTopK} (fixed)',
-                  style: TextStyle(
-                    color: samplingControlsAvailable
-                        ? accentBlue
-                        : Colors.white54,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+            _buildControlLabel(
+              'Top-K Sampling',
+              samplingControlsAvailable
+                  ? '$_topK'
+                  : '${LiteRtLmService.fixedGpuTopK} (fixed)',
+              enabled: samplingControlsAvailable,
             ),
             SliderTheme(
               data: SliderTheme.of(context).copyWith(
-                activeTrackColor: accentBlue,
-                inactiveTrackColor: Colors.white24,
-                thumbColor: accentBlue,
+                activeTrackColor: scheme.primary,
+                thumbColor: scheme.primary,
               ),
               child: Slider(
                 value: samplingControlsAvailable
@@ -931,31 +860,14 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 'LiteRT-LM 0.16 GPU sampling is fixed by the native runtime '
                 '(effectively greedy). Temperature and Top-K cannot be '
                 'changed; Max Output Tokens remains available.',
-                style: TextStyle(color: Colors.white54, fontSize: 12),
               ),
               const SizedBox(height: 12),
             ],
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Max Output Tokens',
-                  style: TextStyle(color: Colors.white70, fontSize: 13),
-                ),
-                Text(
-                  '$_maxTokens',
-                  style: TextStyle(
-                    color: accentBlue,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
+            _buildControlLabel('Max Output Tokens', '$_maxTokens'),
             SliderTheme(
               data: SliderTheme.of(context).copyWith(
-                activeTrackColor: accentBlue,
-                inactiveTrackColor: Colors.white24,
-                thumbColor: accentBlue,
+                activeTrackColor: scheme.primary,
+                thumbColor: scheme.primary,
               ),
               child: Slider(
                 value: _maxTokens.toDouble(),
@@ -973,29 +885,56 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     );
   }
 
-  Widget _buildCustomInstructionField(Color surfaceColor, Color accentBlue) {
-    return Container(
-      decoration: BoxDecoration(
-        color: surfaceColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: accentBlue.withValues(alpha: 0.5)),
-      ),
-      child: TextField(
-        controller: _customPromptController,
-        style: const TextStyle(color: Colors.white, fontSize: 13),
-        decoration: const InputDecoration(
-          labelText: 'Custom Instruction',
-          labelStyle: TextStyle(color: Colors.white54, fontSize: 12),
-          hintText: 'e.g., Extract the 3 most critical points',
-          hintStyle: TextStyle(color: Colors.white38),
-          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-          border: InputBorder.none,
+  Widget _buildControlLabel(String label, String value, {bool enabled = true}) {
+    final theme = Theme.of(context);
+    final valueColor = enabled
+        ? theme.colorScheme.primary
+        : theme.colorScheme.onSurfaceVariant;
+
+    return Row(
+      children: [
+        Flexible(
+          flex: 2,
+          child: Text(label, style: theme.textTheme.bodyMedium),
         ),
+        const SizedBox(width: 12),
+        Flexible(
+          child: Text(
+            value,
+            textAlign: TextAlign.end,
+            style: theme.textTheme.labelLarge?.copyWith(color: valueColor),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCustomInstructionField() {
+    return TextField(
+      key: const Key('playground-custom-instruction'),
+      controller: _customPromptController,
+      minLines: 1,
+      maxLines: 3,
+      decoration: const InputDecoration(
+        labelText: 'Custom instruction',
+        hintText: 'For example: Extract the 3 most critical points',
       ),
     );
   }
 
-  Widget _buildBenchmarkTelemetryBar(Color surfaceColor, Color accentBlue) {
+  Widget _buildOutputCard() {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final activeModel = _modelManager.activeModel;
+    final readyColor = theme.brightness == Brightness.dark
+        ? const Color(0xFF81C784)
+        : const Color(0xFF2E7D32);
+    final statusText = _isStreaming
+        ? 'Generating locally'
+        : (_generatedOutput.isNotEmpty
+              ? 'Completed locally'
+              : 'Ready for an on-device run');
+
     final latencyText = _totalLatencySeconds != null
         ? '${_totalLatencySeconds!.toStringAsFixed(2)}s'
         : (_isStreaming
@@ -1007,135 +946,150 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
         : '--';
 
     final speedText = _tokensPerSecond != null
-        ? '${_tokensPerSecond!.toStringAsFixed(1)} est. tok/s'
+        ? _tokensPerSecond!.toStringAsFixed(1)
         : '--';
+    final speedUnit = _tokensPerSecond != null ? 'est. tok/s' : null;
 
     final tokensText = _estimatedTokenCount > 0
         ? '$_estimatedTokenCount'
         : '--';
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: surfaceColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _buildMetricColumn('LATENCY', latencyText),
-          _buildVerticalDivider(),
-          _buildMetricColumn('TTFT', ttftText),
-          _buildVerticalDivider(),
-          _buildMetricColumn('E2E RATE', speedText),
-          _buildVerticalDivider(),
-          _buildMetricColumn('TOKENS', tokensText),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildOutputCard(Color surfaceColor, Color accentBlue) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: surfaceColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'OUTPUT',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.1,
-                  color: Colors.white70,
+    return Card(
+      key: const Key('playground-output-card'),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text('Output', style: theme.textTheme.titleLarge),
                 ),
-              ),
-              if (_generatedOutput.isNotEmpty)
-                Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(
-                        Icons.copy_rounded,
-                        size: 18,
-                        color: Color(0xFF90CAF9),
+                if (activeModel != null)
+                  Flexible(
+                    child: Text(
+                      activeModel.name,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
                       ),
-                      tooltip: 'Copy Output',
-                      onPressed: () {
-                        Clipboard.setData(
-                          ClipboardData(text: _generatedOutput),
-                        );
-                        _showSnackBar('Copied to clipboard.');
-                      },
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    IconButton(
-                      icon: const Icon(
-                        Icons.bookmark_add_rounded,
-                        size: 18,
-                        color: Color(0xFF90CAF9),
-                      ),
-                      tooltip: 'Save Summary',
-                      onPressed: _saveCurrentSummary,
-                    ),
-                  ],
-                ),
-            ],
-          ),
-          const Divider(color: Colors.white12),
-          const SizedBox(height: 6),
-          SelectableText(
-            _generatedOutput.isEmpty
-                ? (_isStreaming
-                      ? 'Generating initial tokens...'
-                      : 'No summary generated yet.')
-                : _generatedOutput,
-            style: TextStyle(
-              fontSize: 14,
-              height: 1.5,
-              color: _generatedOutput.isEmpty ? Colors.white38 : Colors.white,
+                  ),
+              ],
             ),
-          ),
-        ],
+            const SizedBox(height: 4),
+            Text(
+              statusText,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: _generatedOutput.isNotEmpty || _isStreaming
+                    ? readyColor
+                    : scheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 20),
+            SelectableText(
+              _generatedOutput.isEmpty
+                  ? (_isStreaming
+                        ? 'Generating initial tokens…'
+                        : 'Your generated output will appear here.')
+                  : _generatedOutput,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                height: 1.5,
+                color: _generatedOutput.isEmpty
+                    ? scheme.onSurfaceVariant
+                    : scheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Divider(),
+            const SizedBox(height: 16),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _buildMetricColumn('TTFT', ttftText)),
+                const SizedBox(width: 8),
+                Expanded(child: _buildMetricColumn('LATENCY', latencyText)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildMetricColumn('RATE', speedText, unit: speedUnit),
+                ),
+                const SizedBox(width: 8),
+                Expanded(child: _buildMetricColumn('TOKENS', tokensText)),
+              ],
+            ),
+            if (_generatedOutput.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  TextButton.icon(
+                    icon: const Icon(Icons.copy_outlined),
+                    label: const Text('Copy'),
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: _generatedOutput));
+                      _showSnackBar('Copied to clipboard.');
+                    },
+                  ),
+                  TextButton.icon(
+                    icon: const Icon(Icons.bookmark_add_outlined),
+                    label: const Text('Save'),
+                    onPressed: _saveCurrentSummary,
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildMetricColumn(String label, String value) {
+  Widget _buildMetricColumn(String label, String value, {String? unit}) {
+    final theme = Theme.of(context);
+
     return Column(
       mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.8,
-            color: Colors.white38,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+            letterSpacing: 0.6,
           ),
         ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.bold,
-            color: value == '--' ? Colors.white24 : Colors.white,
+        const SizedBox(height: 4),
+        SizedBox(
+          width: double.infinity,
+          height: 28,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.topLeft,
+            child: Text(
+              value,
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: value == '--'
+                    ? theme.colorScheme.onSurfaceVariant
+                    : theme.colorScheme.onSurface,
+              ),
+            ),
           ),
         ),
+        if (unit != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            unit,
+            maxLines: 1,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
       ],
     );
-  }
-
-  Widget _buildVerticalDivider() {
-    return Container(height: 22, width: 1, color: Colors.white12);
   }
 }
