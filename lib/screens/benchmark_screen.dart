@@ -38,7 +38,7 @@ class BenchmarkScreen extends StatefulWidget {
   /// comparison suite.
   final String? targetModelId;
 
-  /// Exact Discovery artifact associated with a Candidate qualification run.
+  /// Exact Discovery artifact associated with a single-model benchmark run.
   final String? qualificationArtifactId;
 
   /// Shares the existing singleton in production while allowing focused
@@ -55,10 +55,10 @@ class BenchmarkScreen extends StatefulWidget {
 
 /// Returns the models that belong in the current benchmark run.
 ///
-/// Candidate qualification is deliberately limited to the exact GGUF path
-/// selected from Discovery. A normal suite may filter the available models by
-/// the user's screen-local selection. Omitting [selectedModelIds] preserves
-/// the original all-model behavior.
+/// A Candidate single-model benchmark is deliberately limited to the exact
+/// GGUF path selected from Discovery. A normal suite may filter the available
+/// models by the user's screen-local selection. Omitting [selectedModelIds]
+/// preserves the original all-model behavior.
 List<ModelInfo> benchmarkModelsForTarget(
   List<ModelInfo> availableModels, {
   String? targetModelId,
@@ -84,7 +84,7 @@ List<ModelInfo> benchmarkModelsForTarget(
   );
 }
 
-/// Candidate qualification needs its one exact target. The ordinary
+/// A Candidate single-model benchmark needs its one exact target. The ordinary
 /// comparison suite intentionally requires at least two selected models.
 bool canRunBenchmarkModels(
   List<ModelInfo> models, {
@@ -119,7 +119,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     super.initState();
     _modelManager = widget.modelManager ?? ModelManagerService();
     if (widget.isCandidateQualification) {
-      _currentStatus = 'Finding the installed Candidate...';
+      _currentStatus = 'Finding the installed model...';
     }
     _modelManager.addListener(_onModelManagerStateChanged);
     // The picker's selection is derived from the passage text, so edits typed
@@ -256,11 +256,11 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
           );
           if (availableModels.isEmpty) {
             _currentStatus = widget.isCandidateQualification
-                ? 'The selected Candidate is no longer installed.'
+                ? 'The selected model is no longer installed.'
                 : 'No models found to benchmark.';
           } else if (widget.isCandidateQualification) {
             _currentStatus =
-                'Candidate ready for qualification: ${models.single.name}';
+                'Installed model ready to benchmark: ${models.single.name}';
           } else if (availableModels.length < 2) {
             _currentStatus =
                 'At least 2 installed models are required for comparison.';
@@ -394,13 +394,13 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         _currentRunNumber = 0;
         if (saveError == null) {
           _currentStatus = widget.isCandidateQualification
-              ? 'Candidate benchmark completed and saved: '
+              ? 'Single-model benchmark completed and saved: '
                     '$runsPerModel ${runsPerModel == 1 ? 'run' : 'runs'}.'
               : 'Benchmark suite completed and saved: '
                     '${_aggregates.length} models × $runsPerModel runs.';
         } else {
           _currentStatus = widget.isCandidateQualification
-              ? 'Candidate benchmark completed, but the session could not '
+              ? 'Single-model benchmark completed, but the session could not '
                     'be saved: $saveError'
               : 'Benchmark suite completed, but the grouped session '
                     'could not be saved: $saveError';
@@ -947,7 +947,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
           '• Run $_currentRunNumber/$_runsPerModel';
     }
     if (widget.isCandidateQualification) {
-      return 'Benchmark Candidate × $_runsPerModel';
+      return 'Benchmark model × $_runsPerModel';
     }
     final String runs = _runsPerModel == 1 ? 'run' : 'runs';
     return 'Run ${models.length} models × $_runsPerModel $runs';
@@ -981,16 +981,14 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              widget.isCandidateQualification
-                  ? 'Candidate Benchmark'
-                  : 'Benchmark',
+              widget.isCandidateQualification ? 'Model Benchmark' : 'Benchmark',
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.w700,
               ),
             ),
             Text(
               widget.isCandidateQualification
-                  ? 'Single-model qualification'
+                  ? 'Single-model on-device test'
                   : 'Controlled on-device comparison',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
@@ -1072,7 +1070,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                               children: [
                                 Text(
                                   widget.isCandidateQualification
-                                      ? 'Candidate result'
+                                      ? 'Model result'
                                       : 'Comparison results',
                                   style: theme.textTheme.titleLarge?.copyWith(
                                     fontWeight: FontWeight.w700,

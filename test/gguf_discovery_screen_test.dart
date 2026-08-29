@@ -5,7 +5,6 @@ import 'package:local_ai_summarizer/models/gguf_compatibility_policy.dart';
 import 'package:local_ai_summarizer/models/gguf_discovery_result.dart';
 import 'package:local_ai_summarizer/models/model_catalog.dart';
 import 'package:local_ai_summarizer/screens/gguf_discovery_screen.dart';
-import 'package:local_ai_summarizer/services/database_service.dart';
 import 'package:local_ai_summarizer/services/gguf_discovery_cache_service.dart';
 import 'package:local_ai_summarizer/services/gguf_discovery_service.dart';
 import 'package:local_ai_summarizer/services/hugging_face_discovery_service.dart';
@@ -46,7 +45,7 @@ void main() {
     });
 
     testWidgets(
-      'Candidate download requires confirmation and stays Candidate',
+      'Candidate download requires confirmation and becomes installed',
       (WidgetTester tester) async {
         int requests = 0;
         int rescans = 0;
@@ -95,7 +94,7 @@ void main() {
         expect(requests, 2);
         expect(cache.saveCalls, 1);
         expect(find.text('Qwen/Qwen2.5-1.5B-Instruct-GGUF'), findsOneWidget);
-        expect(find.text('Candidate — not device verified'), findsOneWidget);
+        expect(find.text('Candidate — discovery screened'), findsOneWidget);
         expect(find.text('1 downloadable Candidate found'), findsOneWidget);
         expect(
           find.byKey(const Key('discovery-incomplete-warning')),
@@ -120,7 +119,7 @@ void main() {
         expect(downloader.downloadCalls, 0);
         expect(find.text('Download Candidate?'), findsOneWidget);
         expect(
-          find.textContaining('has not been device verified'),
+          find.textContaining('has not been tested on this device'),
           findsOneWidget,
         );
         final Finder dialog = find.byType(AlertDialog);
@@ -147,17 +146,18 @@ void main() {
         expect(downloader.downloadCalls, 1);
         expect(rescans, 1);
         expect(
-          find.text('Installed Candidate — benchmark required'),
-          findsOneWidget,
+          find.byKey(
+            const ValueKey<String>('discovery-Qwen/Qwen2.5-1.5B-Instruct-GGUF'),
+          ),
+          findsNothing,
         );
+        expect(find.text('0 downloadable Candidates found'), findsOneWidget);
       },
     );
 
-    testWidgets('installed Candidate exposes its exact benchmark action', (
+    testWidgets('installed artifact is omitted from Candidates', (
       WidgetTester tester,
     ) async {
-      GgufCandidateArtifact? benchmarkedArtifact;
-      CandidateQualificationStatus status = CandidateQualificationStatus.notRun;
       final _FakeModelDownloadService downloader = _FakeModelDownloadService(
         status: InstalledArtifactStatus.matchesExpected,
       );
@@ -168,65 +168,20 @@ void main() {
             discoveryService: _singleCandidateService(),
             discoveryCache: _FakeGgufDiscoveryCache(),
             downloadService: downloader,
-            qualificationLookup: (String qualificationArtifactId) async {
-              return status;
-            },
-            onBenchmarkCandidate: (GgufCandidateArtifact artifact) async {
-              benchmarkedArtifact = artifact;
-              status = CandidateQualificationStatus.completed;
-            },
           ),
         ),
       );
       await tester.tap(find.byKey(const Key('discover-gguf-button')));
       await tester.pumpAndSettle();
 
-      const String fileName = 'qwen2.5-1.5b-instruct-q4_k_m.gguf';
-      const Key benchmarkKey = Key('candidate-benchmark-$fileName');
       expect(
-        find.text('Installed Candidate — benchmark required'),
-        findsOneWidget,
-      );
-      await _scrollAndTap(tester, find.byKey(benchmarkKey));
-
-      expect(benchmarkedArtifact?.fileName, fileName);
-      expect(
-        benchmarkedArtifact?.qualificationArtifactId,
-        'Qwen/Qwen2.5-1.5B-Instruct-GGUF@'
-        '0123456789abcdef0123456789abcdef01234567/'
-        'qwen2.5-1.5b-instruct-q4_k_m.gguf#'
-        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      );
-      expect(find.text('Benchmark Candidate'), findsOneWidget);
-      expect(
-        find.text('Benchmark completed — review required'),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('failed exact qualification requires a retry', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: GgufDiscoveryScreen(
-            discoveryService: _singleCandidateService(),
-            discoveryCache: _FakeGgufDiscoveryCache(),
-            downloadService: _FakeModelDownloadService(
-              status: InstalledArtifactStatus.matchesExpected,
-            ),
-            qualificationLookup: (String qualificationArtifactId) async {
-              return CandidateQualificationStatus.failed;
-            },
-            onBenchmarkCandidate: (GgufCandidateArtifact artifact) async {},
-          ),
+        find.byKey(
+          const ValueKey<String>('discovery-Qwen/Qwen2.5-1.5B-Instruct-GGUF'),
         ),
+        findsNothing,
       );
-      await tester.tap(find.byKey(const Key('discover-gguf-button')));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Benchmark failed — retry required'), findsOneWidget);
-      expect(find.text('Benchmark Candidate'), findsOneWidget);
+      expect(find.text('0 downloadable Candidates found'), findsOneWidget);
+      expect(find.text('Benchmark model'), findsNothing);
     });
 
     testWidgets('custom-license Candidate links to readable terms', (
@@ -431,8 +386,10 @@ void main() {
       expect(find.byType(AlertDialog), findsNothing);
       expect(downloader.downloadCalls, 1);
       expect(
-        find.text('Installed Candidate — benchmark required'),
-        findsOneWidget,
+        find.byKey(
+          const ValueKey<String>('discovery-Qwen/Qwen2.5-1.5B-Instruct-GGUF'),
+        ),
+        findsNothing,
       );
     });
 

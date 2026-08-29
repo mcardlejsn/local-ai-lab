@@ -5,17 +5,12 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/gguf_candidate_assessment.dart';
 import '../models/gguf_discovery_result.dart';
-import '../services/database_service.dart';
 import '../services/gguf_discovery_cache_service.dart';
 import '../services/gguf_discovery_service.dart';
 import '../services/gguf_discovery_seed_service.dart';
 import '../services/hugging_face_discovery_service.dart';
 import '../services/model_download_service.dart';
 
-typedef CandidateQualificationLookup =
-    Future<CandidateQualificationStatus> Function(
-      String qualificationArtifactId,
-    );
 typedef ExternalUriLauncher = Future<bool> Function(Uri uri);
 
 /// Displays GGUF discovery results produced by an explicit user action.
@@ -23,8 +18,7 @@ typedef ExternalUriLauncher = Future<bool> Function(Uri uri);
 /// Opening this screen performs no network request. The discovery service is
 /// called only from [_discover], which is wired exclusively to the Discover
 /// button. The last successful result may be restored from an app-private
-/// local cache. Candidate downloads require a second explicit confirmation
-/// and remain mechanically screened rather than device verified.
+/// local cache. Candidate downloads require a second explicit confirmation.
 class GgufDiscoveryScreen extends StatefulWidget {
   const GgufDiscoveryScreen({
     super.key,
@@ -33,8 +27,6 @@ class GgufDiscoveryScreen extends StatefulWidget {
     this.discoveryCache,
     this.downloadService,
     this.onModelInstalled,
-    this.onBenchmarkCandidate,
-    this.qualificationLookup,
     this.externalUriLauncher,
   });
 
@@ -54,13 +46,6 @@ class GgufDiscoveryScreen extends StatefulWidget {
   /// Called after an exact candidate artifact is installed successfully.
   final Future<void> Function()? onModelInstalled;
 
-  /// Opens a qualification benchmark for the exact installed Candidate file.
-  final Future<void> Function(GgufCandidateArtifact artifact)?
-  onBenchmarkCandidate;
-
-  /// Injectable so widget tests can avoid the platform database.
-  final CandidateQualificationLookup? qualificationLookup;
-
   /// Injectable so widget tests never open an external application.
   final ExternalUriLauncher? externalUriLauncher;
 
@@ -79,7 +64,6 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
   late final GgufDiscoveryService _discoveryService;
   late final GgufDiscoveryCache _discoveryCache;
   late final ModelDownloadService _downloadService;
-  late final CandidateQualificationLookup _qualificationLookup;
   late final ExternalUriLauncher _externalUriLauncher;
   GgufDiscoveryResult? _result;
   DateTime? _lastRefreshedUtc;
@@ -98,9 +82,6 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     _discoveryService = widget.discoveryService ?? GgufDiscoveryService();
     _discoveryCache = widget.discoveryCache ?? GgufDiscoveryCacheService();
     _downloadService = widget.downloadService ?? ModelDownloadService();
-    _qualificationLookup =
-        widget.qualificationLookup ??
-        DatabaseService.instance.getCandidateQualificationStatus;
     _externalUriLauncher = widget.externalUriLauncher ?? _launchExternalUri;
     unawaited(_restoreCachedDiscovery());
   }
@@ -231,17 +212,6 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     final int partialBytes = status == InstalledArtifactStatus.absent
         ? await _downloadService.partialBytes(artifact.fileName)
         : 0;
-    CandidateQualificationStatus qualificationStatus =
-        CandidateQualificationStatus.notRun;
-    if (status == InstalledArtifactStatus.matchesExpected) {
-      try {
-        qualificationStatus = await _qualificationLookup(
-          artifact.qualificationArtifactId,
-        );
-      } on Object {
-        // A local history read must not make installed model controls unusable.
-      }
-    }
     return _CandidateDownloadState(
       installed: status == InstalledArtifactStatus.matchesExpected,
       fileConflict: status == InstalledArtifactStatus.differentFile,
@@ -250,23 +220,7 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
       receivedBytes: partialBytes,
       totalBytes: artifact.sizeBytes,
       message: message,
-      qualificationStatus: qualificationStatus,
     );
-  }
-
-  Future<void> _benchmarkCandidate(GgufCandidateArtifact artifact) async {
-    final callback = widget.onBenchmarkCandidate;
-    if (callback == null || _hasActiveDownload) return;
-    await callback(artifact);
-    if (!mounted) return;
-
-    final _CandidateDownloadState refreshed = await _readArtifactState(
-      artifact,
-    );
-    if (!mounted) return;
-    setState(() {
-      _downloadStates[_artifactKey(artifact)] = refreshed;
-    });
   }
 
   Future<void> _openLicenseTerms(GgufCandidateArtifact artifact) async {
@@ -378,8 +332,8 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
               children: [
                 const Text(
                   'This exact artifact passed mechanical screening, but it '
-                  'has not been device verified. Benchmark it after install '
-                  'before treating it as verified.',
+                  'has not been tested on this device. After installation, '
+                  'it becomes available in Playground and Benchmark.',
                   style: TextStyle(
                     color: _reviewAmber,
                     fontSize: 13,
@@ -465,8 +419,7 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
   String _candidateMessageFor(DownloadResult result) {
     switch (result.outcome) {
       case DownloadOutcome.completed:
-        return 'Installed as a Candidate. Run the benchmark before treating '
-            'it as verified.';
+        return 'Installed and available in Playground and Benchmark.';
       case DownloadOutcome.cancelled:
         return 'Stopped. Partial file kept — Resume continues the download.';
       case DownloadOutcome.networkError:
@@ -511,7 +464,7 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
               _buildIncompleteDiscoveryWarning(result.sourceFailures.length),
             ],
             const SizedBox(height: 18),
-            if (result.assessments.isEmpty) _buildEmptyResult(),
+            if (_visibleCandidates(result).isEmpty) _buildEmptyResult(),
             ..._buildAssessmentSection(
               'Downloadable Candidates',
               result,
@@ -575,11 +528,10 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
           ),
           SizedBox(height: 8),
           Text(
-            'A Candidate passed mechanical screening only. It is not device '
-            'verified. Downloading installs the exact artifact for local '
-            'testing. Completing its qualification benchmark records results '
-            'for review; it remains a Candidate until deliberately promoted '
-            'to Verified.',
+            'A Candidate passed mechanical discovery screening only. '
+            'Downloading installs the exact artifact for local testing. '
+            'After installation, use Playground or Benchmark to inspect its '
+            'behavior and compare its results.',
             style: TextStyle(color: _reviewAmber, fontSize: 12, height: 1.4),
           ),
         ],
@@ -627,7 +579,7 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
   }
 
   Widget _buildSummary(GgufDiscoveryResult result, DateTime? lastRefreshedUtc) {
-    final int count = result.candidateCount;
+    final int count = _visibleCandidates(result).length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -670,7 +622,11 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     GgufCandidateDisposition disposition,
   ) {
     final List<GgufCandidateAssessment> assessments = result.assessments
-        .where((assessment) => assessment.disposition == disposition)
+        .where(
+          (assessment) =>
+              assessment.disposition == disposition &&
+              !_isInstalledAssessment(assessment),
+        )
         .toList(growable: false);
     if (assessments.isEmpty) return const <Widget>[];
 
@@ -681,6 +637,22 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
         const SizedBox(height: 10),
       ],
     ];
+  }
+
+  List<GgufCandidateAssessment> _visibleCandidates(GgufDiscoveryResult result) {
+    return result.assessments
+        .where(
+          (assessment) =>
+              assessment.disposition == GgufCandidateDisposition.candidate &&
+              !_isInstalledAssessment(assessment),
+        )
+        .toList(growable: false);
+  }
+
+  bool _isInstalledAssessment(GgufCandidateAssessment assessment) {
+    final GgufCandidateArtifact? artifact = assessment.artifact;
+    if (artifact == null) return false;
+    return _downloadStates[_artifactKey(artifact)]?.installed ?? false;
   }
 
   Widget _buildSectionHeading(String title) {
@@ -739,7 +711,7 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
             const Padding(
               padding: EdgeInsets.only(top: 6),
               child: Text(
-                'Candidate — not device verified',
+                'Candidate — discovery screened',
                 style: TextStyle(color: _reviewAmber, fontSize: 12),
               ),
             ),
@@ -827,67 +799,7 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     }
 
     if (state.installed) {
-      final CandidateQualificationStatus qualificationStatus =
-          state.qualificationStatus;
-      final String statusText;
-      final Color statusColor;
-      final IconData statusIcon;
-      switch (qualificationStatus) {
-        case CandidateQualificationStatus.notRun:
-          statusText = 'Installed Candidate — benchmark required';
-          statusColor = _candidateGreen;
-          statusIcon = Icons.check_circle_rounded;
-          break;
-        case CandidateQualificationStatus.completed:
-          statusText = 'Benchmark completed — review required';
-          statusColor = _reviewAmber;
-          statusIcon = Icons.fact_check_outlined;
-          break;
-        case CandidateQualificationStatus.failed:
-          statusText = 'Benchmark failed — retry required';
-          statusColor = _rejectedRed;
-          statusIcon = Icons.error_outline_rounded;
-          break;
-      }
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(statusIcon, size: 16, color: statusColor),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  statusText,
-                  style: TextStyle(color: statusColor, fontSize: 12),
-                ),
-              ),
-            ],
-          ),
-          if (state.message != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              state.message!,
-              style: const TextStyle(color: Colors.white60, fontSize: 12),
-            ),
-          ],
-          if (widget.onBenchmarkCandidate != null) ...[
-            const SizedBox(height: 10),
-            ElevatedButton.icon(
-              key: ValueKey<String>('candidate-benchmark-${artifact.fileName}'),
-              onPressed: _hasActiveDownload
-                  ? null
-                  : () => _benchmarkCandidate(artifact),
-              icon: const Icon(Icons.speed_rounded, size: 18),
-              label: const Text('Benchmark Candidate'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _accentBlue,
-                foregroundColor: Colors.black,
-              ),
-            ),
-          ],
-        ],
-      );
+      return const SizedBox.shrink();
     }
 
     if (state.fileConflict) {
@@ -1054,7 +966,6 @@ class _CandidateDownloadState {
     this.totalBytes = 0,
     this.message,
     this.cancelToken,
-    this.qualificationStatus = CandidateQualificationStatus.notRun,
   });
 
   final bool isChecking;
@@ -1067,7 +978,6 @@ class _CandidateDownloadState {
   final int totalBytes;
   final String? message;
   final DownloadCancelToken? cancelToken;
-  final CandidateQualificationStatus qualificationStatus;
 
   double? get fraction {
     if (totalBytes <= 0) return null;
@@ -1098,7 +1008,6 @@ class _CandidateDownloadState {
     DownloadCancelToken? cancelToken,
     bool clearMessage = false,
     bool clearCancelToken = false,
-    CandidateQualificationStatus? qualificationStatus,
   }) {
     return _CandidateDownloadState(
       isChecking: isChecking ?? this.isChecking,
@@ -1111,7 +1020,6 @@ class _CandidateDownloadState {
       totalBytes: totalBytes ?? this.totalBytes,
       message: clearMessage ? null : (message ?? this.message),
       cancelToken: clearCancelToken ? null : (cancelToken ?? this.cancelToken),
-      qualificationStatus: qualificationStatus ?? this.qualificationStatus,
     );
   }
 }
