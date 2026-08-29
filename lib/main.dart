@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+
 import 'screens/summarizer_screen.dart';
+import 'theme/app_theme.dart';
 
 void main() {
   runApp(const LocalAiApp());
@@ -13,14 +15,9 @@ class LocalAiApp extends StatelessWidget {
     return MaterialApp(
       title: 'Local AI Lab',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF121212),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF90CAF9),
-          surface: Color(0xFF1E1E1E),
-        ),
-      ),
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: ThemeMode.system,
       home: const SummarizerScreen(),
     );
   }
