@@ -5,7 +5,10 @@ import '../models/summary_record.dart';
 import '../services/database_service.dart';
 
 class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key});
+  const HistoryScreen({super.key, this.embedded = false});
+
+  /// Omits the standalone scaffold when shown inside the Results screen.
+  final bool embedded;
 
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
@@ -13,12 +16,12 @@ class HistoryScreen extends StatefulWidget {
 
 class _HistoryScreenState extends State<HistoryScreen> {
   final TextEditingController _searchController = TextEditingController();
-  List<SummaryRecord> _records = [];
-  List<SummaryRecord> _filteredRecords = [];
+  List<SummaryRecord> _records = <SummaryRecord>[];
+  List<SummaryRecord> _filteredRecords = <SummaryRecord>[];
   String _selectedFilter = 'All';
   bool _isLoading = true;
 
-  final List<String> _filters = [
+  static const List<String> _filters = <String>[
     'All',
     '2-Sentence Summary',
     'Key Events',
@@ -29,19 +32,22 @@ class _HistoryScreenState extends State<HistoryScreen> {
   @override
   void initState() {
     super.initState();
-    _loadHistory();
     _searchController.addListener(_applyFilters);
+    _loadHistory();
   }
 
   @override
   void dispose() {
-    _searchController.dispose();
+    _searchController
+      ..removeListener(_applyFilters)
+      ..dispose();
     super.dispose();
   }
 
   Future<void> _loadHistory() async {
     setState(() => _isLoading = true);
-    final data = await DatabaseService.instance.getAllSummaries();
+    final List<SummaryRecord> data = await DatabaseService.instance
+        .getAllSummaries();
     if (!mounted) return;
     setState(() {
       _records = data;
@@ -51,464 +57,373 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   void _applyFilters() {
-    final query = _searchController.text.toLowerCase().trim();
-
+    if (!mounted) return;
+    final String query = _searchController.text.toLowerCase().trim();
     setState(() {
-      _filteredRecords = _records.where((record) {
-        final bool matchesFilter = _selectedFilter == 'All' ||
-            record.taskType == _selectedFilter;
-
-        final matchesQuery = query.isEmpty ||
-            record.generatedSummary.toLowerCase().contains(query) ||
-            record.originalText.toLowerCase().contains(query) ||
-            record.taskType.toLowerCase().contains(query) ||
-            (record.modelName?.toLowerCase().contains(query) ?? false) ||
-            (record.engineType?.toLowerCase().contains(query) ?? false);
-
-        return matchesFilter && matchesQuery;
-      }).toList();
+      _filteredRecords = _records
+          .where((SummaryRecord record) {
+            final bool matchesFilter =
+                _selectedFilter == 'All' || record.taskType == _selectedFilter;
+            final bool matchesQuery =
+                query.isEmpty ||
+                record.generatedSummary.toLowerCase().contains(query) ||
+                record.originalText.toLowerCase().contains(query) ||
+                record.taskType.toLowerCase().contains(query) ||
+                (record.modelName?.toLowerCase().contains(query) ?? false) ||
+                (record.engineType?.toLowerCase().contains(query) ?? false);
+            return matchesFilter && matchesQuery;
+          })
+          .toList(growable: false);
     });
   }
 
   Future<void> _deleteRecord(int id) async {
     await DatabaseService.instance.deleteSummary(id);
-    _loadHistory();
+    await _loadHistory();
     _showSnackBar('Record removed.');
   }
 
   void _showSnackBar(String text) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(text, style: const TextStyle(color: Colors.white)),
-        backgroundColor: const Color(0xFF1E1E1E),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
   void _showFullOutput(SummaryRecord record) {
+    final ThemeData theme = Theme.of(context);
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: const Color(0xFF1E1E1E),
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (context) {
-        return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.7,
-          minChildSize: 0.4,
-          maxChildSize: 0.92,
-          builder: (context, scrollController) {
-            return Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 14, 8, 10),
-                  child: Row(
-                    children: [
-                      const Expanded(
-                        child: Text(
-                          'Full Output',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+      showDragHandle: true,
+      backgroundColor: theme.colorScheme.surfaceContainerHigh,
+      builder: (BuildContext sheetContext) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.72,
+        minChildSize: 0.4,
+        maxChildSize: 0.92,
+        builder: (BuildContext context, ScrollController scrollController) {
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 8, 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Saved Playground run',
+                        style: theme.textTheme.titleLarge,
                       ),
-                      IconButton(
-                        icon: const Icon(
-                          Icons.copy_rounded,
-                          color: Color(0xFF90CAF9),
-                        ),
-                        tooltip: 'Copy Full Output',
-                        onPressed: () {
-                          Clipboard.setData(
-                            ClipboardData(text: record.generatedSummary),
-                          );
-                          _showSnackBar('Copied to clipboard.');
-                        },
-                      ),
-                      IconButton(
-                        icon: const Icon(
-                          Icons.close_rounded,
-                          color: Colors.white70,
-                        ),
-                        tooltip: 'Close',
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.copy_rounded),
+                      tooltip: 'Copy full output',
+                      onPressed: () {
+                        Clipboard.setData(
+                          ClipboardData(text: record.generatedSummary),
+                        );
+                        _showSnackBar('Copied to clipboard.');
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      tooltip: 'Close',
+                      onPressed: () => Navigator.pop(sheetContext),
+                    ),
+                  ],
                 ),
-                const Divider(color: Colors.white12, height: 1),
-                Expanded(
-                  child: SingleChildScrollView(
-                    controller: scrollController,
-                    padding: const EdgeInsets.all(18),
-                    child: Text(
+              ),
+              const Divider(),
+              Expanded(
+                child: ListView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                  children: [
+                    Text(
+                      record.taskType,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
                       record.generatedSummary,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
+                      style: theme.textTheme.bodyLarge?.copyWith(height: 1.5),
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Original passage',
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      record.originalText,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
                         height: 1.45,
                       ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
-            );
-          },
-        );
-      },
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    const bgColor = Color(0xFF121212);
-    const surfaceColor = Color(0xFF1E1E1E);
-    const accentBlue = Color(0xFF90CAF9);
-
-    return Scaffold(
-      backgroundColor: bgColor,
-      appBar: AppBar(
-        backgroundColor: surfaceColor,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          'Saved Summaries',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w600,
-            fontSize: 18,
+    final Widget content = Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: TextField(
+            key: const Key('results-playground-search'),
+            controller: _searchController,
+            decoration: const InputDecoration(
+              hintText: 'Search models, tasks, or text',
+              prefixIcon: Icon(Icons.search_rounded),
+              border: OutlineInputBorder(),
+            ),
           ),
         ),
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: surfaceColor,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.white12),
-                ),
-                child: TextField(
-                  controller: _searchController,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
-                  decoration: const InputDecoration(
-                    hintText: 'Search summaries, models, or text...',
-                    hintStyle: TextStyle(color: Colors.white38),
-                    prefixIcon: Icon(Icons.search_rounded, color: Colors.white38),
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ),
-            ),
-            SizedBox(
-              height: 44,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: _filters.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                itemBuilder: (context, index) {
-                  final filter = _filters[index];
-                  final isSelected = _selectedFilter == filter;
-                  return ChoiceChip(
-                    label: Text(filter),
-                    selected: isSelected,
-                    selectedColor: accentBlue.withValues(alpha: 0.25),
-                    backgroundColor: surfaceColor,
-                    labelStyle: TextStyle(
-                      color: isSelected ? accentBlue : Colors.white70,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                      fontSize: 12,
-                    ),
-                    side: BorderSide(
-                      color: isSelected ? accentBlue : Colors.white24,
-                    ),
-                    onSelected: (selected) {
-                      if (selected) {
-                        setState(() => _selectedFilter = filter);
-                        _applyFilters();
-                      }
-                    },
-                  );
+        SizedBox(
+          height: 48,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: _filters.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (BuildContext context, int index) {
+              final String filter = _filters[index];
+              return ChoiceChip(
+                label: Text(filter),
+                selected: _selectedFilter == filter,
+                onSelected: (bool selected) {
+                  if (!selected) return;
+                  setState(() => _selectedFilter = filter);
+                  _applyFilters();
                 },
-              ),
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child: _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(color: accentBlue),
-                    )
-                  : _filteredRecords.isEmpty
-                      ? const Center(
-                          child: Text(
-                            'No saved summaries found.',
-                            style: TextStyle(color: Colors.white38, fontSize: 14),
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          itemCount: _filteredRecords.length,
-                          itemBuilder: (context, index) {
-                            final record = _filteredRecords[index];
-                            return _buildRecordCard(
-                              record,
-                              surfaceColor,
-                              accentBlue,
-                            );
-                          },
-                        ),
-            ),
-          ],
+              );
+            },
+          ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildRecordCard(
-    SummaryRecord record,
-    Color surfaceColor,
-    Color accentBlue,
-  ) {
-    return Container(
-      key: PageStorageKey('history_tile_${record.id}'),
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: surfaceColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Flexible(
-                child: Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: accentBlue.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        record.taskType,
-                        style: TextStyle(
-                          color: accentBlue,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    if (record.modelName != null)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white10,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          record.modelName!,
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                _formatDate(record.createdAt),
-                style: const TextStyle(color: Colors.white38, fontSize: 11),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            record.generatedSummary,
-            maxLines: 6,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 14,
-              height: 1.45,
-            ),
-          ),
-          Align(
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+          child: Align(
             alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              onPressed: () => _showFullOutput(record),
-              icon: Icon(
-                Icons.open_in_full_rounded,
-                size: 16,
-                color: accentBlue,
-              ),
-              label: Text(
-                'View Full Output',
-                style: TextStyle(color: accentBlue, fontSize: 12),
-              ),
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
-                minimumSize: const Size(0, 36),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-            ),
-          ),
-          const SizedBox(height: 6),
-          if (record.latencySeconds != null ||
-              record.tokensPerSecond != null) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFF121212),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Colors.white10),
-              ),
-              child: Wrap(
-                spacing: 14,
-                runSpacing: 4,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Text(
-                    'Latency: ${record.latencySeconds?.toStringAsFixed(2) ?? '--'}s',
-                    style: const TextStyle(
-                      color: Colors.white60,
-                      fontSize: 11,
-                    ),
-                  ),
-                  Text(
-                    'TTFT: ${record.ttftSeconds?.toStringAsFixed(2) ?? '--'}s',
-                    style: const TextStyle(
-                      color: Colors.white60,
-                      fontSize: 11,
-                    ),
-                  ),
-                  Text(
-                    'Est. output rate: '
-                    '${record.tokensPerSecond?.toStringAsFixed(1) ?? '--'} tok/s',
-                    style: TextStyle(
-                      color: accentBlue,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-          Theme(
-            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-            child: ExpansionTile(
-              key: PageStorageKey('exp_${record.id}'),
-              tilePadding: EdgeInsets.zero,
-              childrenPadding: const EdgeInsets.only(top: 6, bottom: 8),
-              title: const Text(
-                'View Original Passage',
-                style: TextStyle(color: Colors.white60, fontSize: 12),
-              ),
-              iconColor: Colors.white60,
-              collapsedIconColor: Colors.white38,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF121212),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: Colors.white12),
-                  ),
-                  child: Text(
-                    record.originalText,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                      height: 1.4,
-                    ),
+                Text(
+                  'Saved Playground runs',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${_filteredRecords.length} saved '
+                  '${_filteredRecords.length == 1 ? 'run' : 'runs'}',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                 ),
               ],
             ),
           ),
-          const Divider(color: Colors.white12, height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              IconButton(
-                icon: Icon(
-                  Icons.copy_rounded,
-                  size: 18,
-                  color: accentBlue,
-                ),
-                tooltip: 'Copy Summary',
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                onPressed: () {
-                  Clipboard.setData(
-                    ClipboardData(text: record.generatedSummary),
-                  );
-                  _showSnackBar('Copied to clipboard.');
-                },
-              ),
-              const SizedBox(width: 16),
-              if (record.id != null)
-                IconButton(
-                  icon: const Icon(
-                    Icons.delete_outline_rounded,
-                    size: 18,
-                    color: Colors.redAccent,
-                  ),
-                  tooltip: 'Delete Record',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                  onPressed: () => _deleteRecord(record.id!),
-                ),
-            ],
+        ),
+        Expanded(child: _buildRecordList()),
+      ],
+    );
+
+    if (widget.embedded) return content;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Saved Playground runs')),
+      body: SafeArea(child: content),
+    );
+  }
+
+  Widget _buildRecordList() {
+    final ThemeData theme = Theme.of(context);
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (_filteredRecords.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'No saved Playground runs found.',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      key: const PageStorageKey<String>('playground-results-list'),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      itemCount: _filteredRecords.length,
+      itemBuilder: (BuildContext context, int index) =>
+          _buildRecordCard(_filteredRecords[index]),
+    );
+  }
+
+  Widget _buildRecordCard(SummaryRecord record) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colors = theme.colorScheme;
+    final String model = record.modelName ?? 'Unknown model';
+
+    return Card(
+      key: PageStorageKey<String>('history_tile_${record.id}'),
+      margin: const EdgeInsets.only(bottom: 14),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    '${record.taskType} · $model',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  _formatDate(record.createdAt),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '${_engineLabel(record.engineType)} · Completed locally',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              record.generatedSummary,
+              maxLines: 6,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyLarge?.copyWith(height: 1.45),
+            ),
+            if (record.latencySeconds != null ||
+                record.ttftSeconds != null ||
+                record.tokensPerSecond != null ||
+                record.tokenCount != null) ...[
+              const SizedBox(height: 18),
+              const Divider(),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 28,
+                runSpacing: 16,
+                children: [
+                  _buildMetric(
+                    'LATENCY',
+                    record.latencySeconds == null
+                        ? '--'
+                        : '${record.latencySeconds!.toStringAsFixed(2)}s',
+                  ),
+                  _buildMetric(
+                    'TTFT',
+                    record.ttftSeconds == null
+                        ? '--'
+                        : '${record.ttftSeconds!.toStringAsFixed(2)}s',
+                  ),
+                  _buildMetric(
+                    'RATE',
+                    record.tokensPerSecond == null
+                        ? '--'
+                        : '${record.tokensPerSecond!.toStringAsFixed(1)} est. tok/s',
+                  ),
+                  _buildMetric('TOKENS', record.tokenCount?.toString() ?? '--'),
+                ],
+              ),
+            ],
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                TextButton.icon(
+                  onPressed: () => _showFullOutput(record),
+                  icon: const Icon(Icons.chevron_right_rounded),
+                  label: const Text('View run'),
+                ),
+                TextButton.icon(
+                  onPressed: () {
+                    Clipboard.setData(
+                      ClipboardData(text: record.generatedSummary),
+                    );
+                    _showSnackBar('Copied to clipboard.');
+                  },
+                  icon: const Icon(Icons.copy_rounded),
+                  label: const Text('Copy'),
+                ),
+                if (record.id != null)
+                  TextButton.icon(
+                    onPressed: () => _deleteRecord(record.id!),
+                    style: TextButton.styleFrom(foregroundColor: colors.error),
+                    icon: const Icon(Icons.delete_outline_rounded),
+                    label: const Text('Delete'),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMetric(String label, String value) {
+    final ThemeData theme = Theme.of(context);
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 76, maxWidth: 150),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(value, style: theme.textTheme.bodyLarge),
         ],
       ),
     );
   }
 
-  String _formatDate(DateTime dt) {
-    return '${dt.month}/${dt.day}/${dt.year} '
-        '${dt.hour.toString().padLeft(2, '0')}:'
-        '${dt.minute.toString().padLeft(2, '0')}';
+  String _engineLabel(String? engine) {
+    return switch (engine?.toLowerCase()) {
+      'nano' => 'AICore',
+      'gguf' => 'GGUF',
+      'litertlm' => 'LiteRT-LM',
+      'mediapipe' => 'Legacy',
+      final String value when value.isNotEmpty => value,
+      _ => 'Local runtime',
+    };
+  }
+
+  String _formatDate(DateTime dateTime) {
+    final DateTime local = dateTime.toLocal();
+    final int hour = local.hour == 0
+        ? 12
+        : local.hour > 12
+        ? local.hour - 12
+        : local.hour;
+    final String minute = local.minute.toString().padLeft(2, '0');
+    final String period = local.hour >= 12 ? 'PM' : 'AM';
+    return '${local.month}/${local.day}/${local.year}\n$hour:$minute $period';
   }
 }

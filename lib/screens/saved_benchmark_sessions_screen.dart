@@ -5,13 +5,14 @@ import '../services/database_service.dart';
 import 'benchmark_comparison_screen.dart';
 import 'saved_benchmark_detail_screen.dart';
 
-/// Read-only archive of completed benchmark sessions. Tapping a session opens
-/// it in [SavedBenchmarkDetailScreen]; nothing here loads a session back into
-/// the live benchmark runner. The compare action puts the list into a
-/// selection mode where picking two sessions opens
-/// [BenchmarkComparisonScreen].
+/// Read-only archive of completed benchmark sessions.
+///
+/// Session details, deletion, and two-session comparison retain their existing
+/// behavior whether this archive is standalone or embedded in Results.
 class SavedBenchmarkSessionsScreen extends StatefulWidget {
-  const SavedBenchmarkSessionsScreen({super.key});
+  const SavedBenchmarkSessionsScreen({super.key, this.embedded = false});
+
+  final bool embedded;
 
   @override
   State<SavedBenchmarkSessionsScreen> createState() =>
@@ -20,19 +21,11 @@ class SavedBenchmarkSessionsScreen extends StatefulWidget {
 
 class _SavedBenchmarkSessionsScreenState
     extends State<SavedBenchmarkSessionsScreen> {
-  static const Color _bgColor = Color(0xFF121212);
-  static const Color _surfaceColor = Color(0xFF1E1E1E);
-  static const Color _accentBlue = Color(0xFF90CAF9);
-
-  List<Map<String, Object?>> _sessions = [];
+  List<Map<String, Object?>> _sessions = <Map<String, Object?>>[];
   bool _isLoading = true;
   String? _errorMessage;
-
   bool _selectionMode = false;
-
-  /// Selected session ids in tap order, capped at two; selecting a third drops
-  /// the earlier of the current pair.
-  final List<int> _selectedIds = [];
+  final List<int> _selectedIds = <int>[];
 
   @override
   void initState() {
@@ -42,20 +35,20 @@ class _SavedBenchmarkSessionsScreenState
 
   Future<void> _loadSessions() async {
     try {
-      final sessions =
-          await DatabaseService.instance.getBenchmarkSessionSummaries();
+      final List<Map<String, Object?>> sessions = await DatabaseService.instance
+          .getBenchmarkSessionSummaries();
       if (!mounted) return;
       setState(() {
         _sessions = sessions;
         _isLoading = false;
         _errorMessage = null;
       });
-    } catch (e) {
+    } catch (error) {
       if (!mounted) return;
       setState(() {
-        _sessions = [];
+        _sessions = <Map<String, Object?>>[];
         _isLoading = false;
-        _errorMessage = 'Could not load saved sessions: $e';
+        _errorMessage = 'Could not load saved sessions: $error';
       });
     }
   }
@@ -69,33 +62,23 @@ class _SavedBenchmarkSessionsScreenState
 
   void _toggleSelection(int sessionId) {
     setState(() {
-      if (_selectedIds.contains(sessionId)) {
-        _selectedIds.remove(sessionId);
-        return;
-      }
-      if (_selectedIds.length == 2) {
-        _selectedIds.removeAt(0);
-      }
+      if (_selectedIds.remove(sessionId)) return;
+      if (_selectedIds.length == 2) _selectedIds.removeAt(0);
       _selectedIds.add(sessionId);
     });
   }
 
   Future<void> _openComparison() async {
     if (_selectedIds.length != 2) return;
-
-    final first = _selectedIds[0];
-    final second = _selectedIds[1];
-
     await Navigator.push(
       context,
-      MaterialPageRoute(
+      MaterialPageRoute<void>(
         builder: (_) => BenchmarkComparisonScreen(
-          sessionIdA: first,
-          sessionIdB: second,
+          sessionIdA: _selectedIds[0],
+          sessionIdB: _selectedIds[1],
         ),
       ),
     );
-
     if (!mounted) return;
     setState(() {
       _selectionMode = false;
@@ -106,159 +89,182 @@ class _SavedBenchmarkSessionsScreenState
   Future<void> _openSession(int sessionId) async {
     await Navigator.push(
       context,
-      MaterialPageRoute(
+      MaterialPageRoute<void>(
         builder: (_) => SavedBenchmarkDetailScreen(sessionId: sessionId),
       ),
     );
   }
 
   Future<void> _confirmDeleteSession(
-      int sessionId, String completedLabel) async {
+    int sessionId,
+    String completedLabel,
+  ) async {
     final bool? confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: _surfaceColor,
-        title: const Text(
-          'Delete this session?',
-          style: TextStyle(color: Colors.white, fontSize: 16),
-        ),
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('Delete this session?'),
         content: Text(
           'The session from $completedLabel and all of its runs will be '
           'removed. This cannot be undone.',
-          style: const TextStyle(color: Colors.white70, fontSize: 13),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            style: TextButton.styleFrom(foregroundColor: Colors.white54),
             child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(dialogContext).colorScheme.error,
+            ),
             child: const Text('Delete'),
           ),
         ],
       ),
     );
-
     if (confirmed != true) return;
 
     String message;
     try {
       await DatabaseService.instance.deleteBenchmarkSession(sessionId);
       message = 'Session deleted.';
-    } catch (e) {
-      message = 'Could not delete the session: $e';
+    } catch (error) {
+      message = 'Could not delete the session: $error';
     }
 
-    // A deleted session may have been one of the two picked for comparison.
     _selectedIds.remove(sessionId);
     await _loadSessions();
-
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   String _formatCompletedAt(Object? rawValue) {
     if (rawValue is! String) return 'Unknown date';
-    final parsed = DateTime.tryParse(rawValue);
+    final DateTime? parsed = DateTime.tryParse(rawValue);
     if (parsed == null) return 'Unknown date';
     return formatBenchmarkDateTime(parsed.toLocal());
   }
 
   @override
   Widget build(BuildContext context) {
+    final Widget content = Column(
+      children: [
+        if (widget.embedded) _buildEmbeddedHeader(),
+        Expanded(child: _buildBody()),
+        if (_selectionMode) _buildComparisonAction(),
+      ],
+    );
+
+    if (widget.embedded) return content;
     return Scaffold(
-      backgroundColor: _bgColor,
       appBar: AppBar(
-        backgroundColor: _surfaceColor,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
         title: Text(
-          _selectionMode
-              ? 'Select 2 sessions'
-              : 'Saved Benchmark Sessions',
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w600,
-            fontSize: 18,
-          ),
+          _selectionMode ? 'Select 2 sessions' : 'Saved benchmark sessions',
         ),
         actions: [
           if (_sessions.length >= 2)
             IconButton(
-              tooltip: _selectionMode ? 'Cancel' : 'Compare two sessions',
+              tooltip: _selectionMode ? 'Cancel comparison' : 'Compare',
               icon: Icon(
                 _selectionMode
                     ? Icons.close_rounded
                     : Icons.compare_arrows_rounded,
-                color: _accentBlue,
               ),
               onPressed: _toggleSelectionMode,
             ),
         ],
       ),
-      body: SafeArea(child: _buildBody()),
-      floatingActionButton: _selectionMode
-          ? FloatingActionButton.extended(
-              backgroundColor:
-                  _selectedIds.length == 2 ? _accentBlue : Colors.white12,
-              foregroundColor:
-                  _selectedIds.length == 2 ? Colors.black : Colors.white38,
-              onPressed: _selectedIds.length == 2 ? _openComparison : null,
-              icon: const Icon(Icons.compare_arrows_rounded),
-              label: Text('Compare (${_selectedIds.length}/2)'),
-            )
-          : null,
+      body: SafeArea(child: content),
+    );
+  }
+
+  Widget _buildEmbeddedHeader() {
+    final ThemeData theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _selectionMode
+                      ? 'Select 2 sessions'
+                      : 'Saved benchmark sessions',
+                  style: theme.textTheme.titleLarge,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${_sessions.length} saved '
+                  '${_sessions.length == 1 ? 'session' : 'sessions'}',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_sessions.length >= 2)
+            TextButton.icon(
+              onPressed: _toggleSelectionMode,
+              icon: Icon(
+                _selectionMode
+                    ? Icons.close_rounded
+                    : Icons.compare_arrows_rounded,
+              ),
+              label: Text(_selectionMode ? 'Cancel' : 'Compare'),
+            ),
+        ],
+      ),
     );
   }
 
   Widget _buildBody() {
-    if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: _accentBlue),
-      );
-    }
-
+    final ThemeData theme = Theme.of(context);
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
     if (_errorMessage != null) {
-      return Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Center(
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
           child: Text(
             _errorMessage!,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.error,
+            ),
           ),
         ),
       );
     }
-
     if (_sessions.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(24.0),
-        child: Center(
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                Icons.inbox_rounded,
-                color: Colors.white24,
+                Icons.inbox_outlined,
+                color: theme.colorScheme.onSurfaceVariant,
                 size: 48,
               ),
-              SizedBox(height: 12),
+              const SizedBox(height: 12),
               Text(
                 'No saved benchmark sessions yet.',
-                style: TextStyle(color: Colors.white70, fontSize: 14),
+                style: theme.textTheme.titleMedium,
               ),
-              SizedBox(height: 6),
+              const SizedBox(height: 6),
               Text(
-                'Run the benchmark suite and the completed session will be '
-                'saved here automatically.',
+                'Completed benchmark sessions will be saved here '
+                'automatically.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white38, fontSize: 12),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
             ],
           ),
@@ -267,111 +273,125 @@ class _SavedBenchmarkSessionsScreenState
     }
 
     return ListView.separated(
-      padding: const EdgeInsets.all(16.0),
+      key: const PageStorageKey<String>('benchmark-results-list'),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
       itemCount: _sessions.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (context, index) {
-        final session = _sessions[index];
-        final sessionId = session['id'] as int;
-        final modelNames = (session['model_names'] as List?)?.cast<String>() ??
-            const <String>[];
-        final modelCount = session['model_count'] as int? ?? modelNames.length;
-        final runsPerModel = session['runs_per_model'] as int? ?? 0;
-        final bool selected = _selectedIds.contains(sessionId);
-        final String completedLabel =
-            _formatCompletedAt(session['completed_at']);
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (BuildContext context, int index) {
+        return _buildSessionCard(_sessions[index]);
+      },
+    );
+  }
 
-        return Material(
-          color: _surfaceColor,
-          borderRadius: BorderRadius.circular(8),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(8),
-            onTap: () => _selectionMode
-                ? _toggleSelection(sessionId)
-                : _openSession(sessionId),
-            child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: selected ? _accentBlue : Colors.white12,
-                ),
-              ),
-              child: Column(
+  Widget _buildSessionCard(Map<String, Object?> session) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colors = theme.colorScheme;
+    final int sessionId = session['id'] as int;
+    final List<String> modelNames =
+        (session['model_names'] as List?)?.cast<String>() ?? <String>[];
+    final int modelCount = session['model_count'] as int? ?? modelNames.length;
+    final int runsPerModel = session['runs_per_model'] as int? ?? 0;
+    final bool selected = _selectedIds.contains(sessionId);
+    final String completedLabel = _formatCompletedAt(session['completed_at']);
+
+    return Card(
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: selected
+            ? BorderSide(color: colors.primary, width: 2)
+            : BorderSide.none,
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => _selectionMode
+            ? _toggleSelection(sessionId)
+            : _openSession(sessionId),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Icon(
-                        _selectionMode
-                            ? (selected
-                                ? Icons.check_circle_rounded
-                                : Icons.radio_button_unchecked_rounded)
-                            : Icons.schedule_rounded,
-                        color: _selectionMode && !selected
-                            ? Colors.white38
-                            : _accentBlue,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          completedLabel,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                      if (!_selectionMode) ...[
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline_rounded),
-                          color: Colors.white38,
-                          iconSize: 20,
-                          tooltip: 'Delete Session',
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 36,
-                            minHeight: 36,
-                          ),
-                          onPressed: () =>
-                              _confirmDeleteSession(sessionId, completedLabel),
-                        ),
-                        const Icon(
-                          Icons.chevron_right_rounded,
-                          color: Colors.white38,
-                          size: 20,
-                        ),
-                      ],
-                    ],
+                  Icon(
+                    _selectionMode
+                        ? selected
+                              ? Icons.check_circle_rounded
+                              : Icons.radio_button_unchecked_rounded
+                        : Icons.speed_outlined,
+                    color: selected || !_selectionMode
+                        ? colors.primary
+                        : colors.onSurfaceVariant,
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '$modelCount model${modelCount == 1 ? '' : 's'} · '
-                    '$runsPerModel run${runsPerModel == 1 ? '' : 's'} per model',
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      completedLabel,
+                      style: theme.textTheme.titleMedium,
                     ),
                   ),
-                  if (modelNames.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      modelNames.join(' · '),
-                      style: const TextStyle(
-                        color: Colors.white38,
-                        fontSize: 11,
-                        height: 1.4,
-                      ),
+                  if (!_selectionMode)
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      color: colors.error,
+                      tooltip: 'Delete session',
+                      onPressed: () =>
+                          _confirmDeleteSession(sessionId, completedLabel),
                     ),
-                  ],
                 ],
               ),
-            ),
+              const SizedBox(height: 10),
+              Text(
+                '$modelCount ${modelCount == 1 ? 'model' : 'models'} · '
+                '$runsPerModel ${runsPerModel == 1 ? 'run' : 'runs'} per model',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colors.onSurfaceVariant,
+                ),
+              ),
+              if (modelNames.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  modelNames.join(' · '),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.onSurfaceVariant,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+              if (!_selectionMode) ...[
+                const SizedBox(height: 10),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () => _openSession(sessionId),
+                    icon: const Icon(Icons.chevron_right_rounded),
+                    label: const Text('View session'),
+                  ),
+                ),
+              ],
+            ],
           ),
-        );
-      },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildComparisonAction() {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _selectedIds.length == 2 ? _openComparison : null,
+            icon: const Icon(Icons.compare_arrows_rounded),
+            label: Text('Compare (${_selectedIds.length}/2)'),
+          ),
+        ),
+      ),
     );
   }
 }
