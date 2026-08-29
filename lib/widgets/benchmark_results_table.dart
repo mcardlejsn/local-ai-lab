@@ -4,22 +4,9 @@ import 'package:flutter/services.dart';
 import '../models/benchmark_session.dart';
 import '../services/model_manager_service.dart';
 
-/// Signature for persisting a manual accuracy score. [score] and [note] are
-/// written as given, so nulls clear the existing values.
-typedef BenchmarkRunScoreCallback = Future<void> Function(
-  BenchmarkModelResult run,
-  int? score,
-  String? note,
-);
+typedef BenchmarkRunScoreCallback =
+    Future<void> Function(BenchmarkModelResult run, int? score, String? note);
 
-/// The comparison table for a set of benchmark aggregates, plus the per-model
-/// output modal and the methodology footnote. Shared by the live benchmark
-/// screen and the read-only saved-session detail screen so both render results
-/// identically.
-///
-/// Scoring is optional: pass [onScoreRun] to make the runs in the output modal
-/// scorable. With it omitted, scores are shown but cannot be edited, which is
-/// what the live benchmark screen uses since its runs are not saved yet.
 class BenchmarkResultsTable extends StatelessWidget {
   const BenchmarkResultsTable({
     super.key,
@@ -31,38 +18,31 @@ class BenchmarkResultsTable extends StatelessWidget {
 
   final List<BenchmarkAggregate> aggregates;
   final bool showFootnote;
-
-  /// Whether to show the manual accuracy column. The live benchmark screen
-  /// hides it: scoring is a sit-down-and-read-the-output job, done from the
-  /// archive. Automatic recall shows on both.
   final bool showAccuracy;
-
   final BenchmarkRunScoreCallback? onScoreRun;
-
-  static const Color _surfaceColor = Color(0xFF1E1E1E);
-  static const Color _accentBlue = Color(0xFF90CAF9);
 
   void _showOutputModal(BuildContext context, BenchmarkAggregate item) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: _surfaceColor,
+      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
       isScrollControlled: true,
+      showDragHandle: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      builder: (ctx) {
+      builder: (BuildContext sheetContext) {
         return DraggableScrollableSheet(
           expand: false,
-          initialChildSize: 0.6,
-          maxChildSize: 0.9,
-          minChildSize: 0.4,
-          builder: (_, controller) {
+          initialChildSize: 0.68,
+          maxChildSize: 0.92,
+          minChildSize: 0.42,
+          builder: (_, ScrollController controller) {
             return _OutputModalContent(
               item: item,
               scrollController: controller,
               onScoreRun: onScoreRun,
               hostContext: context,
-              sheetContext: ctx,
+              sheetContext: sheetContext,
             );
           },
         );
@@ -70,269 +50,65 @@ class BenchmarkResultsTable extends StatelessWidget {
     );
   }
 
+  String _engineLabel(ModelEngine engine) {
+    return switch (engine) {
+      ModelEngine.nano => 'AICore',
+      ModelEngine.gguf => 'GGUF',
+      ModelEngine.litertlm => 'LiteRT-LM',
+      ModelEngine.mediapipe => 'Legacy',
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          decoration: BoxDecoration(
-            color: _surfaceColor,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.white12),
+        for (int index = 0; index < aggregates.length; index++) ...[
+          _BenchmarkResultCard(
+            key: Key('benchmark-result-${aggregates[index].modelId}'),
+            aggregate: aggregates[index],
+            engineLabel: _engineLabel(aggregates[index].engine),
+            showAccuracy: showAccuracy,
+            onViewOutput: aggregates[index].runs.isEmpty
+                ? null
+                : () => _showOutputModal(context, aggregates[index]),
           ),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              headingRowColor: WidgetStateProperty.all(Colors.black26),
-              dataRowMinHeight: 48,
-              dataRowMaxHeight: 64,
-              columns: [
-                const DataColumn(
-                  label: Text(
-                    'Model / Engine',
-                    style: TextStyle(
-                        color: _accentBlue, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const DataColumn(
-                  label: Text(
-                    'Runs',
-                    style: TextStyle(
-                        color: _accentBlue, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const DataColumn(
-                  label: Text(
-                    'Est. tok/s (chars÷4)',
-                    style: TextStyle(
-                        color: _accentBlue, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const DataColumn(
-                  label: Text(
-                    'TTFT (s)',
-                    style: TextStyle(
-                        color: _accentBlue, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const DataColumn(
-                  label: Text(
-                    'Latency (s)',
-                    style: TextStyle(
-                        color: _accentBlue, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const DataColumn(
-                  label: Text(
-                    'Est. tokens',
-                    style: TextStyle(
-                        color: _accentBlue, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                const DataColumn(
-                  label: Text(
-                    'Recall',
-                    style: TextStyle(
-                        color: _accentBlue, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                if (showAccuracy)
-                  const DataColumn(
-                    label: Text(
-                      'Accuracy',
-                      style: TextStyle(
-                          color: _accentBlue, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                const DataColumn(
-                  label: Text(
-                    'Output',
-                    style: TextStyle(
-                        color: _accentBlue, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-              rows: aggregates.map((agg) {
-                final bool hasResults = agg.hasAnySuccess;
-                final double? medianSpeed = agg.medianTokensPerSecond;
-                final double? medianTtft = agg.medianTtftSeconds;
-                final double? medianLatency = agg.medianLatencySeconds;
-                final double? minLatency = agg.minLatencySeconds;
-                final double? maxLatency = agg.maxLatencySeconds;
-                final int? medianTokens = agg.medianTokenCount;
-                final int successCount = agg.successfulRuns.length;
-                final double? medianScore = agg.medianAccuracyScore;
-
-                final double? medianRecall = agg.medianRecallFound;
-                final int? recallTotal = agg.recallTotal;
-
-                return DataRow(
-                  cells: [
-                    DataCell(
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 160),
-                        child: Text(
-                          agg.modelName,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 12,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                    DataCell(
-                      Text(
-                        '$successCount/${agg.runs.length}',
-                        style: TextStyle(
-                          color: successCount == agg.runs.length
-                              ? Colors.white70
-                              : Colors.orangeAccent,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                    DataCell(
-                      Text(
-                        medianSpeed != null
-                            ? medianSpeed.toStringAsFixed(1)
-                            : 'ERR',
-                        style: TextStyle(
-                          color: hasResults
-                              ? const Color(0xFF81C784)
-                              : Colors.redAccent,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    DataCell(
-                      Text(
-                        agg.engine == ModelEngine.nano
-                            ? (medianLatency != null
-                                ? '${medianLatency.toStringAsFixed(2)}s*'
-                                : '--')
-                            : (medianTtft != null
-                                ? '${medianTtft.toStringAsFixed(2)}s'
-                                : '--'),
-                        style: const TextStyle(color: Colors.white70),
-                      ),
-                    ),
-                    DataCell(
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            medianLatency != null
-                                ? '${medianLatency.toStringAsFixed(2)}s'
-                                : '--',
-                            style: const TextStyle(color: Colors.white70),
-                          ),
-                          if (successCount > 1 &&
-                              minLatency != null &&
-                              maxLatency != null)
-                            Text(
-                              '${minLatency.toStringAsFixed(2)}–${maxLatency.toStringAsFixed(2)}',
-                              style: const TextStyle(
-                                color: Colors.white38,
-                                fontSize: 10,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    DataCell(
-                      Text(
-                        medianTokens?.toString() ?? '--',
-                        style: const TextStyle(color: Colors.white70),
-                      ),
-                    ),
-                    DataCell(
-                      medianRecall != null && recallTotal != null
-                          ? Text(
-                              '${formatAccuracyScore(medianRecall)}'
-                              '/$recallTotal',
-                              style: TextStyle(
-                                color: recallColor(medianRecall, recallTotal),
-                                fontWeight: FontWeight.bold,
-                              ),
-                            )
-                          : const Text(
-                              'Not graded',
-                              style: TextStyle(
-                                  color: Colors.white38, fontSize: 11),
-                            ),
-                    ),
-                    if (showAccuracy)
-                      DataCell(
-                        Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              medianScore != null
-                                  ? formatAccuracyScore(medianScore)
-                                  : 'Unscored',
-                              style: TextStyle(
-                                color: medianScore != null
-                                    ? accuracyScoreColor(medianScore)
-                                    : Colors.white38,
-                                fontWeight: medianScore != null
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                                fontSize: medianScore != null ? 14 : 11,
-                              ),
-                            ),
-                            if (medianScore != null &&
-                                agg.scoredRunCount < successCount)
-                              Text(
-                                '${agg.scoredRunCount}/$successCount scored',
-                                style: const TextStyle(
-                                  color: Colors.white38,
-                                  fontSize: 10,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    DataCell(
-                      IconButton(
-                        icon: const Icon(
-                          Icons.visibility_rounded,
-                          size: 18,
-                          color: _accentBlue,
-                        ),
-                        onPressed: agg.runs.isEmpty
-                            ? null
-                            : () => _showOutputModal(context, agg),
-                      ),
-                    ),
-                  ],
-                );
-              }).toList(),
-            ),
-          ),
-        ),
+          if (index != aggregates.length - 1) const SizedBox(height: 12),
+        ],
         if (showFootnote) ...[
-          const SizedBox(height: 10),
-          const Text(
-            'Timings are the median across the runs completed for each model; the '
-            'smaller figure under latency is the min–max range across those runs.\n'
-            'Token counts are estimated as output characters ÷ 4, not tokenizer '
-            'output. Each engine uses a different tokenizer, and the rate uses '
-            'total latency including prompt processing and TTFT. It is therefore '
-            'an end-to-end throughput proxy, not pure decode speed.\n'
-            'Recall is graded automatically: the share of the passage\'s '
-            'content words that appear in the output, median across runs. It '
-            'counts what was kept and cannot see what was invented.\n'
-            'Accuracy is a manual 0–5 score assigned per run against the source '
-            'passage; the column shows the median across scored runs. It is a '
-            'judgement, not a measurement.\n'
-            '* Gemini Nano\'s Prompt API is non-streaming — time to first token '
-            'cannot be measured, so total latency is shown in that column.',
-            style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.4),
+          const SizedBox(height: 12),
+          ExpansionTile(
+            key: const Key('benchmark-methodology'),
+            tilePadding: EdgeInsets.zero,
+            childrenPadding: const EdgeInsets.only(bottom: 8),
+            title: Text(
+              'How metrics are calculated',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            children: [
+              Text(
+                'Timings are medians across completed runs. Latency also shows '
+                'the min–max range when multiple runs succeed.\n\n'
+                'Token counts estimate output characters ÷ 4. Rate is estimated '
+                'tokens divided by total latency, including prompt processing '
+                'and TTFT, so it is an end-to-end proxy rather than pure decode '
+                'speed.\n\n'
+                'Recall measures how many expected content words remain in the '
+                'output. Accuracy is a manual 0–5 review score available in '
+                'saved-session details.\n\n'
+                'Gemini Nano is non-streaming, so its TTFT cannot be measured '
+                'separately.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  height: 1.45,
+                ),
+              ),
+            ],
           ),
         ],
       ],
@@ -340,32 +116,286 @@ class BenchmarkResultsTable extends StatelessWidget {
   }
 }
 
-/// Renders a score as a whole number when it lands on one, so a single scored
-/// run reads as `4` rather than `4.0`.
+class _BenchmarkResultCard extends StatelessWidget {
+  const _BenchmarkResultCard({
+    super.key,
+    required this.aggregate,
+    required this.engineLabel,
+    required this.showAccuracy,
+    required this.onViewOutput,
+  });
+
+  final BenchmarkAggregate aggregate;
+  final String engineLabel;
+  final bool showAccuracy;
+  final VoidCallback? onViewOutput;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colors = theme.colorScheme;
+    final int successCount = aggregate.successfulRuns.length;
+    final bool allSucceeded =
+        aggregate.runs.isNotEmpty && successCount == aggregate.runs.length;
+    final bool hasResults = aggregate.hasAnySuccess;
+
+    final double? medianSpeed = aggregate.medianTokensPerSecond;
+    final double? medianTtft = aggregate.medianTtftSeconds;
+    final double? medianLatency = aggregate.medianLatencySeconds;
+    final double? minLatency = aggregate.minLatencySeconds;
+    final double? maxLatency = aggregate.maxLatencySeconds;
+    final int? medianTokens = aggregate.medianTokenCount;
+    final double? medianRecall = aggregate.medianRecallFound;
+    final int? recallTotal = aggregate.recallTotal;
+    final double? medianScore = aggregate.medianAccuracyScore;
+
+    final String latencyDetail =
+        successCount > 1 && minLatency != null && maxLatency != null
+        ? '${minLatency.toStringAsFixed(2)}–'
+              '${maxLatency.toStringAsFixed(2)}s range'
+        : 'median';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: colors.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 260),
+                child: Text(
+                  aggregate.modelName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: colors.secondaryContainer,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  engineLabel,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: colors.onSecondaryContainer,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Icon(
+                allSucceeded
+                    ? Icons.check_circle_outline_rounded
+                    : hasResults
+                    ? Icons.warning_amber_rounded
+                    : Icons.error_outline_rounded,
+                size: 18,
+                color: allSucceeded
+                    ? const Color(0xFF4F9D69)
+                    : hasResults
+                    ? colors.tertiary
+                    : colors.error,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  '$successCount of ${aggregate.runs.length} runs completed',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colors.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              final double itemWidth = constraints.maxWidth >= 520
+                  ? (constraints.maxWidth - 24) / 3
+                  : (constraints.maxWidth - 12) / 2;
+
+              final List<Widget> metrics = [
+                _MetricTile(
+                  width: itemWidth,
+                  label: 'RATE',
+                  value: medianSpeed?.toStringAsFixed(1) ?? '--',
+                  detail: medianSpeed == null ? null : 'est. tok/s',
+                ),
+                _MetricTile(
+                  width: itemWidth,
+                  label: 'TTFT',
+                  value: aggregate.engine == ModelEngine.nano
+                      ? '--'
+                      : medianTtft == null
+                      ? '--'
+                      : '${medianTtft.toStringAsFixed(2)}s',
+                  detail: aggregate.engine == ModelEngine.nano
+                      ? 'non-streaming'
+                      : 'median',
+                ),
+                _MetricTile(
+                  width: itemWidth,
+                  label: 'LATENCY',
+                  value: medianLatency == null
+                      ? '--'
+                      : '${medianLatency.toStringAsFixed(2)}s',
+                  detail: medianLatency == null ? null : latencyDetail,
+                ),
+                _MetricTile(
+                  width: itemWidth,
+                  label: 'EST. TOKENS',
+                  value: medianTokens?.toString() ?? '--',
+                  detail: 'chars ÷ 4',
+                ),
+                _MetricTile(
+                  width: itemWidth,
+                  label: 'RECALL',
+                  value: medianRecall != null && recallTotal != null
+                      ? '${formatAccuracyScore(medianRecall)}/$recallTotal'
+                      : '--',
+                  detail: medianRecall == null ? 'not graded' : 'median',
+                  valueColor: medianRecall != null && recallTotal != null
+                      ? recallColor(medianRecall, recallTotal)
+                      : null,
+                ),
+                if (showAccuracy)
+                  _MetricTile(
+                    width: itemWidth,
+                    label: 'ACCURACY',
+                    value: medianScore == null
+                        ? '--'
+                        : formatAccuracyScore(medianScore),
+                    detail: medianScore == null
+                        ? 'unscored'
+                        : '${aggregate.scoredRunCount}/$successCount scored',
+                    valueColor: medianScore == null
+                        ? null
+                        : accuracyScoreColor(medianScore),
+                  ),
+              ];
+
+              return Wrap(spacing: 12, runSpacing: 14, children: metrics);
+            },
+          ),
+          if (aggregate.firstError != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              aggregate.firstError!,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(color: colors.error),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: onViewOutput,
+              icon: const Icon(Icons.visibility_outlined),
+              label: const Text('View runs and output'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MetricTile extends StatelessWidget {
+  const _MetricTile({
+    required this.width,
+    required this.label,
+    required this.value,
+    this.detail,
+    this.valueColor,
+  });
+
+  final double width;
+  final String label;
+  final String value;
+  final String? detail;
+  final Color? valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+
+    return SizedBox(
+      width: width,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.6,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: valueColor,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (detail != null)
+            Text(
+              detail!,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 String formatAccuracyScore(double score) {
   return score == score.roundToDouble()
       ? score.round().toString()
       : score.toStringAsFixed(1);
 }
 
-/// Colors recall by how much of the checklist survived.
 Color recallColor(double found, int total) {
-  if (total == 0) return Colors.white38;
-  final fraction = found / total;
-  if (fraction >= 0.9) return const Color(0xFF81C784);
-  if (fraction >= 0.6) return Colors.orangeAccent;
-  return Colors.redAccent;
+  if (total == 0) return Colors.grey;
+  final double fraction = found / total;
+  if (fraction >= 0.9) return const Color(0xFF4F9D69);
+  if (fraction >= 0.6) return const Color(0xFFB26A00);
+  return const Color(0xFFBA1A1A);
 }
 
 Color accuracyScoreColor(double score) {
-  if (score >= 4) return const Color(0xFF81C784);
-  if (score >= 2) return Colors.orangeAccent;
-  return Colors.redAccent;
+  if (score >= 4) return const Color(0xFF4F9D69);
+  if (score >= 2) return const Color(0xFFB26A00);
+  return const Color(0xFFBA1A1A);
 }
 
-/// The body of the per-model output modal. Stateful so a score entered while
-/// the sheet is open is reflected immediately without waiting for the host
-/// screen to reload the session.
 class _OutputModalContent extends StatefulWidget {
   const _OutputModalContent({
     required this.item,
@@ -378,12 +408,7 @@ class _OutputModalContent extends StatefulWidget {
   final BenchmarkAggregate item;
   final ScrollController scrollController;
   final BenchmarkRunScoreCallback? onScoreRun;
-
-  /// Context of the screen hosting the table, used for snackbars that should
-  /// outlive the sheet.
   final BuildContext hostContext;
-
-  /// Context of the sheet itself, used to dismiss it.
   final BuildContext sheetContext;
 
   @override
@@ -391,8 +416,6 @@ class _OutputModalContent extends StatefulWidget {
 }
 
 class _OutputModalContentState extends State<_OutputModalContent> {
-  static const Color _accentBlue = Color(0xFF90CAF9);
-
   late List<BenchmarkModelResult> _runs;
 
   @override
@@ -402,21 +425,25 @@ class _OutputModalContentState extends State<_OutputModalContent> {
   }
 
   BenchmarkModelResult? get _representative {
-    final successful = _runs.where((r) => r.errorMessage == null).toList();
+    final List<BenchmarkModelResult> successful = _runs
+        .where((BenchmarkModelResult run) => run.errorMessage == null)
+        .toList();
     if (successful.isEmpty) return null;
-    final sorted = [...successful]
-      ..sort((a, b) => a.totalLatencySeconds.compareTo(b.totalLatencySeconds));
-    return sorted[(sorted.length - 1) ~/ 2];
+    successful.sort(
+      (BenchmarkModelResult a, BenchmarkModelResult b) =>
+          a.totalLatencySeconds.compareTo(b.totalLatencySeconds),
+    );
+    return successful[(successful.length - 1) ~/ 2];
   }
 
   bool get _canScore => widget.onScoreRun != null;
 
   Future<void> _editScore(int index) async {
-    final callback = widget.onScoreRun;
-    final run = _runs[index];
+    final BenchmarkRunScoreCallback? callback = widget.onScoreRun;
+    final BenchmarkModelResult run = _runs[index];
     if (callback == null || !run.isScorable) return;
 
-    final result = await showDialog<_ScoreDialogResult>(
+    final _ScoreDialogResult? result = await showDialog<_ScoreDialogResult>(
       context: context,
       builder: (_) => _ScoreDialog(
         runNumber: index + 1,
@@ -425,7 +452,6 @@ class _OutputModalContentState extends State<_OutputModalContent> {
         initialNote: run.scoreNote,
       ),
     );
-
     if (result == null) return;
 
     await callback(run, result.score, result.note);
@@ -436,159 +462,75 @@ class _OutputModalContentState extends State<_OutputModalContent> {
     });
   }
 
+  void _copyOutput(String outputText) {
+    Clipboard.setData(ClipboardData(text: outputText));
+    Navigator.pop(widget.sheetContext);
+    ScaffoldMessenger.of(widget.hostContext).showSnackBar(
+      const SnackBar(content: Text('Copied output to clipboard.')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final representative = _representative;
+    final ThemeData theme = Theme.of(context);
+    final BenchmarkModelResult? representative = _representative;
     final String outputText = representative?.outputText ?? '';
 
     return Padding(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
       child: ListView(
         controller: widget.scrollController,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Expanded(
                 child: Text(
                   widget.item.modelName,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.copy_rounded,
-                    color: _accentBlue, size: 20),
-                onPressed: () {
-                  Clipboard.setData(ClipboardData(text: outputText));
-                  Navigator.pop(widget.sheetContext);
-                  ScaffoldMessenger.of(widget.hostContext).showSnackBar(
-                    const SnackBar(
-                        content: Text('Copied output to clipboard.')),
-                  );
-                },
+                tooltip: 'Copy output',
+                onPressed: outputText.isEmpty
+                    ? null
+                    : () => _copyOutput(outputText),
+                icon: const Icon(Icons.copy_outlined),
               ),
             ],
           ),
-          const Divider(color: Colors.white12),
-          const SizedBox(height: 4),
+          const Divider(),
+          const SizedBox(height: 8),
           Text(
             _canScore
-                ? 'Per-run latency (tap a run to score):'
-                : 'Per-run latency:',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 13,
+                ? 'Runs — tap a completed run to score'
+                : 'Individual runs',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 4),
-          ...List.generate(_runs.length, (index) {
-            final run = _runs[index];
-            final bool failed = run.errorMessage != null;
-            final bool tappable = _canScore && !failed && run.isScorable;
-
-            final line = failed
-                ? 'Run ${index + 1}: failed — ${run.errorMessage}'
-                : 'Run ${index + 1}: ${run.totalLatencySeconds.toStringAsFixed(2)}s'
-                    ' · ${run.tokensPerSecond.toStringAsFixed(1)} est. tok/s'
-                    ' · ${run.tokenCount} est. tokens';
-
-            final content = Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        line,
-                        style: TextStyle(
-                          color: failed ? Colors.redAccent : Colors.white54,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                    // Only shown when the manual 1-5 score is reachable or
-                    // already set. On the live benchmark screen it is neither,
-                    // so recall is left as the only score on the line.
-                    if (!failed && (run.isScored || tappable))
-                      Text(
-                        run.isScored
-                            ? 'Accuracy ${run.accuracyScore}/5'
-                            : 'Score',
-                        style: TextStyle(
-                          color: run.isScored
-                              ? accuracyScoreColor(
-                                  run.accuracyScore!.toDouble())
-                              : _accentBlue,
-                          fontSize: 12,
-                          fontWeight: run.isScored
-                              ? FontWeight.bold
-                              : FontWeight.normal,
-                        ),
-                      ),
-                  ],
-                ),
-                if (!failed && run.isRecallGraded)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      run.missedFactIds.isEmpty
-                          ? 'Recall ${run.recallFound}/${run.recallTotal} — '
-                              'nothing dropped'
-                          : 'Recall ${run.recallFound}/${run.recallTotal} — '
-                              'dropped ${_describeMissedFacts(run.missedFactIds)}',
-                      style: TextStyle(
-                        color: run.missedFactIds.isEmpty
-                            ? Colors.white38
-                            : Colors.orangeAccent,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ),
-                if (!failed && (run.scoreNote?.trim().isNotEmpty ?? false))
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      run.scoreNote!.trim(),
-                      style: const TextStyle(
-                        color: Colors.white38,
-                        fontSize: 11,
-                        fontStyle: FontStyle.italic,
-                      ),
-                    ),
-                  ),
-              ],
-            );
-
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: tappable
-                  ? InkWell(
-                      onTap: () => _editScore(index),
-                      child: content,
-                    )
-                  : content,
-            );
-          }),
-          const SizedBox(height: 12),
-          const Text(
-            'Output (median-latency run):',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 13,
+          const SizedBox(height: 8),
+          for (int index = 0; index < _runs.length; index++)
+            _RunSummary(
+              runNumber: index + 1,
+              run: _runs[index],
+              canScore: _canScore && _runs[index].isScorable,
+              onTap: () => _editScore(index),
+            ),
+          const SizedBox(height: 20),
+          Text(
+            'Output from the median-latency run',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
           SelectableText(
             outputText.isEmpty ? '(No output generated)' : outputText,
-            style: const TextStyle(
-                color: Colors.white70, fontSize: 14, height: 1.4),
+            style: theme.textTheme.bodyLarge?.copyWith(height: 1.5),
           ),
         ],
       ),
@@ -596,15 +538,91 @@ class _OutputModalContentState extends State<_OutputModalContent> {
   }
 }
 
-/// Turns stored fact ids into the checklist's human-readable labels, falling
-/// back to the raw id if a stored run references a fact the checklist no
-/// longer has.
-/// Missed content, as a sample. A long passage can drop dozens of words and
-/// the row only has one line for them.
+class _RunSummary extends StatelessWidget {
+  const _RunSummary({
+    required this.runNumber,
+    required this.run,
+    required this.canScore,
+    required this.onTap,
+  });
+
+  final int runNumber;
+  final BenchmarkModelResult run;
+  final bool canScore;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final bool failed = run.errorMessage != null;
+    final Widget content = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            failed
+                ? 'Run $runNumber failed'
+                : 'Run $runNumber · '
+                      '${run.totalLatencySeconds.toStringAsFixed(2)}s · '
+                      '${run.tokensPerSecond.toStringAsFixed(1)} est. tok/s · '
+                      '${run.tokenCount} est. tokens',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: failed
+                  ? theme.colorScheme.error
+                  : theme.colorScheme.onSurface,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (failed)
+            Text(
+              run.errorMessage!,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.error,
+              ),
+            ),
+          if (!failed && run.isRecallGraded)
+            Text(
+              run.missedFactIds.isEmpty
+                  ? 'Recall ${run.recallFound}/${run.recallTotal} — nothing dropped'
+                  : 'Recall ${run.recallFound}/${run.recallTotal} — dropped '
+                        '${_describeMissedFacts(run.missedFactIds)}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          if (!failed && run.isScored)
+            Text(
+              'Accuracy ${run.accuracyScore}/5'
+              '${run.scoreNote?.trim().isNotEmpty == true ? ' · ${run.scoreNote!.trim()}' : ''}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: accuracyScoreColor(run.accuracyScore!.toDouble()),
+              ),
+            )
+          else if (!failed && canScore)
+            Text(
+              'Tap to score',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.primary,
+              ),
+            ),
+        ],
+      ),
+    );
+
+    if (!canScore || failed) return content;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: content,
+    );
+  }
+}
+
 String _describeMissedFacts(List<String> tokens) {
-  const shown = 6;
+  const int shown = 6;
   if (tokens.length <= shown) return tokens.join(', ');
-  final rest = tokens.length - shown;
+  final int rest = tokens.length - shown;
   return '${tokens.take(shown).join(', ')} +$rest more';
 }
 
@@ -615,8 +633,6 @@ class _ScoreDialogResult {
   final String? note;
 }
 
-/// Score picker for a single run: a 0–5 scale plus an optional note recording
-/// what the output got wrong.
 class _ScoreDialog extends StatefulWidget {
   const _ScoreDialog({
     required this.runNumber,
@@ -635,12 +651,10 @@ class _ScoreDialog extends StatefulWidget {
 }
 
 class _ScoreDialogState extends State<_ScoreDialog> {
-  static const Color _surfaceColor = Color(0xFF1E1E1E);
-  static const Color _accentBlue = Color(0xFF90CAF9);
-
   late int? _score = widget.initialScore;
-  late final TextEditingController _noteController =
-      TextEditingController(text: widget.initialNote ?? '');
+  late final TextEditingController _noteController = TextEditingController(
+    text: widget.initialNote ?? '',
+  );
 
   @override
   void dispose() {
@@ -650,12 +664,10 @@ class _ScoreDialogState extends State<_ScoreDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+
     return AlertDialog(
-      backgroundColor: _surfaceColor,
-      title: Text(
-        'Score run ${widget.runNumber}',
-        style: const TextStyle(color: Colors.white, fontSize: 16),
-      ),
+      title: Text('Score run ${widget.runNumber}'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -663,29 +675,25 @@ class _ScoreDialogState extends State<_ScoreDialog> {
           children: [
             Text(
               widget.modelName,
-              style: const TextStyle(color: Colors.white54, fontSize: 12),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 12),
-            const Text(
+            Text(
               '5 = faithful and complete · 3 = usable with omissions · '
               '0 = fabricated or unusable',
-              style: TextStyle(color: Colors.white38, fontSize: 11),
+              style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 10),
             Wrap(
               spacing: 6,
-              children: List.generate(6, (value) {
-                final bool selected = _score == value;
+              runSpacing: 6,
+              children: List<Widget>.generate(6, (int value) {
                 return ChoiceChip(
                   label: Text('$value'),
-                  selected: selected,
+                  selected: _score == value,
                   onSelected: (_) => setState(() => _score = value),
-                  backgroundColor: Colors.black26,
-                  selectedColor: _accentBlue,
-                  labelStyle: TextStyle(
-                    color: selected ? Colors.black : Colors.white70,
-                    fontWeight: FontWeight.bold,
-                  ),
                 );
               }),
             ),
@@ -693,18 +701,10 @@ class _ScoreDialogState extends State<_ScoreDialog> {
             TextField(
               controller: _noteController,
               maxLines: 3,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
               decoration: const InputDecoration(
                 labelText: 'Note (optional)',
-                labelStyle: TextStyle(color: Colors.white54),
-                hintText: 'e.g. invented the clinic, dropped both medications',
-                hintStyle: TextStyle(color: Colors.white24, fontSize: 12),
-                enabledBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: Colors.white24),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: _accentBlue),
-                ),
+                hintText: 'What was invented, omitted, or especially strong?',
+                border: OutlineInputBorder(),
               ),
             ),
           ],
@@ -713,28 +713,24 @@ class _ScoreDialogState extends State<_ScoreDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel',
-              style: TextStyle(color: Colors.white54)),
+          child: const Text('Cancel'),
         ),
         TextButton(
-          onPressed: () => Navigator.pop(
-            context,
-            const _ScoreDialogResult(null, null),
-          ),
-          child: const Text('Clear',
-              style: TextStyle(color: Colors.orangeAccent)),
+          onPressed: () =>
+              Navigator.pop(context, const _ScoreDialogResult(null, null)),
+          child: const Text('Clear'),
         ),
-        TextButton(
+        FilledButton(
           onPressed: _score == null
               ? null
               : () {
-                  final note = _noteController.text.trim();
+                  final String note = _noteController.text.trim();
                   Navigator.pop(
                     context,
                     _ScoreDialogResult(_score, note.isEmpty ? null : note),
                   );
                 },
-          child: const Text('Save', style: TextStyle(color: _accentBlue)),
+          child: const Text('Save'),
         ),
       ],
     );

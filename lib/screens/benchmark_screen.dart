@@ -24,6 +24,8 @@ class BenchmarkScreen extends StatefulWidget {
     super.key,
     this.targetModelId,
     this.qualificationArtifactId,
+    this.modelManager,
+    this.initializeOnInit = true,
   }) : assert(
          (targetModelId == null) == (qualificationArtifactId == null),
          'Candidate target and exact artifact identity must be supplied '
@@ -38,6 +40,12 @@ class BenchmarkScreen extends StatefulWidget {
 
   /// Exact Discovery artifact associated with a Candidate qualification run.
   final String? qualificationArtifactId;
+
+  /// Shares the existing singleton in production while allowing focused
+  /// widget tests to render without starting platform model discovery.
+  final ModelManagerService? modelManager;
+
+  final bool initializeOnInit;
 
   bool get isCandidateQualification => targetModelId != null;
 
@@ -86,7 +94,7 @@ bool canRunBenchmarkModels(
 }
 
 class _BenchmarkScreenState extends State<BenchmarkScreen> {
-  final ModelManagerService _modelManager = ModelManagerService();
+  late final ModelManagerService _modelManager;
   final TextEditingController _promptController = TextEditingController(
     text: defaultBenchmarkPassage,
   );
@@ -101,6 +109,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   bool _isRestoring = true;
   bool _hasRestoredSession = false;
   bool _hasInitializedModelSelection = false;
+  bool _isEditingTestCase = false;
   int _currentRunningIndex = -1;
   int _currentRunNumber = 0;
   String _currentStatus = 'Ready to benchmark.';
@@ -108,6 +117,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   @override
   void initState() {
     super.initState();
+    _modelManager = widget.modelManager ?? ModelManagerService();
     if (widget.isCandidateQualification) {
       _currentStatus = 'Finding the installed Candidate...';
     }
@@ -115,7 +125,11 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     // The picker's selection is derived from the passage text, so edits typed
     // straight into the field have to redraw it.
     _promptController.addListener(_onPassageTextChanged);
-    _initializeScreen();
+    if (widget.initializeOnInit) {
+      _initializeScreen();
+    } else {
+      _isRestoring = false;
+    }
   }
 
   void _onPassageTextChanged() {
@@ -304,6 +318,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
 
     setState(() {
       _isRunning = true;
+      _isEditingTestCase = false;
       _hasRestoredSession = false;
       _currentRunningIndex = 0;
       _currentRunNumber = 1;
@@ -590,101 +605,357 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     }
   }
 
+  Widget _buildStatusBanner({required bool canRun, required bool isScanning}) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    final bool isUnavailable =
+        !canRun && !isScanning && !_isRunning && !_isRestoring;
+    final bool isComplete = _hasRestoredSession && !_isRunning;
+
+    final Color backgroundColor = isUnavailable
+        ? colors.errorContainer
+        : isComplete
+        ? colors.tertiaryContainer
+        : colors.secondaryContainer;
+    final Color foregroundColor = isUnavailable
+        ? colors.onErrorContainer
+        : isComplete
+        ? colors.onTertiaryContainer
+        : colors.onSecondaryContainer;
+
+    final IconData icon = _isRunning
+        ? Icons.hourglass_top_rounded
+        : isUnavailable
+        ? Icons.error_outline_rounded
+        : isComplete
+        ? Icons.check_circle_outline_rounded
+        : Icons.info_outline_rounded;
+
+    return Container(
+      key: const Key('benchmark-status-banner'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: foregroundColor),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _currentStatus,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: foregroundColor,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTestCaseCard() {
+    final ThemeData theme = Theme.of(context);
+    final bool disabled = _isRunning || _isRestoring;
+
+    return Card(
+      key: const Key('benchmark-test-case-card'),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Text(
+                    'Test case',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  key: const Key('benchmark-edit-test-case'),
+                  onPressed: disabled
+                      ? null
+                      : () => setState(
+                          () => _isEditingTestCase = !_isEditingTestCase,
+                        ),
+                  icon: Icon(
+                    _isEditingTestCase
+                        ? Icons.check_rounded
+                        : Icons.edit_outlined,
+                  ),
+                  label: Text(_isEditingTestCase ? 'Done' : 'Edit'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'INSTRUCTION',
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.7,
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (_isEditingTestCase)
+              TextField(
+                key: const Key('benchmark-instruction-field'),
+                controller: _instructionController,
+                minLines: 2,
+                maxLines: 4,
+                enabled: !disabled,
+                decoration: const InputDecoration(
+                  hintText: 'Enter the benchmark instruction',
+                  border: OutlineInputBorder(),
+                ),
+              )
+            else
+              Text(
+                _instructionController.text.trim().isEmpty
+                    ? '(No instruction)'
+                    : _instructionController.text.trim(),
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  height: 1.35,
+                ),
+              ),
+            const SizedBox(height: 20),
+            Text(
+              'PASSAGE',
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.7,
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (_isEditingTestCase)
+              TextField(
+                key: const Key('benchmark-passage-field'),
+                controller: _promptController,
+                minLines: 4,
+                maxLines: 8,
+                enabled: !disabled,
+                decoration: const InputDecoration(
+                  hintText: 'Enter the passage to compare',
+                  border: OutlineInputBorder(),
+                ),
+              )
+            else
+              Text(
+                _promptController.text.trim().isEmpty
+                    ? '(No passage)'
+                    : _promptController.text.trim(),
+                maxLines: 5,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyLarge?.copyWith(height: 1.45),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _engineLabel(ModelEngine engine) {
+    return switch (engine) {
+      ModelEngine.nano => 'AICore',
+      ModelEngine.gguf => 'GGUF',
+      ModelEngine.litertlm => 'LiteRT-LM',
+      ModelEngine.mediapipe => 'Legacy',
+    };
+  }
+
+  Widget _buildEngineBadge(ModelEngine engine) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: colors.secondaryContainer,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        _engineLabel(engine),
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+          color: colors.onSecondaryContainer,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
   Widget _buildModelSelection({
     required List<ModelInfo> availableModels,
     required bool disabled,
-    required Color surfaceColor,
-    required Color accentBlue,
   }) {
+    final ThemeData theme = Theme.of(context);
     final int selectedCount = availableModels
         .where((ModelInfo model) => _selectedModelIds.contains(model.id))
         .length;
     final bool allSelected =
         availableModels.isNotEmpty && selectedCount == availableModels.length;
 
-    return Container(
+    return Card(
       key: const Key('benchmark-model-selection'),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: surfaceColor,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white24),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Expanded(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Models',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '$selectedCount of ${availableModels.length} selected',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  TextButton(
+                    key: const Key('benchmark-select-all-models'),
+                    onPressed:
+                        disabled || allSelected || availableModels.isEmpty
+                        ? null
+                        : () => _selectAllModels(availableModels),
+                    child: const Text('Select all'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (availableModels.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(12),
                 child: Text(
-                  'Models to benchmark',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
+                  'No benchmark-compatible models are installed.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              )
+            else
+              for (final ModelInfo model in availableModels)
+                CheckboxListTile(
+                  key: Key('benchmark-model-${model.id}'),
+                  value: _selectedModelIds.contains(model.id),
+                  onChanged: disabled
+                      ? null
+                      : (bool? selected) =>
+                            _setModelSelected(model.id, selected ?? false),
+                  controlAffinity: ListTileControlAffinity.leading,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                  title: Text(
+                    model.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  subtitle: Text(model.formattedSize),
+                  secondary: _buildEngineBadge(model.engine),
+                ),
+            if (availableModels.length < 2)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                child: Text(
+                  'Install at least 2 models to run a comparison.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              )
+            else if (selectedCount < 2)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                child: Text(
+                  'Select at least 2 models to run a comparison.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
                   ),
                 ),
               ),
-              TextButton(
-                key: const Key('benchmark-select-all-models'),
-                onPressed: disabled || allSelected || availableModels.isEmpty
-                    ? null
-                    : () => _selectAllModels(availableModels),
-                child: const Text('Select all'),
-              ),
-            ],
-          ),
-          Text(
-            '$selectedCount of ${availableModels.length} selected',
-            style: const TextStyle(color: Colors.white54, fontSize: 12),
-          ),
-          const SizedBox(height: 4),
-          for (final ModelInfo model in availableModels)
-            CheckboxListTile(
-              key: Key('benchmark-model-${model.id}'),
-              value: _selectedModelIds.contains(model.id),
-              onChanged: disabled
-                  ? null
-                  : (bool? selected) =>
-                        _setModelSelected(model.id, selected ?? false),
-              activeColor: accentBlue,
-              checkColor: Colors.black,
-              controlAffinity: ListTileControlAffinity.leading,
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: Text(
-                model.name,
-                style: const TextStyle(color: Colors.white, fontSize: 13),
-              ),
-              subtitle: Text(
-                '${model.engine.name.toUpperCase()}  ·  ${model.formattedSize}',
-                style: const TextStyle(color: Colors.white38, fontSize: 11),
-              ),
-            ),
-          if (availableModels.length < 2) ...[
-            const SizedBox(height: 4),
-            const Text(
-              'Install at least 2 models to run a comparison.',
-              style: TextStyle(color: Colors.orangeAccent, fontSize: 12),
-            ),
-          ] else if (selectedCount < 2) ...[
-            const SizedBox(height: 4),
-            const Text(
-              'Select at least 2 models to run a comparison.',
-              style: TextStyle(color: Colors.orangeAccent, fontSize: 12),
-            ),
           ],
-        ],
+        ),
       ),
     );
   }
 
+  Widget _buildRunSelector() {
+    final bool disabled = _isRunning || _isRestoring;
+
+    return Column(
+      key: const Key('benchmark-runs-per-model'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Runs per model',
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: SegmentedButton<int>(
+            segments: const [
+              ButtonSegment<int>(value: 1, label: Text('1 run')),
+              ButtonSegment<int>(value: 3, label: Text('3 runs')),
+              ButtonSegment<int>(value: 5, label: Text('5 runs')),
+            ],
+            selected: <int>{_runsPerModel},
+            showSelectedIcon: false,
+            onSelectionChanged: disabled
+                ? null
+                : (Set<int> selection) {
+                    setState(() => _runsPerModel = selection.first);
+                  },
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _runButtonLabel(List<ModelInfo> models) {
+    if (_isRestoring) return 'Restoring last benchmark…';
+    if (_isRunning) {
+      return 'Model ${_currentRunningIndex + 1}/${models.length} '
+          '• Run $_currentRunNumber/$_runsPerModel';
+    }
+    if (widget.isCandidateQualification) {
+      return 'Benchmark Candidate × $_runsPerModel';
+    }
+    final String runs = _runsPerModel == 1 ? 'run' : 'runs';
+    return 'Run ${models.length} models × $_runsPerModel $runs';
+  }
+
   @override
   Widget build(BuildContext context) {
-    const bgColor = Color(0xFF121212);
-    const surfaceColor = Color(0xFF1E1E1E);
-    const accentBlue = Color(0xFF90CAF9);
-
+    final ThemeData theme = Theme.of(context);
     final List<ModelInfo> availableModels = benchmarkModelsForTarget(
       _modelManager.availableModels,
       targetModelId: widget.targetModelId,
@@ -700,25 +971,37 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
       models,
       isCandidateQualification: widget.isCandidateQualification,
     );
-    final isScanning = _modelManager.isLoading;
+    final bool isScanning = _modelManager.isLoading;
 
     return Scaffold(
-      backgroundColor: bgColor,
       appBar: AppBar(
-        backgroundColor: surfaceColor,
-        elevation: 0,
-        title: Text(
-          widget.isCandidateQualification ? 'Candidate Benchmark' : 'Benchmark',
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w600,
-            fontSize: 18,
-          ),
+        toolbarHeight: 82,
+        titleSpacing: 20,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.isCandidateQualification
+                  ? 'Candidate Benchmark'
+                  : 'Benchmark',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            Text(
+              widget.isCandidateQualification
+                  ? 'Single-model qualification'
+                  : 'Controlled on-device comparison',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
         ),
         actions: [
           if (widget.isCandidateQualification)
             IconButton(
-              icon: const Icon(Icons.folder_open_rounded, color: accentBlue),
+              icon: const Icon(Icons.folder_open_outlined),
               tooltip: 'Saved sessions',
               onPressed: (_isRunning || _isRestoring)
                   ? null
@@ -726,207 +1009,103 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
             )
           else
             IconButton(
-              icon: const Icon(Icons.settings_outlined, color: accentBlue),
+              icon: const Icon(Icons.settings_outlined),
               tooltip: 'Settings',
               onPressed: () => openSettings(context),
             ),
+          const SizedBox(width: 8),
         ],
       ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
           children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: surfaceColor,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.white12),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    _isRunning
-                        ? Icons.hourglass_top_rounded
-                        : (!canRun
-                              ? Icons.error_outline_rounded
-                              : Icons.check_circle_outline_rounded),
-                    color: _isRunning ? accentBlue : const Color(0xFF81C784),
-                    size: 22,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      _currentStatus,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            _buildStatusBanner(canRun: canRun, isScanning: isScanning),
             const SizedBox(height: 16),
-            const Text(
-              'Benchmark Instruction:',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Container(
-              decoration: BoxDecoration(
-                color: surfaceColor,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.white24),
-              ),
-              child: TextField(
-                controller: _instructionController,
-                maxLines: 2,
-                enabled: !_isRunning && !_isRestoring,
-                style: const TextStyle(color: Colors.white, fontSize: 13),
-                decoration: const InputDecoration(
-                  contentPadding: EdgeInsets.all(10),
-                  border: InputBorder.none,
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Passage:',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Container(
-              decoration: BoxDecoration(
-                color: surfaceColor,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.white24),
-              ),
-              child: TextField(
-                controller: _promptController,
-                maxLines: 4,
-                enabled: !_isRunning && !_isRestoring,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 13,
-                  height: 1.4,
-                ),
-                decoration: const InputDecoration(
-                  contentPadding: EdgeInsets.all(10),
-                  border: InputBorder.none,
-                ),
-              ),
-            ),
+            _buildTestCaseCard(),
             const SizedBox(height: 16),
             if (!widget.isCandidateQualification) ...[
               _buildModelSelection(
                 availableModels: availableModels,
                 disabled: isScanning || _isRunning || _isRestoring,
-                surfaceColor: surfaceColor,
-                accentBlue: accentBlue,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
             ],
-            Row(
-              children: [
-                const Text(
-                  'Runs per model:',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
+            _buildRunSelector(),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 56,
+              child: FilledButton.icon(
+                key: const Key('benchmark-run-button'),
+                onPressed: isScanning || _isRunning || _isRestoring || !canRun
+                    ? null
+                    : _runBenchmarkSuite,
+                icon: _isRunning
+                    ? const SizedBox.square(
+                        dimension: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.play_arrow_rounded),
+                label: Text(
+                  _runButtonLabel(models),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+            if (_aggregates.isNotEmpty) ...[
+              const SizedBox(height: 24),
+              Card(
+                key: const Key('benchmark-results-card'),
+                margin: EdgeInsets.zero,
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  widget.isCandidateQualification
+                                      ? 'Candidate result'
+                                      : 'Comparison results',
+                                  style: theme.textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                Text(
+                                  _hasRestoredSession
+                                      ? 'Medians from the saved session'
+                                      : 'Live benchmark progress',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (!widget.isCandidateQualification)
+                            TextButton(
+                              onPressed: _isRunning || _isRestoring
+                                  ? null
+                                  : _openSavedSessions,
+                              child: const Text('Saved sessions'),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      BenchmarkResultsTable(
+                        aggregates: _aggregates,
+                        showAccuracy: false,
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 12),
-                ...[1, 3, 5].map((n) {
-                  final bool selected = _runsPerModel == n;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      label: Text('$n'),
-                      selected: selected,
-                      onSelected: (_isRunning || _isRestoring)
-                          ? null
-                          : (value) {
-                              if (value) setState(() => _runsPerModel = n);
-                            },
-                      backgroundColor: surfaceColor,
-                      selectedColor: accentBlue,
-                      side: const BorderSide(color: Colors.white24),
-                      labelStyle: TextStyle(
-                        color: selected ? Colors.black : Colors.white70,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                      ),
-                      showCheckmark: false,
-                    ),
-                  );
-                }),
-              ],
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: (isScanning || _isRunning || _isRestoring || !canRun)
-                  ? null
-                  : _runBenchmarkSuite,
-              icon: _isRunning
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.black,
-                      ),
-                    )
-                  : const Icon(Icons.play_arrow_rounded, color: Colors.black),
-              label: Text(
-                _isRestoring
-                    ? 'Restoring Last Benchmark...'
-                    : _isRunning
-                    ? 'Model ${_currentRunningIndex + 1}/${models.length} '
-                          '• Run $_currentRunNumber/$_runsPerModel'
-                    : widget.isCandidateQualification
-                    ? 'Benchmark Candidate'
-                    : 'Run Automated Benchmark Suite',
-                style: const TextStyle(
-                  color: Colors.black,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: accentBlue,
-                disabledBackgroundColor: Colors.white24,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            if (_aggregates.isNotEmpty) ...[
-              Text(
-                widget.isCandidateQualification
-                    ? 'Candidate Result:'
-                    : 'Comparative Results:',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                ),
-              ),
-              const SizedBox(height: 8),
-              BenchmarkResultsTable(
-                aggregates: _aggregates,
-                showAccuracy: false,
               ),
             ],
           ],
