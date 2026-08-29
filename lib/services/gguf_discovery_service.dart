@@ -28,14 +28,14 @@ class GgufDiscoveryService {
           verifiedCatalog ?? kModelCatalog,
         );
 
-  static const int _maximumLiveSearchLimit = 10;
+  static const int _maximumLiveSearchLimit = 50;
 
   final HuggingFaceDiscoveryService _source;
   final GgufCandidateScreeningService _screening;
   final GgufSeedRepositoryLoader _loadSeedRepositories;
   final List<CatalogModel> _verifiedCatalog;
 
-  Future<GgufDiscoveryResult> discover({int limit = 10}) async {
+  Future<GgufDiscoveryResult> discover({int limit = 50}) async {
     if (limit < 1 || limit > _maximumLiveSearchLimit) {
       throw ArgumentError(
         'Live discovery limit must be between 1 and '
@@ -70,6 +70,10 @@ class GgufDiscoveryService {
     // never requested repeatedly during the same discovery run.
     final Map<String, HuggingFaceRepositoryMetadata?> upstreamCache =
         <String, HuggingFaceRepositoryMetadata?>{};
+    // Repositories are ordered with maintained seeds first, followed by live
+    // results in popularity order. Keep only the first passing artifact for a
+    // declared upstream/base model.
+    final Set<String> selectedBaseModels = <String>{};
 
     for (final String repositoryId in repositories) {
       final HuggingFaceRepositoryMetadata? metadata = await _getMetadata(
@@ -103,6 +107,16 @@ class GgufDiscoveryService {
         upstreamMetadata: upstreamMetadata,
       );
       if (!assessment.canDownload) continue;
+
+      final GgufCandidateArtifact artifact = assessment.artifact!;
+      // Preserve exact-artifact Verified semantics: an alternate artifact for
+      // the same base model may still remain a Candidate.
+      if (_matchesVerifiedArtifact(artifact)) continue;
+
+      final String? baseModelKey = _singleBaseModelKey(metadata);
+      if (baseModelKey != null && !selectedBaseModels.add(baseModelKey)) {
+        continue;
+      }
       assessments.add(assessment);
     }
 
@@ -154,6 +168,11 @@ class GgufDiscoveryService {
       );
       return null;
     }
+  }
+
+  String? _singleBaseModelKey(HuggingFaceRepositoryMetadata metadata) {
+    if (metadata.quantizedBaseModels.length != 1) return null;
+    return metadata.quantizedBaseModels.single.trim().toLowerCase();
   }
 
   bool _requiresUpstreamLicense(HuggingFaceRepositoryMetadata metadata) {

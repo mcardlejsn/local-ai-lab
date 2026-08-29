@@ -16,7 +16,7 @@ void main() {
       expect(requests, 0);
     });
 
-    test('searches a limited recent GGUF page and excludes restrictions',
+    test('searches popular instruction GGUF repos and excludes restrictions',
         () async {
       Uri? requestedUri;
       final HuggingFaceDiscoveryService service = HuggingFaceDiscoveryService(
@@ -53,10 +53,29 @@ void main() {
       expect(requestedUri?.host, 'huggingface.co');
       expect(requestedUri?.path, '/api/models');
       expect(requestedUri?.queryParameters['filter'], 'gguf');
+      expect(
+        requestedUri?.queryParameters['pipeline_tag'],
+        'text-generation',
+      );
+      expect(requestedUri?.queryParameters['search'], 'instruct');
       expect(requestedUri?.queryParameters['gated'], 'false');
-      expect(requestedUri?.queryParameters['sort'], 'lastModified');
+      expect(requestedUri?.queryParameters['sort'], 'downloads');
       expect(requestedUri?.queryParameters['direction'], '-1');
       expect(requestedUri?.queryParameters['limit'], '12');
+    });
+
+    test('requests the maximum supported page by default', () async {
+      Uri? requestedUri;
+      final HuggingFaceDiscoveryService service = HuggingFaceDiscoveryService(
+        fetchJson: (Uri uri) async {
+          requestedUri = uri;
+          return <Object?>[];
+        },
+      );
+
+      await service.searchPublicGgufRepositories();
+
+      expect(requestedUri?.queryParameters['limit'], '50');
     });
 
     test('parses exact repository, license, upstream, and blob metadata',

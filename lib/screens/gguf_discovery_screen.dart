@@ -561,7 +561,7 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
           SizedBox(height: 8),
           Text(
             'Opening this screen is offline. Tapping Discover checks a '
-            'bounded bootstrap list plus recent public GGUF repositories '
+            'bounded bootstrap list plus popular public instruction-model GGUF repositories '
             'using current public metadata from Hugging Face.',
             style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
           ),

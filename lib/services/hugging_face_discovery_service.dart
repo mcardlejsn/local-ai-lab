@@ -35,10 +35,10 @@ class HuggingFaceDiscoveryService {
   final HuggingFaceJsonFetcher? _fetchJsonOverride;
   final Duration requestTimeout;
 
-  /// Returns a limited page of recently updated public, ungated GGUF repos.
+  /// Returns a limited page of popular public, ungated GGUF instruction repos.
   /// Detailed access status is checked again by [getRepositoryMetadata].
   Future<List<HuggingFaceRepositorySummary>> searchPublicGgufRepositories({
-    int limit = 20,
+    int limit = 50,
   }) async {
     if (limit < 1 || limit > _maximumSearchLimit) {
       throw ArgumentError('Search limit must be between 1 and 50.');
@@ -46,8 +46,10 @@ class HuggingFaceDiscoveryService {
 
     final Uri uri = Uri.https(_host, '/api/models', <String, String>{
       'filter': 'gguf',
+      'pipeline_tag': 'text-generation',
+      'search': 'instruct',
       'gated': 'false',
-      'sort': 'lastModified',
+      'sort': 'downloads',
       'direction': '-1',
       'limit': '$limit',
     });

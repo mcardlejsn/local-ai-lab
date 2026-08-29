@@ -65,7 +65,8 @@ void main() {
       expect(result.sourceFailures, isEmpty);
     });
 
-    test('fetches and caches one shared upstream license repository', () async {
+    test('keeps the first passing repository for one shared base model',
+        () async {
       final List<String> requestedPaths = <String>[];
       final GgufDiscoveryService service = GgufDiscoveryService(
         loadSeedRepositories: _noSeeds,
@@ -107,14 +108,63 @@ void main() {
 
       final result = await service.discover();
 
-      expect(result.assessments, hasLength(2));
-      expect(result.candidateCount, 2);
+      expect(result.assessments, hasLength(1));
+      expect(
+        result.assessments.single.repositoryId,
+        'Publisher/First-Qwen2.5-Instruct-GGUF',
+      );
+      expect(result.candidateCount, 1);
       expect(result.sourceFailures, isEmpty);
       expect(
         requestedPaths
             .where((path) => path == '/api/models/Qwen/Qwen2.5-1.5B-Instruct')
             .length,
         1,
+      );
+    });
+
+    test('prefers a seed for a case-insensitive shared base model',
+        () async {
+      final GgufDiscoveryService service = GgufDiscoveryService(
+        loadSeedRepositories: () async => <String>[
+          'Seed/Qwen2.5-1.5B-Instruct-GGUF',
+        ],
+        source: HuggingFaceDiscoveryService(
+          fetchJson: (Uri uri) async {
+            if (uri.path == '/api/models') {
+              return <Object?>[
+                _summary('Live/Qwen2.5-1.5B-Instruct-GGUF'),
+              ];
+            }
+            if (uri.path ==
+                '/api/models/Seed/Qwen2.5-1.5B-Instruct-GGUF') {
+              return _repository(
+                id: 'Seed/Qwen2.5-1.5B-Instruct-GGUF',
+                license: 'apache-2.0',
+                fileName: 'seed-qwen2.5-1.5b-instruct-q4_k_m.gguf',
+                upstreamId: 'Qwen/Qwen2.5-1.5B-Instruct',
+              );
+            }
+            if (uri.path ==
+                '/api/models/Live/Qwen2.5-1.5B-Instruct-GGUF') {
+              return _repository(
+                id: 'Live/Qwen2.5-1.5B-Instruct-GGUF',
+                license: 'apache-2.0',
+                fileName: 'live-qwen2.5-1.5b-instruct-q4_k_m.gguf',
+                upstreamId: 'qwen/qwen2.5-1.5b-instruct',
+              );
+            }
+            throw StateError('Unexpected request: $uri');
+          },
+        ),
+      );
+
+      final result = await service.discover();
+
+      expect(result.assessments, hasLength(1));
+      expect(
+        result.assessments.single.repositoryId,
+        'Seed/Qwen2.5-1.5B-Instruct-GGUF',
       );
     });
 
@@ -233,7 +283,7 @@ void main() {
         source: HuggingFaceDiscoveryService(
           fetchJson: (Uri uri) async {
             if (uri.path == '/api/models') {
-              expect(uri.queryParameters['limit'], '10');
+              expect(uri.queryParameters['limit'], '50');
               return <Object?>[
                 _summary('seed/qwen2.5-1b-instruct-gguf'),
                 _summary('Live/Qwen2.5-2B-Instruct-GGUF'),
@@ -398,7 +448,7 @@ void main() {
       );
 
       await expectLater(
-        service.discover(limit: 11),
+        service.discover(limit: 51),
         throwsArgumentError,
       );
       expect(seedLoads, 0);
