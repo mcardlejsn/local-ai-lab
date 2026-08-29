@@ -94,20 +94,19 @@ class DownloadCancelToken {
 }
 
 class ModelDownloadService {
-  ModelDownloadService({ModelsDirectoryResolver? modelsDirectoryResolver})
-      : _modelsDirectoryResolver = modelsDirectoryResolver;
+  ModelDownloadService({this.modelsDirectoryResolver});
 
   static const String _userAgent = 'LocalAILab/1.0 (Android; Dart:io)';
   static const Duration _connectionTimeout = Duration(seconds: 30);
 
-  final ModelsDirectoryResolver? _modelsDirectoryResolver;
+  final ModelsDirectoryResolver? modelsDirectoryResolver;
 
   /// The app's external files directory — `Android/data/<package>/files/`,
   /// the directory [ModelManagerService.scanModels] reads. Downloads land
   /// here rather than in a `models/` subfolder, so an installed model is one
   /// level in from the app's data folder instead of two.
   Future<Directory?> resolveModelsDirectory() async {
-    final ModelsDirectoryResolver? override = _modelsDirectoryResolver;
+    final ModelsDirectoryResolver? override = modelsDirectoryResolver;
     if (override != null) return override();
 
     final Directory? extDir = await getExternalStorageDirectory();

@@ -1,10 +1,15 @@
 import 'dart:io';
+import 'dart:isolate';
+
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/gguf_compatibility_policy.dart';
+import '../models/litertlm_model_artifact.dart';
 import 'gemini_nano_service.dart';
+import 'litertlm_service.dart';
 import 'llama_gguf_service.dart';
 
 export '../models/gguf_compatibility_policy.dart';
@@ -17,6 +22,10 @@ enum ModelEngine {
   mediapipe,
 
   gguf,
+
+  /// LiteRT-LM identity remains platform-neutral; the prototype runtime
+  /// currently supplies its GPU implementation on Android.
+  litertlm,
 }
 
 /// Wraps [instruction] and [rawText] in the framing [format] expects.
@@ -96,8 +105,21 @@ String buildInferencePrompt({
 int estimateOutputTokens(String output) => (output.length / 4.0).ceil();
 
 /// Whether [filePath] can be discovered by the active file-model runtime.
-bool isActiveModelFilePath(String filePath) =>
-    p.extension(filePath).toLowerCase() == '.gguf';
+bool isActiveModelFilePath(String filePath) {
+  return p.extension(filePath).toLowerCase() == '.gguf' ||
+      prototypeLiteRtLmArtifact.hasExpectedFilename(p.basename(filePath));
+}
+
+/// Keeps the LiteRT-LM prototype out of Benchmark Suite without coupling the
+/// benchmark screen to a new engine it does not yet support.
+bool isBenchmarkModel(ModelInfo model) => model.engine != ModelEngine.litertlm;
+
+Future<String> _calculateSha256(String filePath) {
+  return Isolate.run(() async {
+    final digest = await sha256.bind(File(filePath).openRead()).first;
+    return digest.toString();
+  });
+}
 
 class ModelInfo {
   final String id;
@@ -136,7 +158,13 @@ class ModelManagerService extends ChangeNotifier {
   bool _isLoading = false;
   String? _statusMessage;
 
-  List<ModelInfo> get availableModels => List.unmodifiable(_availableModels);
+  /// Models available to screens that predate the LiteRT-LM prototype.
+  /// Benchmark Suite and download presentation therefore remain unchanged.
+  List<ModelInfo> get availableModels =>
+      List.unmodifiable(_availableModels.where(isBenchmarkModel));
+
+  /// Every active inference model exposed by the main Summarizer.
+  List<ModelInfo> get summarizerModels => List.unmodifiable(_availableModels);
   ModelInfo? get activeModel => _activeModel;
   bool get isLoading => _isLoading;
   String? get statusMessage => _statusMessage;
@@ -179,7 +207,8 @@ class ModelManagerService extends ChangeNotifier {
         );
       }
 
-      // 2. Scan sandbox filesystem for GGUF models.
+      // 2. Scan sandbox filesystem for GGUF models and the one exact,
+      // manually sideloaded LiteRT-LM prototype artifact.
       final directories = await _searchDirectories;
       for (final dir in directories) {
         if (await dir.exists()) {
@@ -189,20 +218,57 @@ class ModelManagerService extends ChangeNotifier {
               if (entity is File) {
                 final fileName = p.basename(entity.path);
 
-                if (isActiveModelFilePath(entity.path)) {
-                  if (!discovered.any((m) => m.path == entity.path)) {
-                    final stat = await entity.stat();
-                    discovered.add(
-                      ModelInfo(
-                        id: entity.path,
-                        name: fileName,
-                        path: entity.path,
-                        engine: ModelEngine.gguf,
-                        sizeBytes: stat.size,
-                        promptFormat: resolvePromptFormat(fileName),
-                      ),
+                if (!isActiveModelFilePath(entity.path) ||
+                    discovered.any((m) => m.path == entity.path)) {
+                  continue;
+                }
+
+                final stat = await entity.stat();
+                if (prototypeLiteRtLmArtifact.hasExpectedFilename(fileName)) {
+                  if (stat.size != prototypeLiteRtLmArtifact.sizeBytes) {
+                    debugPrint(
+                      'Ignoring LiteRT-LM artifact with unexpected size: '
+                      '${entity.path}',
                     );
+                    continue;
                   }
+
+                  final digest = await _calculateSha256(entity.path);
+                  if (!prototypeLiteRtLmArtifact.matchesVerifiedIdentity(
+                    candidateFilename: fileName,
+                    candidateSizeBytes: stat.size,
+                    candidateSha256: digest,
+                  )) {
+                    debugPrint(
+                      'Ignoring LiteRT-LM artifact with unexpected SHA-256: '
+                      '${entity.path}',
+                    );
+                    continue;
+                  }
+
+                  discovered.add(
+                    ModelInfo(
+                      id: prototypeLiteRtLmArtifact.identity,
+                      name: prototypeLiteRtLmArtifact.displayName,
+                      path: entity.path,
+                      engine: ModelEngine.litertlm,
+                      sizeBytes: stat.size,
+                      // LiteRT-LM owns the Qwen conversation template. The
+                      // app supplies only the unchanged instruction/body.
+                      promptFormat: PromptFormat.plain,
+                    ),
+                  );
+                } else {
+                  discovered.add(
+                    ModelInfo(
+                      id: entity.path,
+                      name: fileName,
+                      path: entity.path,
+                      engine: ModelEngine.gguf,
+                      sizeBytes: stat.size,
+                      promptFormat: resolvePromptFormat(fileName),
+                    ),
+                  );
                 }
               }
             }
@@ -221,11 +287,15 @@ class ModelManagerService extends ChangeNotifier {
           return;
         } else {
           // Sync existing model reference and clear loading status message
-          _activeModel =
-              _availableModels.firstWhere((m) => m.id == _activeModel!.id);
-          _statusMessage = _activeModel!.engine == ModelEngine.nano
-              ? 'Gemini Nano Ready (AICore NPU)'
-              : 'Ready: ${_activeModel!.name}';
+          _activeModel = _availableModels.firstWhere(
+            (m) => m.id == _activeModel!.id,
+          );
+          _statusMessage = switch (_activeModel!.engine) {
+            ModelEngine.nano => 'Gemini Nano Ready (AICore NPU)',
+            ModelEngine.litertlm =>
+              'LiteRT-LM Engine Ready: ${_activeModel!.name} · GPU backend',
+            _ => 'Ready: ${_activeModel!.name}',
+          };
         }
       } else {
         _activeModel = null;
@@ -259,8 +329,13 @@ class ModelManagerService extends ChangeNotifier {
           contextSize: 2048,
         );
         _activeModel = model;
-        _statusMessage = 'GGUF Engine Ready: ${model.name} · '
+        _statusMessage =
+            'GGUF Engine Ready: ${model.name} · '
             '${model.promptFormat.label} prompt format';
+      } else if (model.engine == ModelEngine.litertlm) {
+        await LiteRtLmService.instance.loadModel(model.path);
+        _activeModel = model;
+        _statusMessage = 'LiteRT-LM Engine Ready: ${model.name} · GPU backend';
       } else {
         throw UnsupportedError('This saved engine is no longer active.');
       }
@@ -275,8 +350,11 @@ class ModelManagerService extends ChangeNotifier {
   }
 
   Future<void> unloadAllEngines() async {
-    // Free GGUF / llama.cpp memory. Gemini Nano is managed by AICore.
-    await LlamaGgufService.unloadModel();
+    // Free file-backed runtimes. Gemini Nano is managed by AICore.
+    await Future.wait([
+      LiteRtLmService.instance.unloadModel(),
+      LlamaGgufService.unloadModel(),
+    ]);
   }
 
   /// Removes a model file from disk and rescans.

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:local_ai_summarizer/main.dart';
+import 'package:local_ai_summarizer/models/litertlm_model_artifact.dart';
 import 'package:local_ai_summarizer/screens/benchmark_screen.dart';
 import 'package:local_ai_summarizer/screens/summarizer_screen.dart';
 import 'package:local_ai_summarizer/services/model_manager_service.dart';
@@ -8,9 +9,7 @@ void main() {
   group('prompt-format resolution', () {
     test('Hermes takes ChatML precedence over its Llama base family', () {
       expect(
-        resolvePromptFormat(
-          'Hermes-3-Llama-3.2-3B-Instruct-Q4_K_M.gguf',
-        ),
+        resolvePromptFormat('Hermes-3-Llama-3.2-3B-Instruct-Q4_K_M.gguf'),
         PromptFormat.chatml,
       );
     });
@@ -30,10 +29,7 @@ void main() {
     });
 
     test('recognizes the dedicated SmolLM3 prompt format', () {
-      expect(
-        resolvePromptFormat('SmolLM3-Q4_K_M.gguf'),
-        PromptFormat.smollm3,
-      );
+      expect(resolvePromptFormat('SmolLM3-Q4_K_M.gguf'), PromptFormat.smollm3);
     });
 
     test('recognizes Qwen3 without changing Qwen3.5 or Qwen2.5', () {
@@ -245,6 +241,18 @@ void main() {
       expect(prompt, contains('<|start_header_id|>user<|end_header_id|>'));
       expect(prompt, contains('<|start_header_id|>assistant<|end_header_id|>'));
     });
+
+    test('LiteRT-LM receives the unchanged plain instruction and passage', () {
+      final prompt = buildInferencePrompt(
+        format: PromptFormat.plain,
+        instruction: instruction,
+        rawText: rawText,
+      );
+
+      expect(prompt, 'Summarize this:\n\n"""\nA short passage.\n"""');
+      expect(prompt, isNot(contains('<|im_start|>')));
+      expect(prompt, isNot(contains('<start_of_turn>')));
+    });
   });
 
   group('output-token estimation', () {
@@ -259,20 +267,30 @@ void main() {
   });
 
   group('active model file discovery', () {
-    test('accepts GGUF files and ignores retired MediaPipe file types', () {
+    test('accepts GGUF and only the exact LiteRT-LM prototype filename', () {
       expect(isActiveModelFilePath('/models/model.gguf'), isTrue);
       expect(isActiveModelFilePath('/models/MODEL.GGUF'), isTrue);
+      expect(
+        isActiveModelFilePath('/models/${prototypeLiteRtLmArtifact.filename}'),
+        isTrue,
+      );
+      expect(isActiveModelFilePath('/models/other-model.litertlm'), isFalse);
       expect(isActiveModelFilePath('/models/model.task'), isFalse);
       expect(isActiveModelFilePath('/models/model.bin'), isFalse);
     });
   });
 
+  group('runtime sampling controls', () {
+    test('disables adjustable sampling only for LiteRT-LM', () {
+      expect(supportsAdjustableSamplingControls(ModelEngine.nano), isTrue);
+      expect(supportsAdjustableSamplingControls(ModelEngine.gguf), isTrue);
+      expect(supportsAdjustableSamplingControls(ModelEngine.litertlm), isFalse);
+    });
+  });
+
   group('benchmark model targeting', () {
     test('retains the legacy MediaPipe saved-record identity', () {
-      expect(
-        ModelEngine.values.byName('mediapipe'),
-        ModelEngine.mediapipe,
-      );
+      expect(ModelEngine.values.byName('mediapipe'), ModelEngine.mediapipe);
     });
 
     final ModelInfo nano = ModelInfo(
@@ -291,6 +309,24 @@ void main() {
       sizeBytes: 123,
       promptFormat: PromptFormat.chatml,
     );
+    final ModelInfo liteRtLm = ModelInfo(
+      id: prototypeLiteRtLmArtifact.identity,
+      name: prototypeLiteRtLmArtifact.displayName,
+      path: '/models/${prototypeLiteRtLmArtifact.filename}',
+      engine: ModelEngine.litertlm,
+      sizeBytes: prototypeLiteRtLmArtifact.sizeBytes,
+      promptFormat: PromptFormat.plain,
+    );
+
+    test('retains the platform-neutral LiteRT-LM engine identity', () {
+      expect(ModelEngine.values.byName('litertlm'), ModelEngine.litertlm);
+    });
+
+    test('excludes LiteRT-LM from the prototype benchmark model set', () {
+      expect(isBenchmarkModel(nano), isTrue);
+      expect(isBenchmarkModel(candidate), isTrue);
+      expect(isBenchmarkModel(liteRtLm), isFalse);
+    });
 
     test('normal suite retains every available model', () {
       expect(
@@ -333,41 +369,36 @@ void main() {
         <ModelInfo>[candidate],
       );
       expect(
-        benchmarkModelsForTarget(
-          <ModelInfo>[nano, candidate],
-          targetModelId: nano.id,
-        ),
+        benchmarkModelsForTarget(<ModelInfo>[
+          nano,
+          candidate,
+        ], targetModelId: nano.id),
         isEmpty,
       );
     });
 
     test('main suite requires two models but Candidate requires one', () {
       expect(
-        canRunBenchmarkModels(
-          <ModelInfo>[nano],
-          isCandidateQualification: false,
-        ),
+        canRunBenchmarkModels(<ModelInfo>[
+          nano,
+        ], isCandidateQualification: false),
         isFalse,
       );
       expect(
-        canRunBenchmarkModels(
-          <ModelInfo>[nano, candidate],
-          isCandidateQualification: false,
-        ),
+        canRunBenchmarkModels(<ModelInfo>[
+          nano,
+          candidate,
+        ], isCandidateQualification: false),
         isTrue,
       );
       expect(
-        canRunBenchmarkModels(
-          <ModelInfo>[candidate],
-          isCandidateQualification: true,
-        ),
+        canRunBenchmarkModels(<ModelInfo>[
+          candidate,
+        ], isCandidateQualification: true),
         isTrue,
       );
       expect(
-        canRunBenchmarkModels(
-          <ModelInfo>[],
-          isCandidateQualification: true,
-        ),
+        canRunBenchmarkModels(<ModelInfo>[], isCandidateQualification: true),
         isFalse,
       );
     });

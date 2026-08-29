@@ -5,11 +5,16 @@ import 'package:flutter/services.dart';
 import '../models/summary_record.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
+import '../services/litertlm_service.dart';
 import '../services/llama_gguf_service.dart';
 import '../services/model_manager_service.dart';
 import 'benchmark_screen.dart';
 import 'history_screen.dart';
 import 'model_download_screen.dart';
+
+bool supportsAdjustableSamplingControls(ModelEngine? engine) {
+  return engine != ModelEngine.litertlm;
+}
 
 class SummarizerScreen extends StatefulWidget {
   const SummarizerScreen({super.key});
@@ -99,9 +104,18 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
   }
 
   Future<void> _stopGeneration() async {
+    final engine = _modelManager.activeModel?.engine;
+    if (engine == ModelEngine.litertlm) {
+      // Native decoding must be stopped explicitly; cancelling only the Dart
+      // subscription is not a portable LiteRT-LM cancellation mechanism.
+      await LiteRtLmService.instance.stop();
+    }
+
     await _streamSubscription?.cancel();
     _streamSubscription = null;
-    await LlamaGgufService.stop();
+    if (engine == ModelEngine.gguf) {
+      await LlamaGgufService.stop();
+    }
     _stopTimers();
 
     if (mounted) {
@@ -236,57 +250,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
           topK: _topK,
           maxTokens: _maxTokens,
         );
-
-        bool isFirstChunk = true;
-
-        _streamSubscription = stream.listen(
-          (chunk) {
-            if (chunk.isNotEmpty) {
-              if (isFirstChunk) {
-                _ttftStopwatch.stop();
-                _timeToFirstTokenSeconds =
-                    _ttftStopwatch.elapsedMilliseconds / 1000.0;
-                isFirstChunk = false;
-              }
-
-              if (mounted) {
-                setState(() {
-                  _generatedOutput += chunk;
-                  _estimatedTokenCount = estimateOutputTokens(_generatedOutput);
-
-                  final double currentSec =
-                      _inferenceStopwatch.elapsedMilliseconds / 1000.0;
-                  if (currentSec > 0) {
-                    _tokensPerSecond = _estimatedTokenCount / currentSec;
-                  }
-                });
-                _autoScroll();
-              }
-            }
-          },
-          onError: (error) {
-            _stopTimers();
-            if (mounted) {
-              setState(() => _isStreaming = false);
-              _showSnackBar('GGUF Stream Error: $error');
-            }
-          },
-          onDone: () {
-            _stopTimers();
-            if (mounted) {
-              setState(() {
-                _isStreaming = false;
-                _totalLatencySeconds =
-                    _inferenceStopwatch.elapsedMilliseconds / 1000.0;
-                if (_totalLatencySeconds! > 0) {
-                  _tokensPerSecond =
-                      _estimatedTokenCount / _totalLatencySeconds!;
-                }
-              });
-            }
-          },
-          cancelOnError: true,
-        );
+        _listenToGenerationStream(stream, engineLabel: 'GGUF');
       } catch (e) {
         _stopTimers();
         if (mounted) {
@@ -297,11 +261,84 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
       return;
     }
 
+    // 3. LiteRT-LM Engine (general GPU backend)
+    if (activeModel.engine == ModelEngine.litertlm) {
+      try {
+        final stream = await LiteRtLmService.instance.generate(
+          prompt: fullPrompt,
+          maxOutputTokens: _maxTokens,
+        );
+        _listenToGenerationStream(stream, engineLabel: 'LiteRT-LM');
+      } catch (e) {
+        _stopTimers();
+        if (mounted) {
+          setState(() => _isStreaming = false);
+          _showSnackBar('LiteRT-LM Inference Failed: $e');
+        }
+      }
+      return;
+    }
+
     _stopTimers();
     if (mounted) {
       setState(() => _isStreaming = false);
       _showSnackBar('The selected model engine is no longer supported.');
     }
+  }
+
+  void _listenToGenerationStream(
+    Stream<String> stream, {
+    required String engineLabel,
+  }) {
+    bool isFirstChunk = true;
+
+    _streamSubscription = stream.listen(
+      (chunk) {
+        if (chunk.isNotEmpty) {
+          if (isFirstChunk) {
+            _ttftStopwatch.stop();
+            _timeToFirstTokenSeconds =
+                _ttftStopwatch.elapsedMilliseconds / 1000.0;
+            isFirstChunk = false;
+          }
+
+          if (mounted) {
+            setState(() {
+              _generatedOutput += chunk;
+              _estimatedTokenCount = estimateOutputTokens(_generatedOutput);
+
+              final double currentSec =
+                  _inferenceStopwatch.elapsedMilliseconds / 1000.0;
+              if (currentSec > 0) {
+                _tokensPerSecond = _estimatedTokenCount / currentSec;
+              }
+            });
+            _autoScroll();
+          }
+        }
+      },
+      onError: (error) {
+        _stopTimers();
+        if (mounted) {
+          setState(() => _isStreaming = false);
+          _showSnackBar('$engineLabel Stream Error: $error');
+        }
+      },
+      onDone: () {
+        _stopTimers();
+        if (mounted) {
+          setState(() {
+            _isStreaming = false;
+            _totalLatencySeconds =
+                _inferenceStopwatch.elapsedMilliseconds / 1000.0;
+            if (_totalLatencySeconds! > 0) {
+              _tokensPerSecond = _estimatedTokenCount / _totalLatencySeconds!;
+            }
+          });
+        }
+      },
+      cancelOnError: true,
+    );
   }
 
   void _autoScroll() {
@@ -385,13 +422,16 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                          builder: (_) => const BenchmarkScreen()),
+                        builder: (_) => const BenchmarkScreen(),
+                      ),
                     );
                   },
           ),
           IconButton(
-            icon:
-                const Icon(Icons.content_paste_rounded, color: Colors.white70),
+            icon: const Icon(
+              Icons.content_paste_rounded,
+              color: Colors.white70,
+            ),
             tooltip: 'Paste from Clipboard',
             onPressed: _isStreaming ? null : _pasteFromClipboard,
           ),
@@ -475,7 +515,10 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 controller: _inputController,
                 maxLines: 6,
                 style: const TextStyle(
-                    color: Colors.white, fontSize: 14, height: 1.4),
+                  color: Colors.white,
+                  fontSize: 14,
+                  height: 1.4,
+                ),
                 decoration: InputDecoration(
                   hintText: 'Enter or paste passage here...',
                   hintStyle: const TextStyle(color: Colors.white38),
@@ -486,8 +529,11 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                     builder: (_, value, __) {
                       if (value.text.isEmpty) return const SizedBox.shrink();
                       return IconButton(
-                        icon: const Icon(Icons.close_rounded,
-                            size: 18, color: Colors.white38),
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          size: 18,
+                          color: Colors.white38,
+                        ),
                         tooltip: 'Clear Input',
                         onPressed: _isStreaming ? null : _clearInput,
                       );
@@ -518,8 +564,9 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                   backgroundColor: surfaceColor,
                   labelStyle: TextStyle(
                     color: isSelected ? accentBlue : Colors.white70,
-                    fontWeight:
-                        isSelected ? FontWeight.bold : FontWeight.normal,
+                    fontWeight: isSelected
+                        ? FontWeight.bold
+                        : FontWeight.normal,
                     fontSize: 13,
                   ),
                   side: BorderSide(
@@ -554,12 +601,14 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 ),
               ),
               style: ElevatedButton.styleFrom(
-                backgroundColor:
-                    _isStreaming ? Colors.redAccent.shade700 : accentBlue,
+                backgroundColor: _isStreaming
+                    ? Colors.redAccent.shade700
+                    : accentBlue,
                 disabledBackgroundColor: Colors.white24,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8)),
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
             ),
             const SizedBox(height: 14),
@@ -576,8 +625,11 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
   }
 
   Widget _buildModelSelectorCard(
-      Color surfaceColor, Color accentBlue, Color successGreen) {
-    final available = _modelManager.availableModels;
+    Color surfaceColor,
+    Color accentBlue,
+    Color successGreen,
+  ) {
+    final available = _modelManager.summarizerModels;
     final active = _modelManager.activeModel;
     final isLoading = _modelManager.isLoading;
     final status = _modelManager.statusMessage ?? 'Ready';
@@ -593,8 +645,11 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
         ),
         child: Row(
           children: [
-            const Icon(Icons.error_outline_rounded,
-                color: Colors.redAccent, size: 20),
+            const Icon(
+              Icons.error_outline_rounded,
+              color: Colors.redAccent,
+              size: 20,
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
@@ -608,8 +663,11 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
               ),
             ),
             IconButton(
-              icon: const Icon(Icons.refresh_rounded,
-                  color: Colors.white70, size: 20),
+              icon: const Icon(
+                Icons.refresh_rounded,
+                color: Colors.white70,
+                size: 20,
+              ),
               tooltip: 'Rescan Directory',
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
@@ -640,8 +698,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 isLoading
                     ? Icons.sync_rounded
                     : (active != null
-                        ? Icons.bolt_rounded
-                        : Icons.info_outline_rounded),
+                          ? Icons.bolt_rounded
+                          : Icons.info_outline_rounded),
                 color: active != null && !isLoading ? successGreen : accentBlue,
                 size: 20,
               ),
@@ -652,8 +710,10 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                     value: active?.id,
                     isExpanded: true,
                     dropdownColor: surfaceColor,
-                    icon:
-                        Icon(Icons.arrow_drop_down_rounded, color: accentBlue),
+                    icon: Icon(
+                      Icons.arrow_drop_down_rounded,
+                      color: accentBlue,
+                    ),
                     style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
@@ -662,16 +722,19 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                     items: available.map((m) {
                       return DropdownMenuItem<String>(
                         value: m.id,
-                        child: Text('${m.name} (${m.formattedSize})',
-                            overflow: TextOverflow.ellipsis),
+                        child: Text(
+                          '${m.name} (${m.formattedSize})',
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       );
                     }).toList(),
                     onChanged: (_isStreaming || isLoading)
                         ? null
                         : (newId) {
                             if (newId != null && newId != active?.id) {
-                              final target =
-                                  available.firstWhere((m) => m.id == newId);
+                              final target = available.firstWhere(
+                                (m) => m.id == newId,
+                              );
                               _modelManager.loadModel(target);
                             }
                           },
@@ -685,7 +748,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 tooltip: 'Remove Model File',
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
-                onPressed: (_isStreaming ||
+                onPressed:
+                    (_isStreaming ||
                         isLoading ||
                         active == null ||
                         active.engine == ModelEngine.nano)
@@ -698,8 +762,9 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
           Text(
             status,
             style: TextStyle(
-              color:
-                  active != null && !isLoading ? successGreen : Colors.white60,
+              color: active != null && !isLoading
+                  ? successGreen
+                  : Colors.white60,
               fontSize: 12,
               fontWeight: FontWeight.w500,
             ),
@@ -755,7 +820,18 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
   }
 
   Widget _buildControlsCard(
-      Color surfaceColor, Color bgColor, Color accentBlue) {
+    Color surfaceColor,
+    Color bgColor,
+    Color accentBlue,
+  ) {
+    final bool samplingControlsAvailable = supportsAdjustableSamplingControls(
+      _modelManager.activeModel?.engine,
+    );
+    final String controlsSummary = samplingControlsAvailable
+        ? 'T: ${_temperature.toStringAsFixed(2)} | '
+              'K: $_topK | Max: $_maxTokens'
+        : 'T: Fixed | K: Fixed | Max: $_maxTokens';
+
     return Material(
       color: surfaceColor,
       shape: RoundedRectangleBorder(
@@ -793,8 +869,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                   border: Border.all(color: Colors.white12),
                 ),
                 child: Text(
-                  'T: ${_temperature.toStringAsFixed(2)} | '
-                  'K: $_topK | Max: $_maxTokens',
+                  controlsSummary,
                   style: TextStyle(
                     color: accentBlue,
                     fontWeight: FontWeight.bold,
@@ -808,12 +883,20 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Temperature',
-                    style: TextStyle(color: Colors.white70, fontSize: 13)),
+                const Text(
+                  'Temperature',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
                 Text(
-                  _temperature.toStringAsFixed(2),
-                  style:
-                      TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+                  samplingControlsAvailable
+                      ? _temperature.toStringAsFixed(2)
+                      : '${LiteRtLmService.fixedGpuTemperature.toStringAsFixed(2)} (fixed)',
+                  style: TextStyle(
+                    color: samplingControlsAvailable
+                        ? accentBlue
+                        : Colors.white54,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ],
             ),
@@ -824,11 +907,13 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 thumbColor: accentBlue,
               ),
               child: Slider(
-                value: _temperature,
+                value: samplingControlsAvailable
+                    ? _temperature
+                    : LiteRtLmService.fixedGpuTemperature,
                 min: 0.0,
                 max: 1.0,
                 divisions: 20,
-                onChanged: _isStreaming
+                onChanged: _isStreaming || !samplingControlsAvailable
                     ? null
                     : (v) => setState(() => _temperature = v),
               ),
@@ -836,12 +921,20 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Top-K Sampling',
-                    style: TextStyle(color: Colors.white70, fontSize: 13)),
+                const Text(
+                  'Top-K Sampling',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
                 Text(
-                  '$_topK',
-                  style:
-                      TextStyle(color: accentBlue, fontWeight: FontWeight.bold),
+                  samplingControlsAvailable
+                      ? '$_topK'
+                      : '${LiteRtLmService.fixedGpuTopK} (fixed)',
+                  style: TextStyle(
+                    color: samplingControlsAvailable
+                        ? accentBlue
+                        : Colors.white54,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ],
             ),
@@ -852,20 +945,34 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 thumbColor: accentBlue,
               ),
               child: Slider(
-                value: _topK.toDouble(),
+                value: samplingControlsAvailable
+                    ? _topK.toDouble()
+                    : LiteRtLmService.fixedGpuTopK.toDouble(),
                 min: 1,
                 max: 40,
                 divisions: 39,
-                onChanged: _isStreaming
+                onChanged: _isStreaming || !samplingControlsAvailable
                     ? null
                     : (v) => setState(() => _topK = v.round()),
               ),
             ),
+            if (!samplingControlsAvailable) ...[
+              const SizedBox(height: 2),
+              const Text(
+                'LiteRT-LM 0.16 GPU sampling is fixed by the native runtime '
+                '(effectively greedy). Temperature and Top-K cannot be '
+                'changed; Max Output Tokens remains available.',
+                style: TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+              const SizedBox(height: 12),
+            ],
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Max Output Tokens',
-                    style: TextStyle(color: Colors.white70, fontSize: 13)),
+                const Text(
+                  'Max Output Tokens',
+                  style: TextStyle(color: Colors.white70, fontSize: 13),
+                ),
                 Text(
                   '$_maxTokens',
                   style: TextStyle(
@@ -923,8 +1030,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     final latencyText = _totalLatencySeconds != null
         ? '${_totalLatencySeconds!.toStringAsFixed(2)}s'
         : (_isStreaming
-            ? '${(_inferenceStopwatch.elapsedMilliseconds / 1000.0).toStringAsFixed(1)}s'
-            : '--');
+              ? '${(_inferenceStopwatch.elapsedMilliseconds / 1000.0).toStringAsFixed(1)}s'
+              : '--');
 
     final ttftText = _timeToFirstTokenSeconds != null
         ? '${_timeToFirstTokenSeconds!.toStringAsFixed(2)}s'
@@ -934,8 +1041,9 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
         ? '${_tokensPerSecond!.toStringAsFixed(1)} est. tok/s'
         : '--';
 
-    final tokensText =
-        _estimatedTokenCount > 0 ? '$_estimatedTokenCount' : '--';
+    final tokensText = _estimatedTokenCount > 0
+        ? '$_estimatedTokenCount'
+        : '--';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -987,18 +1095,25 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 Row(
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.copy_rounded,
-                          size: 18, color: Color(0xFF90CAF9)),
+                      icon: const Icon(
+                        Icons.copy_rounded,
+                        size: 18,
+                        color: Color(0xFF90CAF9),
+                      ),
                       tooltip: 'Copy Output',
                       onPressed: () {
                         Clipboard.setData(
-                            ClipboardData(text: _generatedOutput));
+                          ClipboardData(text: _generatedOutput),
+                        );
                         _showSnackBar('Copied to clipboard.');
                       },
                     ),
                     IconButton(
-                      icon: const Icon(Icons.bookmark_add_rounded,
-                          size: 18, color: Color(0xFF90CAF9)),
+                      icon: const Icon(
+                        Icons.bookmark_add_rounded,
+                        size: 18,
+                        color: Color(0xFF90CAF9),
+                      ),
                       tooltip: 'Save Summary',
                       onPressed: _saveCurrentSummary,
                     ),
@@ -1011,8 +1126,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
           SelectableText(
             _generatedOutput.isEmpty
                 ? (_isStreaming
-                    ? 'Generating initial tokens...'
-                    : 'No summary generated yet.')
+                      ? 'Generating initial tokens...'
+                      : 'No summary generated yet.')
                 : _generatedOutput,
             style: TextStyle(
               fontSize: 14,
@@ -1052,10 +1167,6 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
   }
 
   Widget _buildVerticalDivider() {
-    return Container(
-      height: 22,
-      width: 1,
-      color: Colors.white12,
-    );
+    return Container(height: 22, width: 1, color: Colors.white12);
   }
 }
