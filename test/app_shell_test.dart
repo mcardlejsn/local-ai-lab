@@ -81,6 +81,12 @@ void main() {
     expect(service.savedSettings.themeMode, ThemeMode.dark);
     expect(service.savedSettings.colorTheme, AppColorTheme.violet);
     expect(service.savedSettings.higherContrast, isTrue);
+
+    await tester.scrollUntilVisible(find.text('About and diagnostics'), 200);
+    expect(find.text('About and diagnostics'), findsOneWidget);
+    expect(find.text('About Local AI Lab'), findsOneWidget);
+    expect(find.text('Device and runtime information'), findsOneWidget);
+    expect(find.text('Open-source licenses'), findsOneWidget);
   });
 
   testWidgets('Settings appearance controls support very large text', (

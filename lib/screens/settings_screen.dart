@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/app_settings_service.dart';
 import '../theme/app_theme.dart';
+import 'about_screen.dart';
 
 Future<void> openSettings(BuildContext context) async {
   await Navigator.of(
@@ -145,6 +146,57 @@ class SettingsScreen extends StatelessWidget {
                   ],
                 ),
               ),
+              const SizedBox(height: 24),
+              Text(
+                'About and diagnostics',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: colors.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Card(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppTheme.cardRadius),
+                  side: BorderSide(color: colors.outlineVariant),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: <Widget>[
+                    _SettingsActionTile(
+                      key: const Key('about-local-ai-lab'),
+                      icon: Icons.info_outline_rounded,
+                      title: 'About Local AI Lab',
+                      subtitle: 'Version, privacy, and network-use information',
+                      onTap: () => Navigator.of(context).push<void>(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const AboutLocalAiLabScreen(),
+                        ),
+                      ),
+                    ),
+                    Divider(height: 1, color: colors.outlineVariant),
+                    _SettingsActionTile(
+                      key: const Key('device-runtime-information'),
+                      icon: Icons.monitor_heart_outlined,
+                      title: 'Device and runtime information',
+                      subtitle: 'AICore and llama.cpp status',
+                      onTap: () => Navigator.of(context).push<void>(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const DeviceRuntimeScreen(),
+                        ),
+                      ),
+                    ),
+                    Divider(height: 1, color: colors.outlineVariant),
+                    _SettingsActionTile(
+                      key: const Key('open-source-licenses'),
+                      icon: Icons.receipt_long_outlined,
+                      title: 'Open-source licenses',
+                      onTap: () => openOpenSourceLicenses(context),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
             ],
           ),
         );
@@ -162,6 +214,42 @@ class SettingsScreen extends StatelessWidget {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(controller.lastError!)));
+  }
+}
+
+class _SettingsActionTile extends StatelessWidget {
+  const _SettingsActionTile({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.onTap,
+    this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme colors = Theme.of(context).colorScheme;
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      leading: Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: colors.primaryContainer,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Icon(icon, color: colors.onPrimaryContainer),
+      ),
+      title: Text(title),
+      subtitle: subtitle == null ? null : Text(subtitle!),
+      trailing: const Icon(Icons.chevron_right_rounded),
+      onTap: onTap,
+    );
   }
 }
 
