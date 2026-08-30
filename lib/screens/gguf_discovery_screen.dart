@@ -76,6 +76,7 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
   DateTime? _lastRefreshedUtc;
   String? _errorMessage;
   bool _isDiscovering = false;
+  bool _isVerifyingInstalledModels = false;
   int _discoveryGeneration = 0;
   final Map<String, _CandidateDownloadState> _downloadStates =
       <String, _CandidateDownloadState>{};
@@ -107,7 +108,9 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
   }
 
   Future<void> _discover() async {
-    if (_isDiscovering || _hasActiveDownload) return;
+    if (_isDiscovering || _isVerifyingInstalledModels || _hasActiveDownload) {
+      return;
+    }
     final int generation = ++_discoveryGeneration;
     setState(() {
       _isDiscovering = true;
@@ -118,14 +121,11 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
       final GgufDiscoveryResult result = await _discoveryService.discover();
       final DateTime discoveredAtUtc = DateTime.now().toUtc();
       await _saveDiscoveryCache(result, discoveredAtUtc);
-      if (!mounted) return;
-      setState(() {
-        _result = result;
-        _lastRefreshedUtc = discoveredAtUtc;
-        _isDiscovering = false;
-        _downloadStates.clear();
-      });
-      await _refreshCandidateStates(result, generation);
+      await _publishResultWithCandidateStates(
+        result,
+        generation,
+        discoveredAtUtc: discoveredAtUtc,
+      );
     } on HuggingFaceDiscoveryException catch (error) {
       _showFailure(error.message);
     } on GgufDiscoverySeedException catch (error) {
@@ -150,12 +150,11 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     }
     final GgufDiscoveryCacheEntry restored = entry;
 
-    setState(() {
-      _result = restored.result;
-      _lastRefreshedUtc = restored.discoveredAtUtc;
-      _downloadStates.clear();
-    });
-    await _refreshCandidateStates(restored.result, generation);
+    await _publishResultWithCandidateStates(
+      restored.result,
+      generation,
+      discoveredAtUtc: restored.discoveredAtUtc,
+    );
   }
 
   Future<void> _saveDiscoveryCache(
@@ -174,29 +173,108 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     setState(() {
       _errorMessage = message;
       _isDiscovering = false;
+      _isVerifyingInstalledModels = false;
     });
   }
 
-  Future<void> _refreshCandidateStates(
+  Future<void> _publishResultWithCandidateStates(
     GgufDiscoveryResult result,
-    int generation,
-  ) async {
+    int generation, {
+    required DateTime discoveredAtUtc,
+  }) async {
     final List<GgufCandidateArtifact> artifacts = result.assessments
         .where((assessment) => assessment.canDownload)
         .map((assessment) => assessment.artifact!)
         .toList(growable: false);
-    if (artifacts.isEmpty || !mounted || generation != _discoveryGeneration) {
-      return;
+    List<GgufCandidateArtifact> savedArtifacts;
+    try {
+      savedArtifacts = await _installRegistry.load();
+    } on Object {
+      savedArtifacts = const <GgufCandidateArtifact>[];
+    }
+    final Map<String, GgufCandidateArtifact> savedByFileName = {
+      for (final GgufCandidateArtifact saved in savedArtifacts)
+        saved.fileName.toLowerCase(): saved,
+    };
+    final Map<String, _CandidateDownloadState> preparedStates =
+        <String, _CandidateDownloadState>{};
+    final List<GgufCandidateArtifact> artifactsToVerify =
+        <GgufCandidateArtifact>[];
+
+    for (final GgufCandidateArtifact artifact in artifacts) {
+      final InstalledArtifactSizeStatus sizeStatus = await _downloadService
+          .installedArtifactSizeStatus(
+            fileName: artifact.fileName,
+            expectedSizeBytes: artifact.sizeBytes,
+          );
+      switch (sizeStatus) {
+        case InstalledArtifactSizeStatus.absent:
+          final int partialBytes = await _downloadService.partialBytes(
+            artifact.fileName,
+          );
+          preparedStates[_artifactKey(artifact)] = _CandidateDownloadState(
+            partialBytes: partialBytes,
+            receivedBytes: partialBytes,
+            totalBytes: artifact.sizeBytes,
+          );
+          break;
+        case InstalledArtifactSizeStatus.matchesExpectedSize:
+          final GgufCandidateArtifact? saved =
+              savedByFileName[artifact.fileName.toLowerCase()];
+          final bool hasMatchingProvenance =
+              saved != null && _matchesSavedProvenance(saved, artifact);
+          preparedStates[_artifactKey(artifact)] = _CandidateDownloadState(
+            isChecking: !hasMatchingProvenance,
+            installed: hasMatchingProvenance,
+            totalBytes: artifact.sizeBytes,
+          );
+          artifactsToVerify.add(artifact);
+          break;
+        case InstalledArtifactSizeStatus.differentSize:
+          preparedStates[_artifactKey(artifact)] = _CandidateDownloadState(
+            fileConflict: true,
+            totalBytes: artifact.sizeBytes,
+          );
+          break;
+        case InstalledArtifactSizeStatus.storageUnavailable:
+          preparedStates[_artifactKey(artifact)] = _CandidateDownloadState(
+            storageUnavailable: true,
+            totalBytes: artifact.sizeBytes,
+          );
+          break;
+      }
     }
 
+    if (!mounted || generation != _discoveryGeneration) return;
     setState(() {
-      for (final GgufCandidateArtifact artifact in artifacts) {
-        _downloadStates[_artifactKey(artifact)] = const _CandidateDownloadState(
-          isChecking: true,
-        );
-      }
+      _result = result;
+      _lastRefreshedUtc = discoveredAtUtc;
+      _isDiscovering = false;
+      _isVerifyingInstalledModels = artifactsToVerify.isNotEmpty;
+      _downloadStates
+        ..clear()
+        ..addAll(preparedStates);
     });
+    if (artifactsToVerify.isNotEmpty) {
+      unawaited(_verifyCandidateStates(artifactsToVerify, generation));
+    }
+  }
 
+  bool _matchesSavedProvenance(
+    GgufCandidateArtifact saved,
+    GgufCandidateArtifact candidate,
+  ) {
+    return saved.repositoryId.toLowerCase() ==
+            candidate.repositoryId.toLowerCase() &&
+        saved.fileName.toLowerCase() == candidate.fileName.toLowerCase() &&
+        saved.sizeBytes == candidate.sizeBytes &&
+        saved.sha256.toLowerCase() == candidate.sha256.toLowerCase();
+  }
+
+  Future<void> _verifyCandidateStates(
+    List<GgufCandidateArtifact> artifacts,
+    int generation,
+  ) async {
     for (final GgufCandidateArtifact artifact in artifacts) {
       final _CandidateDownloadState state = await _readArtifactState(artifact);
       if (!mounted || generation != _discoveryGeneration) return;
@@ -204,6 +282,10 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
         _downloadStates[_artifactKey(artifact)] = state;
       });
     }
+    if (!mounted || generation != _discoveryGeneration) return;
+    setState(() {
+      _isVerifyingInstalledModels = false;
+    });
   }
 
   Future<_CandidateDownloadState> _readArtifactState(
@@ -564,15 +646,24 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
       alignment: Alignment.centerLeft,
       child: ElevatedButton.icon(
         key: const Key('discover-gguf-button'),
-        onPressed: _isDiscovering || _hasActiveDownload ? null : _discover,
-        icon: _isDiscovering
+        onPressed:
+            _isDiscovering || _isVerifyingInstalledModels || _hasActiveDownload
+            ? null
+            : _discover,
+        icon: _isDiscovering || _isVerifyingInstalledModels
             ? const SizedBox(
                 width: 18,
                 height: 18,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
             : const Icon(Icons.travel_explore_rounded, size: 18),
-        label: Text(_isDiscovering ? 'Discovering…' : 'Discover new models'),
+        label: Text(
+          _isDiscovering
+              ? 'Discovering…'
+              : _isVerifyingInstalledModels
+              ? 'Verifying installed models…'
+              : 'Discover new models',
+        ),
         style: ElevatedButton.styleFrom(
           backgroundColor: _accentBlue,
           foregroundColor: Colors.black,
@@ -600,14 +691,26 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
 
   Widget _buildSummary(GgufDiscoveryResult result, DateTime? lastRefreshedUtc) {
     final int count = _visibleCandidates(result).length;
+    final int installedCount = result.assessments
+        .where(_isInstalledAssessment)
+        .length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           '$count downloadable '
-          '${count == 1 ? 'Candidate' : 'Candidates'} found',
+          '${count == 1 ? 'Candidate' : 'Candidates'} found'
+          '${installedCount == 0 ? '' : ' · $installedCount already installed'}',
           style: const TextStyle(color: Colors.white70, fontSize: 13),
         ),
+        if (_isVerifyingInstalledModels) ...[
+          const SizedBox(height: 4),
+          const Text(
+            'Verifying installed model files in the background…',
+            key: Key('installed-model-verification-status'),
+            style: TextStyle(color: Colors.white54, fontSize: 11),
+          ),
+        ],
         if (lastRefreshedUtc != null) ...[
           const SizedBox(height: 4),
           Text(

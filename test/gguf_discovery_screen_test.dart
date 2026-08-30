@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:local_ai_summarizer/models/gguf_candidate_assessment.dart';
@@ -31,6 +33,7 @@ void main() {
           home: GgufDiscoveryScreen(
             discoveryService: service,
             discoveryCache: _FakeGgufDiscoveryCache(),
+            installRegistry: _FakeGgufInstallRegistry(),
           ),
         ),
       );
@@ -159,7 +162,10 @@ void main() {
           ),
           findsNothing,
         );
-        expect(find.text('0 downloadable Candidates found'), findsOneWidget);
+        expect(
+          find.text('0 downloadable Candidates found · 1 already installed'),
+          findsOneWidget,
+        );
       },
     );
 
@@ -176,6 +182,7 @@ void main() {
             discoveryService: _singleCandidateService(),
             discoveryCache: _FakeGgufDiscoveryCache(),
             downloadService: downloader,
+            installRegistry: _FakeGgufInstallRegistry(),
           ),
         ),
       );
@@ -188,8 +195,126 @@ void main() {
         ),
         findsNothing,
       );
-      expect(find.text('0 downloadable Candidates found'), findsOneWidget);
+      expect(
+        find.text('0 downloadable Candidates found · 1 already installed'),
+        findsOneWidget,
+      );
       expect(find.text('Benchmark model'), findsNothing);
+    });
+
+    testWidgets(
+      'saved provenance filters the initial list before exact verification',
+      (WidgetTester tester) async {
+        final Completer<InstalledArtifactStatus> verification =
+            Completer<InstalledArtifactStatus>();
+        final _FakeModelDownloadService downloader = _FakeModelDownloadService(
+          sizeStatus: InstalledArtifactSizeStatus.matchesExpectedSize,
+          statusCompleter: verification,
+        );
+        final _FakeGgufInstallRegistry installRegistry =
+            _FakeGgufInstallRegistry();
+        installRegistry.artifacts.add(
+          _cachedCandidateResult().assessments.single.artifact!,
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: GgufDiscoveryScreen(
+              discoveryService: _singleCandidateService(),
+              discoveryCache: _FakeGgufDiscoveryCache(
+                entry: GgufDiscoveryCacheEntry(
+                  result: _cachedCandidateResult(),
+                  discoveredAtUtc: DateTime.utc(2026, 8, 30, 21, 23),
+                ),
+              ),
+              downloadService: downloader,
+              installRegistry: installRegistry,
+            ),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+
+        expect(
+          find.text('0 downloadable Candidates found · 1 already installed'),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(
+            const ValueKey<String>('discovery-Qwen/Qwen2.5-1.5B-Instruct-GGUF'),
+          ),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('installed-model-verification-status')),
+          findsOneWidget,
+        );
+
+        verification.complete(InstalledArtifactStatus.matchesExpected);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('0 downloadable Candidates found · 1 already installed'),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('installed-model-verification-status')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets('failed background verification adds the Candidate back', (
+      WidgetTester tester,
+    ) async {
+      final Completer<InstalledArtifactStatus> verification =
+          Completer<InstalledArtifactStatus>();
+      final _FakeModelDownloadService downloader = _FakeModelDownloadService(
+        sizeStatus: InstalledArtifactSizeStatus.matchesExpectedSize,
+        statusCompleter: verification,
+      );
+      final _FakeGgufInstallRegistry installRegistry =
+          _FakeGgufInstallRegistry();
+      installRegistry.artifacts.add(
+        _cachedCandidateResult().assessments.single.artifact!,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GgufDiscoveryScreen(
+            discoveryService: _singleCandidateService(),
+            discoveryCache: _FakeGgufDiscoveryCache(
+              entry: GgufDiscoveryCacheEntry(
+                result: _cachedCandidateResult(),
+                discoveredAtUtc: DateTime.utc(2026, 8, 30, 21, 23),
+              ),
+            ),
+            downloadService: downloader,
+            installRegistry: installRegistry,
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        find.text('0 downloadable Candidates found · 1 already installed'),
+        findsOneWidget,
+      );
+
+      verification.complete(InstalledArtifactStatus.differentFile);
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 downloadable Candidate found'), findsOneWidget);
+      expect(
+        find.byKey(
+          const ValueKey<String>('discovery-Qwen/Qwen2.5-1.5B-Instruct-GGUF'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining(
+          'A different file already uses this exact model filename',
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('custom-license Candidate links to readable terms', (
@@ -221,6 +346,7 @@ void main() {
             discoveryService: service,
             discoveryCache: _FakeGgufDiscoveryCache(),
             downloadService: downloader,
+            installRegistry: _FakeGgufInstallRegistry(),
             externalUriLauncher: (Uri uri) async {
               openedUri = uri;
               return true;
@@ -268,6 +394,7 @@ void main() {
               ),
             ),
             downloadService: _FakeModelDownloadService(),
+            installRegistry: _FakeGgufInstallRegistry(),
             externalUriLauncher: (Uri uri) async => true,
           ),
         ),
@@ -310,6 +437,7 @@ void main() {
             discoveryService: service,
             discoveryCache: _FakeGgufDiscoveryCache(),
             downloadService: _FakeModelDownloadService(),
+            installRegistry: _FakeGgufInstallRegistry(),
             externalUriLauncher: (Uri uri) async {
               openedUri = uri;
               return true;
@@ -346,6 +474,7 @@ void main() {
             discoveryService: service,
             discoveryCache: _FakeGgufDiscoveryCache(),
             downloadService: downloader,
+            installRegistry: _FakeGgufInstallRegistry(),
           ),
         ),
       );
@@ -420,6 +549,7 @@ void main() {
             discoveryService: service,
             discoveryCache: _FakeGgufDiscoveryCache(),
             downloadService: downloader,
+            installRegistry: _FakeGgufInstallRegistry(),
           ),
         ),
       );
@@ -454,6 +584,7 @@ void main() {
             discoveryService: service,
             discoveryCache: _FakeGgufDiscoveryCache(),
             downloadService: downloader,
+            installRegistry: _FakeGgufInstallRegistry(),
           ),
         ),
       );
@@ -503,6 +634,7 @@ void main() {
               discoveryService: service,
               discoveryCache: cache,
               downloadService: downloader,
+              installRegistry: _FakeGgufInstallRegistry(),
             ),
           ),
         );
@@ -549,6 +681,7 @@ void main() {
             discoveryService: service,
             discoveryCache: cache,
             downloadService: _FakeModelDownloadService(),
+            installRegistry: _FakeGgufInstallRegistry(),
           ),
         ),
       );
@@ -588,6 +721,7 @@ void main() {
             discoveryService: service,
             discoveryCache: cache,
             downloadService: _FakeModelDownloadService(),
+            installRegistry: _FakeGgufInstallRegistry(),
           ),
         ),
       );
@@ -638,6 +772,7 @@ void main() {
           home: GgufDiscoveryScreen(
             discoveryService: service,
             discoveryCache: _FakeGgufDiscoveryCache(),
+            installRegistry: _FakeGgufInstallRegistry(),
           ),
         ),
       );
@@ -687,6 +822,7 @@ void main() {
           home: GgufDiscoveryScreen(
             discoveryService: service,
             discoveryCache: _FakeGgufDiscoveryCache(),
+            installRegistry: _FakeGgufInstallRegistry(),
           ),
         ),
       );
@@ -862,22 +998,44 @@ class _FakeGgufInstallRegistry implements GgufInstallRegistry {
 class _FakeModelDownloadService extends ModelDownloadService {
   _FakeModelDownloadService({
     this.status = InstalledArtifactStatus.absent,
+    this.sizeStatus,
+    this.statusCompleter,
     this.partial = 0,
     this.outcome = DownloadOutcome.completed,
   });
 
   InstalledArtifactStatus status;
+  final InstalledArtifactSizeStatus? sizeStatus;
+  final Completer<InstalledArtifactStatus>? statusCompleter;
   int partial;
   final DownloadOutcome outcome;
   int downloadCalls = 0;
   int discardCalls = 0;
 
   @override
+  Future<InstalledArtifactSizeStatus> installedArtifactSizeStatus({
+    required String fileName,
+    required int expectedSizeBytes,
+  }) async {
+    final InstalledArtifactSizeStatus? configured = sizeStatus;
+    if (configured != null) return configured;
+    return switch (status) {
+      InstalledArtifactStatus.absent => InstalledArtifactSizeStatus.absent,
+      InstalledArtifactStatus.matchesExpected ||
+      InstalledArtifactStatus.differentFile =>
+        InstalledArtifactSizeStatus.matchesExpectedSize,
+      InstalledArtifactStatus.storageUnavailable =>
+        InstalledArtifactSizeStatus.storageUnavailable,
+    };
+  }
+
+  @override
   Future<InstalledArtifactStatus> installedArtifactStatus({
     required String fileName,
     required String expectedSha256,
   }) async {
-    return status;
+    final Completer<InstalledArtifactStatus>? completer = statusCompleter;
+    return completer == null ? status : completer.future;
   }
 
   @override

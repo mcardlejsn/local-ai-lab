@@ -50,6 +50,15 @@ enum InstalledArtifactStatus {
   storageUnavailable,
 }
 
+/// Cheap relationship between an installed filename and an expected byte
+/// size. Unlike [InstalledArtifactStatus], this does not read the file body.
+enum InstalledArtifactSizeStatus {
+  absent,
+  matchesExpectedSize,
+  differentSize,
+  storageUnavailable,
+}
+
 class DownloadResult {
   const DownloadResult(this.outcome, {this.filePath, this.message});
 
@@ -138,6 +147,30 @@ class ModelDownloadService {
     }
   }
 
+  /// Checks only whether [fileName] exists and has [expectedSizeBytes].
+  ///
+  /// This is suitable for an immediate UI prefilter when saved provenance is
+  /// available. It is not proof of artifact identity; callers must retain
+  /// [installedArtifactStatus] for exact sha256 verification.
+  Future<InstalledArtifactSizeStatus> installedArtifactSizeStatus({
+    required String fileName,
+    required int expectedSizeBytes,
+  }) async {
+    try {
+      final Directory? modelsDir = await resolveModelsDirectory();
+      if (modelsDir == null) {
+        return InstalledArtifactSizeStatus.storageUnavailable;
+      }
+      final File target = File(p.join(modelsDir.path, fileName));
+      if (!await target.exists()) return InstalledArtifactSizeStatus.absent;
+      return await target.length() == expectedSizeBytes
+          ? InstalledArtifactSizeStatus.matchesExpectedSize
+          : InstalledArtifactSizeStatus.differentSize;
+    } on FileSystemException {
+      return InstalledArtifactSizeStatus.storageUnavailable;
+    }
+  }
+
   /// Bytes already downloaded for [fileName], or 0 if there is no partial file.
   Future<int> partialBytes(String fileName) async {
     final Directory? modelsDir = await resolveModelsDirectory();
@@ -188,10 +221,7 @@ class ModelDownloadService {
     final File target = File(p.join(modelsDir.path, fileName));
     final InstalledArtifactStatus installedStatus;
     try {
-      installedStatus = await _installedArtifactStatus(
-        target,
-        expectedSha256,
-      );
+      installedStatus = await _installedArtifactStatus(target, expectedSha256);
     } on FileSystemException catch (error) {
       return DownloadResult(
         DownloadOutcome.storageError,
@@ -243,16 +273,14 @@ class ModelDownloadService {
       int? totalBytes;
 
       if (resumeFrom > 0 && response.statusCode == HttpStatus.partialContent) {
-        final _ContentRange? range = _parseContentRange(response.headers.value(
-          HttpHeaders.contentRangeHeader,
-        ));
+        final _ContentRange? range = _parseContentRange(
+          response.headers.value(HttpHeaders.contentRangeHeader),
+        );
         if (range == null || range.start != resumeFrom) {
           // The server honoured a range, but not the one asked for. Appending
           // these bytes would produce a file that only fails at the checksum.
           await response.drain<void>();
-          debugPrint(
-            'Range mismatch for $fileName; restarting from zero.',
-          );
+          debugPrint('Range mismatch for $fileName; restarting from zero.');
           await part.delete();
           resumeFrom = 0;
 
@@ -311,9 +339,7 @@ class ModelDownloadService {
         DownloadProgress(receivedBytes: received, totalBytes: totalBytes),
       );
 
-      sink = part.openWrite(
-        mode: append ? FileMode.append : FileMode.write,
-      );
+      sink = part.openWrite(mode: append ? FileMode.append : FileMode.write);
 
       bool cancelled = false;
       await for (final List<int> chunk in response) {
@@ -347,25 +373,13 @@ class ModelDownloadService {
       }
 
       await part.rename(target.path);
-      return DownloadResult(
-        DownloadOutcome.completed,
-        filePath: target.path,
-      );
+      return DownloadResult(DownloadOutcome.completed, filePath: target.path);
     } on SocketException catch (e) {
-      return DownloadResult(
-        DownloadOutcome.networkError,
-        message: e.message,
-      );
+      return DownloadResult(DownloadOutcome.networkError, message: e.message);
     } on HttpException catch (e) {
-      return DownloadResult(
-        DownloadOutcome.networkError,
-        message: e.message,
-      );
+      return DownloadResult(DownloadOutcome.networkError, message: e.message);
     } on FileSystemException catch (e) {
-      return DownloadResult(
-        DownloadOutcome.storageError,
-        message: e.message,
-      );
+      return DownloadResult(DownloadOutcome.storageError, message: e.message);
     } catch (e) {
       return DownloadResult(
         DownloadOutcome.networkError,
@@ -410,8 +424,9 @@ class ModelDownloadService {
   /// including `*/<total>` and an unknown total.
   _ContentRange? _parseContentRange(String? header) {
     if (header == null) return null;
-    final RegExpMatch? match =
-        RegExp(r'^bytes\s+(\d+)-(\d+)/(\d+)$').firstMatch(header.trim());
+    final RegExpMatch? match = RegExp(
+      r'^bytes\s+(\d+)-(\d+)/(\d+)$',
+    ).firstMatch(header.trim());
     if (match == null) return null;
     final int? start = int.tryParse(match.group(1)!);
     final int? total = int.tryParse(match.group(3)!);
