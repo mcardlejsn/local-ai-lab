@@ -162,6 +162,8 @@ void main() {
     expect(find.text('RATE'), findsNWidgets(2));
     expect(find.text('LATENCY'), findsNWidgets(2));
     expect(find.text('EST. TOKENS'), findsNWidgets(2));
+    expect(find.text('LENGTH MET'), findsNWidgets(2));
+    expect(find.text('2/3'), findsNWidgets(2));
     expect(find.text('non-streaming'), findsOneWidget);
     expect(find.text('3 of 3 runs completed'), findsNWidgets(2));
 
@@ -201,6 +203,8 @@ BenchmarkAggregate _aggregate({
         recallFound: 8,
         recallTotal: 10,
         missedFactIds: const <String>['deadline', 'meeting'],
+        expectedSentenceCount: 2,
+        actualSentenceCount: index == 1 ? 3 : 2,
       ),
     );
   }

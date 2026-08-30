@@ -10,6 +10,8 @@ class SummaryRecord {
   final String? engineType;
   final String? modelName;
   final int? tokenCount;
+  final int? expectedSentenceCount;
+  final int? actualSentenceCount;
 
   SummaryRecord({
     this.id,
@@ -23,7 +25,16 @@ class SummaryRecord {
     this.engineType,
     this.modelName,
     this.tokenCount,
+    this.expectedSentenceCount,
+    this.actualSentenceCount,
   });
+
+  bool? get sentenceCountMet {
+    if (expectedSentenceCount == null || actualSentenceCount == null) {
+      return null;
+    }
+    return actualSentenceCount == expectedSentenceCount;
+  }
 
   Map<String, dynamic> toMap() {
     return {
@@ -38,6 +49,8 @@ class SummaryRecord {
       'engine_type': engineType,
       'model_name': modelName,
       'token_count': tokenCount,
+      'expected_sentence_count': expectedSentenceCount,
+      'actual_sentence_count': actualSentenceCount,
     };
   }
 
@@ -54,6 +67,8 @@ class SummaryRecord {
       engineType: map['engine_type'] as String?,
       modelName: map['model_name'] as String?,
       tokenCount: map['token_count'] as int?,
+      expectedSentenceCount: map['expected_sentence_count'] as int?,
+      actualSentenceCount: map['actual_sentence_count'] as int?,
     );
   }
 }

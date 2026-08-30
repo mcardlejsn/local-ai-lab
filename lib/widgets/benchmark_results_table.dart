@@ -148,6 +148,7 @@ class _BenchmarkResultCard extends StatelessWidget {
     final double? medianRecall = aggregate.medianRecallFound;
     final int? recallTotal = aggregate.recallTotal;
     final double? medianScore = aggregate.medianAccuracyScore;
+    final int sentenceCountRunCount = aggregate.sentenceCountRuns.length;
 
     final String latencyDetail =
         successCount > 1 && minLatency != null && maxLatency != null
@@ -280,6 +281,19 @@ class _BenchmarkResultCard extends StatelessWidget {
                       ? recallColor(medianRecall, recallTotal)
                       : null,
                 ),
+                if (sentenceCountRunCount > 0)
+                  _MetricTile(
+                    width: itemWidth,
+                    label: 'LENGTH MET',
+                    value:
+                        '${aggregate.sentenceCountMetRunCount}/$sentenceCountRunCount',
+                    detail: 'completed runs',
+                    valueColor:
+                        aggregate.sentenceCountMetRunCount ==
+                            sentenceCountRunCount
+                        ? const Color(0xFF4F9D69)
+                        : colors.tertiary,
+                  ),
                 if (showAccuracy)
                   _MetricTile(
                     width: itemWidth,
@@ -589,6 +603,18 @@ class _RunSummary extends StatelessWidget {
                         '${_describeMissedFacts(run.missedFactIds)}',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          if (!failed && run.hasSentenceCountRequirement)
+            Text(
+              run.actualSentenceCount == null
+                  ? 'Length not evaluated'
+                  : '${run.sentenceCountMet == true ? 'Length met' : 'Length not met'} '
+                        '· ${run.actualSentenceCount}/${run.expectedSentenceCount} sentences',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: run.sentenceCountMet == true
+                    ? const Color(0xFF4F9D69)
+                    : theme.colorScheme.tertiary,
               ),
             ),
           if (!failed && run.isScored)

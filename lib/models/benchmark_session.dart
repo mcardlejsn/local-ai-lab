@@ -34,6 +34,11 @@ class BenchmarkModelResult {
   /// Ids of the facts the output dropped, in checklist order.
   final List<String> missedFactIds;
 
+  /// Null for tasks without a structured sentence-count requirement and for
+  /// saved rows written before sentence-count evaluation existed.
+  final int? expectedSentenceCount;
+  final int? actualSentenceCount;
+
   BenchmarkModelResult({
     required this.modelName,
     required this.engine,
@@ -49,6 +54,8 @@ class BenchmarkModelResult {
     this.recallFound,
     this.recallTotal,
     this.missedFactIds = const [],
+    this.expectedSentenceCount,
+    this.actualSentenceCount,
   });
 
   bool get isScorable => runId != null;
@@ -56,6 +63,15 @@ class BenchmarkModelResult {
   bool get isScored => accuracyScore != null;
 
   bool get isRecallGraded => recallFound != null && recallTotal != null;
+
+  bool get hasSentenceCountRequirement => expectedSentenceCount != null;
+
+  bool? get sentenceCountMet {
+    if (expectedSentenceCount == null || actualSentenceCount == null) {
+      return null;
+    }
+    return actualSentenceCount == expectedSentenceCount;
+  }
 
   /// Returns a copy with the score fields replaced outright. Both arguments are
   /// written as given, so passing null clears that field.
@@ -75,6 +91,32 @@ class BenchmarkModelResult {
       recallFound: recallFound,
       recallTotal: recallTotal,
       missedFactIds: missedFactIds,
+      expectedSentenceCount: expectedSentenceCount,
+      actualSentenceCount: actualSentenceCount,
+    );
+  }
+
+  BenchmarkModelResult copyWithSentenceCount({
+    required int? expected,
+    required int? actual,
+  }) {
+    return BenchmarkModelResult(
+      modelName: modelName,
+      engine: engine,
+      ttftSeconds: ttftSeconds,
+      totalLatencySeconds: totalLatencySeconds,
+      tokenCount: tokenCount,
+      tokensPerSecond: tokensPerSecond,
+      outputText: outputText,
+      errorMessage: errorMessage,
+      runId: runId,
+      accuracyScore: accuracyScore,
+      scoreNote: scoreNote,
+      recallFound: recallFound,
+      recallTotal: recallTotal,
+      missedFactIds: missedFactIds,
+      expectedSentenceCount: expected,
+      actualSentenceCount: actual,
     );
   }
 }
@@ -119,11 +161,11 @@ class BenchmarkAggregate {
       _median(successfulRuns.map((r) => r.tokensPerSecond).toList());
 
   double? get medianTtftSeconds => _median(
-        successfulRuns
-            .where((r) => r.ttftSeconds != null)
-            .map((r) => r.ttftSeconds!)
-            .toList(),
-      );
+    successfulRuns
+        .where((r) => r.ttftSeconds != null)
+        .map((r) => r.ttftSeconds!)
+        .toList(),
+  );
 
   double? get medianLatencySeconds =>
       _median(successfulRuns.map((r) => r.totalLatencySeconds).toList());
@@ -141,8 +183,9 @@ class BenchmarkAggregate {
   }
 
   int? get medianTokenCount {
-    final value =
-        _median(successfulRuns.map((r) => r.tokenCount.toDouble()).toList());
+    final value = _median(
+      successfulRuns.map((r) => r.tokenCount.toDouble()).toList(),
+    );
     return value?.round();
   }
 
@@ -150,9 +193,8 @@ class BenchmarkAggregate {
       successfulRuns.where((r) => r.isRecallGraded).toList();
 
   /// Median facts recalled across graded runs, or null when none were graded.
-  double? get medianRecallFound => _median(
-        recallGradedRuns.map((r) => r.recallFound!.toDouble()).toList(),
-      );
+  double? get medianRecallFound =>
+      _median(recallGradedRuns.map((r) => r.recallFound!.toDouble()).toList());
 
   /// Checklist size for this model's graded runs. Taken from the first graded
   /// run; every run in a session is graded against the same checklist.
@@ -164,9 +206,15 @@ class BenchmarkAggregate {
 
   int get scoredRunCount => scoredRuns.length;
 
-  double? get medianAccuracyScore => _median(
-        scoredRuns.map((r) => r.accuracyScore!.toDouble()).toList(),
-      );
+  List<BenchmarkModelResult> get sentenceCountRuns => successfulRuns
+      .where((r) => r.hasSentenceCountRequirement)
+      .toList(growable: false);
+
+  int get sentenceCountMetRunCount =>
+      sentenceCountRuns.where((r) => r.sentenceCountMet == true).length;
+
+  double? get medianAccuracyScore =>
+      _median(scoredRuns.map((r) => r.accuracyScore!.toDouble()).toList());
 
   /// The run whose total latency sits at the median, used as the representative
   /// output so the displayed text corresponds to the displayed timings.
@@ -208,9 +256,7 @@ List<BenchmarkAggregate> buildAggregatesFromSavedRuns(
         modelId: runMap['model_id'] as String,
         modelName: runMap['model_name'] as String,
         modelPath: runMap['model_path'] as String,
-        engine: ModelEngine.values.byName(
-          runMap['engine_type'] as String,
-        ),
+        engine: ModelEngine.values.byName(runMap['engine_type'] as String),
         promptFormat: PromptFormat.values.byName(
           runMap['prompt_format'] as String,
         ),
@@ -235,6 +281,8 @@ List<BenchmarkAggregate> buildAggregatesFromSavedRuns(
         recallFound: runMap['recall_found'] as int?,
         recallTotal: runMap['recall_total'] as int?,
         missedFactIds: _decodeMissedFactIds(runMap['missed_fact_ids']),
+        expectedSentenceCount: runMap['expected_sentence_count'] as int?,
+        actualSentenceCount: runMap['actual_sentence_count'] as int?,
       ),
     );
   }

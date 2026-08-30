@@ -143,6 +143,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         color: theme.colorScheme.primary,
                       ),
                     ),
+                    if (record.sentenceCountMet != null) ...[
+                      const SizedBox(height: 12),
+                      _buildSentenceCountBadge(record),
+                    ],
                     const SizedBox(height: 12),
                     Text(
                       record.generatedSummary,
@@ -307,6 +311,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 color: colors.onSurfaceVariant,
               ),
             ),
+            if (record.sentenceCountMet != null) ...[
+              const SizedBox(height: 10),
+              _buildSentenceCountBadge(record),
+            ],
             const SizedBox(height: 16),
             Text(
               record.generatedSummary,
@@ -379,6 +387,47 @@ class _HistoryScreenState extends State<HistoryScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildSentenceCountBadge(SummaryRecord record) {
+    final ThemeData theme = Theme.of(context);
+    final bool met = record.sentenceCountMet == true;
+    final Color color = met
+        ? (theme.brightness == Brightness.dark
+              ? const Color(0xFF81C784)
+              : const Color(0xFF2E7D32))
+        : theme.colorScheme.tertiary;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withAlpha(31),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            met
+                ? Icons.check_circle_outline_rounded
+                : Icons.warning_amber_rounded,
+            size: 18,
+            color: color,
+          ),
+          const SizedBox(width: 7),
+          Flexible(
+            child: Text(
+              '${met ? 'Length met' : 'Length not met'} · '
+              '${record.actualSentenceCount}/${record.expectedSentenceCount} sentences',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

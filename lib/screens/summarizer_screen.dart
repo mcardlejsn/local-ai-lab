@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/benchmark_test_case.dart';
+import '../models/sentence_count_evaluation.dart';
 import '../models/summary_record.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
@@ -425,11 +426,17 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     }
 
     final activeModel = _modelManager.activeModel;
+    final String savedTaskType =
+        _completedTestCase?.taskType ?? _selectedAction;
+    final SentenceCountEvaluation? sentenceCount = evaluateSentenceCount(
+      output: _generatedOutput,
+      taskType: savedTaskType,
+    );
 
     final record = SummaryRecord(
       originalText: _inputController.text.trim(),
       generatedSummary: _generatedOutput.trim(),
-      taskType: _selectedAction,
+      taskType: savedTaskType,
       createdAt: DateTime.now(),
       latencySeconds: _totalLatencySeconds,
       ttftSeconds: _timeToFirstTokenSeconds,
@@ -437,6 +444,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
       engineType: activeModel?.engine.name ?? 'unknown',
       modelName: activeModel?.name ?? 'Unknown Model',
       tokenCount: _estimatedTokenCount > 0 ? _estimatedTokenCount : null,
+      expectedSentenceCount: sentenceCount?.expected,
+      actualSentenceCount: sentenceCount?.actual,
     );
 
     await DatabaseService.instance.insertSummary(record);
@@ -1007,6 +1016,12 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     final tokensText = _estimatedTokenCount > 0
         ? '$_estimatedTokenCount'
         : '--';
+    final SentenceCountEvaluation? sentenceCount = _isStreaming
+        ? null
+        : evaluateSentenceCount(
+            output: _generatedOutput,
+            taskType: _completedTestCase?.taskType,
+          );
 
     return Card(
       key: const Key('playground-output-card'),
@@ -1057,6 +1072,10 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                     : scheme.onSurface,
               ),
             ),
+            if (sentenceCount != null) ...[
+              const SizedBox(height: 16),
+              _buildSentenceCountStatus(sentenceCount),
+            ],
             const SizedBox(height: 20),
             const Divider(),
             const SizedBox(height: 16),
@@ -1106,6 +1125,48 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildSentenceCountStatus(SentenceCountEvaluation evaluation) {
+    final ThemeData theme = Theme.of(context);
+    final bool met = evaluation.met;
+    final Color color = met
+        ? (theme.brightness == Brightness.dark
+              ? const Color(0xFF81C784)
+              : const Color(0xFF2E7D32))
+        : theme.colorScheme.tertiary;
+    return Container(
+      key: const Key('playground-sentence-count-status'),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withAlpha(31),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withAlpha(115)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            met
+                ? Icons.check_circle_outline_rounded
+                : Icons.warning_amber_rounded,
+            color: color,
+            size: 20,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '${met ? 'Length requirement met' : 'Length requirement not met'} '
+              '· ${evaluation.actual} of ${evaluation.expected} sentences',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

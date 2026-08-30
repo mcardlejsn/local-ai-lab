@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../models/benchmark_session.dart';
 import '../models/benchmark_test_case.dart';
 import '../models/recall_checklist.dart';
+import '../models/sentence_count_evaluation.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
 import '../services/llama_gguf_service.dart';
@@ -177,6 +178,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         passage: saved['passage'] as String,
         instruction: saved['instruction'] as String,
         source: BenchmarkTestCaseSource.restored,
+        taskType: saved['task_type'] as String?,
       );
       _promptController.text = saved['passage'] as String;
       _instructionController.text = saved['instruction'] as String;
@@ -377,7 +379,21 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
 
         await Future.delayed(const Duration(milliseconds: 250));
 
-        final result = await _executeSingleBenchmark(model, fullPrompt);
+        final rawResult = await _executeSingleBenchmark(model, fullPrompt);
+        final int? expectedSentenceCount = expectedSentenceCountForTask(
+          _testCase.taskType,
+        );
+        final SentenceCountEvaluation? sentenceCount =
+            rawResult.errorMessage == null
+            ? evaluateSentenceCount(
+                output: rawResult.outputText,
+                taskType: _testCase.taskType,
+              )
+            : null;
+        final result = rawResult.copyWithSentenceCount(
+          expected: expectedSentenceCount,
+          actual: sentenceCount?.actual,
+        );
 
         if (!mounted) return;
         setState(() {
@@ -468,6 +484,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
           'missed_fact_ids': recall == null
               ? null
               : jsonEncode(recall.missedTokens),
+          'expected_sentence_count': run.expectedSentenceCount,
+          'actual_sentence_count': run.actualSentenceCount,
         });
       }
     }
@@ -487,6 +505,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
       modelCount: _aggregates.length,
       runs: runRows,
       qualificationArtifactId: widget.qualificationArtifactId,
+      taskType: _testCase.taskType,
     );
   }
 

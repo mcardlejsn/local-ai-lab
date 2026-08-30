@@ -38,7 +38,7 @@ class DatabaseService {
 
     return openDatabase(
       path,
-      version: 7,
+      version: 8,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
       },
@@ -60,7 +60,9 @@ class DatabaseService {
         tokens_per_sec REAL,
         engine_type TEXT,
         model_name TEXT,
-        token_count INTEGER
+        token_count INTEGER,
+        expected_sentence_count INTEGER,
+        actual_sentence_count INTEGER
       )
     ''');
 
@@ -76,7 +78,8 @@ class DatabaseService {
         runs_per_model INTEGER NOT NULL,
         model_count INTEGER NOT NULL,
         completed_at TEXT NOT NULL,
-        qualification_artifact_id TEXT
+        qualification_artifact_id TEXT,
+        task_type TEXT
       )
     ''');
 
@@ -101,6 +104,8 @@ class DatabaseService {
         recall_found INTEGER,
         recall_total INTEGER,
         missed_fact_ids TEXT,
+        expected_sentence_count INTEGER,
+        actual_sentence_count INTEGER,
         FOREIGN KEY (session_id)
           REFERENCES benchmark_sessions (id)
           ON DELETE CASCADE,
@@ -124,23 +129,13 @@ class DatabaseService {
       await db.execute(
         'ALTER TABLE summaries ADD COLUMN latency_seconds REAL;',
       );
-      await db.execute(
-        'ALTER TABLE summaries ADD COLUMN ttft_seconds REAL;',
-      );
-      await db.execute(
-        'ALTER TABLE summaries ADD COLUMN tokens_per_sec REAL;',
-      );
+      await db.execute('ALTER TABLE summaries ADD COLUMN ttft_seconds REAL;');
+      await db.execute('ALTER TABLE summaries ADD COLUMN tokens_per_sec REAL;');
     }
     if (oldVersion < 3) {
-      await db.execute(
-        'ALTER TABLE summaries ADD COLUMN engine_type TEXT;',
-      );
-      await db.execute(
-        'ALTER TABLE summaries ADD COLUMN model_name TEXT;',
-      );
-      await db.execute(
-        'ALTER TABLE summaries ADD COLUMN token_count INTEGER;',
-      );
+      await db.execute('ALTER TABLE summaries ADD COLUMN engine_type TEXT;');
+      await db.execute('ALTER TABLE summaries ADD COLUMN model_name TEXT;');
+      await db.execute('ALTER TABLE summaries ADD COLUMN token_count INTEGER;');
     }
     if (oldVersion < 4) {
       // Creates the benchmark tables at their current shape, scoring and
@@ -177,6 +172,28 @@ class DatabaseService {
         ''');
       }
     }
+    if (oldVersion < 8) {
+      await db.execute(
+        'ALTER TABLE summaries '
+        'ADD COLUMN expected_sentence_count INTEGER;',
+      );
+      await db.execute(
+        'ALTER TABLE summaries ADD COLUMN actual_sentence_count INTEGER;',
+      );
+      if (oldVersion >= 4) {
+        await db.execute(
+          'ALTER TABLE benchmark_sessions ADD COLUMN task_type TEXT;',
+        );
+        await db.execute(
+          'ALTER TABLE benchmark_runs '
+          'ADD COLUMN expected_sentence_count INTEGER;',
+        );
+        await db.execute(
+          'ALTER TABLE benchmark_runs '
+          'ADD COLUMN actual_sentence_count INTEGER;',
+        );
+      }
+    }
   }
 
   /// Sets or clears the manual accuracy score on a single saved run.
@@ -189,10 +206,7 @@ class DatabaseService {
     final db = await instance.database;
     return db.update(
       'benchmark_runs',
-      {
-        'accuracy_score': accuracyScore,
-        'score_note': scoreNote,
-      },
+      {'accuracy_score': accuracyScore, 'score_note': scoreNote},
       where: 'id = ?',
       whereArgs: [runId],
     );
@@ -259,6 +273,7 @@ class DatabaseService {
     required int modelCount,
     required List<Map<String, Object?>> runs,
     String? qualificationArtifactId,
+    String? taskType,
   }) async {
     final db = await instance.database;
 
@@ -270,13 +285,11 @@ class DatabaseService {
         'model_count': modelCount,
         'completed_at': DateTime.now().toUtc().toIso8601String(),
         'qualification_artifact_id': qualificationArtifactId,
+        'task_type': taskType,
       });
 
       for (final run in runs) {
-        await txn.insert('benchmark_runs', {
-          'session_id': sessionId,
-          ...run,
-        });
+        await txn.insert('benchmark_runs', {'session_id': sessionId, ...run});
       }
 
       return sessionId;
@@ -315,10 +328,12 @@ class DatabaseService {
       return CandidateQualificationStatus.notRun;
     }
 
-    final Map<String, Object?> session =
-        await _loadSessionWithRuns(db, sessions.first);
-    final List<Map<String, Object?>> runs =
-        (session['runs'] as List).cast<Map<String, Object?>>();
+    final Map<String, Object?> session = await _loadSessionWithRuns(
+      db,
+      sessions.first,
+    );
+    final List<Map<String, Object?>> runs = (session['runs'] as List)
+        .cast<Map<String, Object?>>();
     return candidateQualificationStatusFromRuns(runs);
   }
 
