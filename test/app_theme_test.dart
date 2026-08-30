@@ -23,6 +23,27 @@ void main() {
       expect(AppTheme.dark.colorScheme.primary, isNot(Colors.transparent));
     });
 
+    test('builds selectable color and higher-contrast variants', () {
+      final ThemeData teal = AppTheme.lightFor(seedColor: AppTheme.tealSeed);
+      final ThemeData violet = AppTheme.darkFor(
+        seedColor: AppTheme.violetSeed,
+        higherContrast: true,
+      );
+      final ThemeData standardViolet = AppTheme.darkFor(
+        seedColor: AppTheme.violetSeed,
+      );
+
+      expect(
+        teal.colorScheme.primary,
+        isNot(AppTheme.light.colorScheme.primary),
+      );
+      expect(
+        violet.colorScheme.primary,
+        isNot(AppTheme.dark.colorScheme.primary),
+      );
+      expect(violet.colorScheme, isNot(standardViolet.colorScheme));
+    });
+
     test('provides shared shapes without overriding legacy input states', () {
       final theme = AppTheme.light;
       final cardShape = theme.cardTheme.shape as RoundedRectangleBorder;

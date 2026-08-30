@@ -2,19 +2,44 @@ import 'package:flutter/material.dart';
 
 abstract final class AppTheme {
   static const Color aiBlueSeed = Color(0xFF4F6BED);
+  static const Color tealSeed = Color(0xFF00897B);
+  static const Color violetSeed = Color(0xFF7E57C2);
 
   static const double cardRadius = 20;
   static const double controlRadius = 16;
   static const double chipRadius = 12;
 
-  static ThemeData get light => _build(Brightness.light);
+  static ThemeData get light => lightFor();
 
-  static ThemeData get dark => _build(Brightness.dark);
+  static ThemeData get dark => darkFor();
 
-  static ThemeData _build(Brightness brightness) {
+  static ThemeData lightFor({
+    Color seedColor = aiBlueSeed,
+    bool higherContrast = false,
+  }) => _build(
+    Brightness.light,
+    seedColor: seedColor,
+    higherContrast: higherContrast,
+  );
+
+  static ThemeData darkFor({
+    Color seedColor = aiBlueSeed,
+    bool higherContrast = false,
+  }) => _build(
+    Brightness.dark,
+    seedColor: seedColor,
+    higherContrast: higherContrast,
+  );
+
+  static ThemeData _build(
+    Brightness brightness, {
+    required Color seedColor,
+    required bool higherContrast,
+  }) {
     final colorScheme = ColorScheme.fromSeed(
-      seedColor: aiBlueSeed,
+      seedColor: seedColor,
       brightness: brightness,
+      contrastLevel: higherContrast ? 1.0 : 0.0,
     );
     final baseTheme = ThemeData(
       useMaterial3: true,
