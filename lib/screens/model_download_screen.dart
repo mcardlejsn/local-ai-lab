@@ -1,159 +1,203 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../models/model_catalog.dart';
-import '../services/model_download_service.dart';
+import '../models/benchmark_session.dart';
+import '../models/model_recommendation.dart';
+import '../services/database_service.dart';
 import '../services/model_manager_service.dart';
 import 'gguf_discovery_screen.dart';
 import 'settings_screen.dart';
 
-/// Manages installed models, the verified catalog, and GGUF discovery.
+typedef RecommendationBenchmarkLoader =
+    Future<Map<String, Object?>?> Function();
+
+/// Manages the Candidate, Installed, and Recommended model lifecycle.
 ///
-/// Opening this screen is offline. Installed-state checks and cached Candidate
-/// restoration are local; only explicit Discover and Download actions use the
-/// network.
+/// Opening this screen performs no network request. Candidate discovery and
+/// Candidate downloads remain explicit user actions. Recommended is derived
+/// locally from the latest saved Benchmark with at least two successful model
+/// comparisons.
 class ModelDownloadScreen extends StatefulWidget {
   const ModelDownloadScreen({
     super.key,
     required this.modelManager,
-    this.downloadService,
     this.candidateBuilder,
+    this.recommendationLoader,
+    this.benchmarkChanges,
   });
 
   final ModelManagerService modelManager;
 
   /// Optional platform-free collaborators for focused widget tests.
-  final ModelDownloadService? downloadService;
   final WidgetBuilder? candidateBuilder;
+  final RecommendationBenchmarkLoader? recommendationLoader;
+  final ValueListenable<int>? benchmarkChanges;
 
   @override
   State<ModelDownloadScreen> createState() => _ModelDownloadScreenState();
 }
 
-enum _ModelsSection { installed, verified, candidates }
+enum _ModelsSection { candidates, installed, recommended }
+
+class _ModelsSectionSelector extends StatelessWidget {
+  const _ModelsSectionSelector({
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final _ModelsSection selected;
+  final ValueChanged<_ModelsSection> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Material(
+      key: const Key('models-section-selector'),
+      color: Colors.transparent,
+      clipBehavior: Clip.antiAlias,
+      shape: StadiumBorder(side: BorderSide(color: theme.colorScheme.outline)),
+      child: IntrinsicHeight(
+        child: Row(
+          children: [
+            _buildSegment(
+              context,
+              section: _ModelsSection.candidates,
+              label: 'Candidates',
+              flex: 11,
+              showDivider: true,
+            ),
+            _buildSegment(
+              context,
+              section: _ModelsSection.installed,
+              label: 'Installed',
+              flex: 9,
+              showDivider: true,
+            ),
+            _buildSegment(
+              context,
+              section: _ModelsSection.recommended,
+              label: 'Recommended',
+              flex: 14,
+              showDivider: false,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSegment(
+    BuildContext context, {
+    required _ModelsSection section,
+    required String label,
+    required int flex,
+    required bool showDivider,
+  }) {
+    final ThemeData theme = Theme.of(context);
+    final bool isSelected = section == selected;
+    return Expanded(
+      flex: flex,
+      child: Semantics(
+        button: true,
+        selected: isSelected,
+        child: InkWell(
+          onTap: () => onSelected(section),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 56),
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? theme.colorScheme.secondaryContainer
+                  : Colors.transparent,
+              border: showDivider
+                  ? Border(right: BorderSide(color: theme.colorScheme.outline))
+                  : null,
+            ),
+            child: Text(
+              label,
+              maxLines: 1,
+              softWrap: false,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: isSelected
+                    ? theme.colorScheme.onSecondaryContainer
+                    : theme.colorScheme.onSurface,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
-  late final ModelDownloadService _downloader;
-  final Map<String, _EntryState> _states = <String, _EntryState>{};
+  late final RecommendationBenchmarkLoader _recommendationLoader;
+  late final ValueListenable<int> _benchmarkChanges;
   _ModelsSection _section = _ModelsSection.installed;
+  ModelRecommendationSnapshot? _recommendations;
+  bool _isLoadingRecommendations = true;
+  String? _recommendationError;
+  int _recommendationGeneration = 0;
 
   @override
   void initState() {
     super.initState();
-    _downloader = widget.downloadService ?? ModelDownloadService();
-    for (final CatalogModel model in kModelCatalog) {
-      _states[model.id] = const _EntryState();
-    }
+    _recommendationLoader =
+        widget.recommendationLoader ??
+        DatabaseService.instance.getLatestRecommendationBenchmark;
+    _benchmarkChanges =
+        widget.benchmarkChanges ?? DatabaseService.instance.benchmarkChanges;
     widget.modelManager.addListener(_onModelManagerChanged);
-    _refreshAll();
+    _benchmarkChanges.addListener(_onBenchmarkChanged);
+    unawaited(_loadRecommendations());
   }
 
   void _onModelManagerChanged() {
     if (mounted) setState(() {});
   }
 
+  void _onBenchmarkChanged() {
+    unawaited(_loadRecommendations());
+  }
+
   @override
   void dispose() {
     widget.modelManager.removeListener(_onModelManagerChanged);
-    for (final _EntryState state in _states.values) {
-      state.cancelToken?.cancel();
-    }
+    _benchmarkChanges.removeListener(_onBenchmarkChanged);
     super.dispose();
   }
 
-  Future<void> _refreshAll() async {
-    for (final CatalogModel model in kModelCatalog) {
-      final bool installed = await _downloader.isInstalled(model.fileName);
-      final int partial = installed
-          ? 0
-          : await _downloader.partialBytes(model.fileName);
-      if (!mounted) return;
+  Future<void> _loadRecommendations() async {
+    final int generation = ++_recommendationGeneration;
+    if (mounted) {
       setState(() {
-        _states[model.id] = _states[model.id]!.copyWith(
-          installed: installed,
-          partialBytes: partial,
-        );
+        _isLoadingRecommendations = true;
+        _recommendationError = null;
       });
     }
-  }
 
-  Future<void> _startDownload(CatalogModel model) async {
-    final DownloadCancelToken token = DownloadCancelToken();
-    DateTime lastTick = DateTime.fromMillisecondsSinceEpoch(0);
-
-    setState(() {
-      _states[model.id] = _states[model.id]!.copyWith(
-        isDownloading: true,
-        cancelToken: token,
-        message: null,
-        receivedBytes: _states[model.id]!.partialBytes,
-        totalBytes: model.sizeBytes,
-      );
-    });
-
-    final DownloadResult result = await _downloader.download(
-      url: model.uri,
-      fileName: model.fileName,
-      expectedSha256: model.sha256,
-      cancelToken: token,
-      onProgress: (DownloadProgress progress) {
-        final DateTime now = DateTime.now();
-        if (now.difference(lastTick) < const Duration(milliseconds: 250)) {
-          return;
-        }
-        lastTick = now;
-        if (!mounted) return;
-        setState(() {
-          _states[model.id] = _states[model.id]!.copyWith(
-            receivedBytes: progress.receivedBytes,
-            totalBytes: progress.totalBytes ?? model.sizeBytes,
-          );
-        });
-      },
-    );
-
-    if (!mounted) return;
-    setState(() {
-      _states[model.id] = _states[model.id]!.copyWith(
-        isDownloading: false,
-        clearCancelToken: true,
-        message: _messageFor(result),
-      );
-    });
-
-    await _refreshAll();
-    if (result.isSuccess) await widget.modelManager.scanModels();
-    if (!mounted) return;
-
-    final String? note = _messageFor(result);
-    if (note != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(note)));
+    try {
+      final Map<String, Object?>? saved = await _recommendationLoader();
+      final ModelRecommendationSnapshot? snapshot = saved == null
+          ? null
+          : buildModelRecommendationSnapshot(saved);
+      if (!mounted || generation != _recommendationGeneration) return;
+      setState(() {
+        _recommendations = snapshot;
+        _isLoadingRecommendations = false;
+      });
+    } on Object catch (error) {
+      if (!mounted || generation != _recommendationGeneration) return;
+      setState(() {
+        _recommendations = null;
+        _isLoadingRecommendations = false;
+        _recommendationError = 'Could not load recommendations: $error';
+      });
     }
-  }
-
-  String? _messageFor(DownloadResult result) {
-    return switch (result.outcome) {
-      DownloadOutcome.completed =>
-        'Installed. It will appear in the model picker.',
-      DownloadOutcome.cancelled =>
-        'Stopped. Partial file kept — Resume picks up where it left off.',
-      DownloadOutcome.networkError =>
-        'Download failed: ${result.message ?? 'network error'}. Partial file kept.',
-      DownloadOutcome.checksumFailed =>
-        'Checksum did not match. The file was discarded, not installed.',
-      DownloadOutcome.storageError =>
-        'Storage error: ${result.message ?? 'could not write the file'}.',
-      DownloadOutcome.fileConflict =>
-        'A different file already uses this model filename. It was not changed.',
-    };
-  }
-
-  Future<void> _discard(CatalogModel model) async {
-    await _downloader.discardPartial(model.fileName);
-    if (!mounted) return;
-    setState(() {
-      _states[model.id] = _states[model.id]!.copyWith(message: null);
-    });
-    await _refreshAll();
   }
 
   @override
@@ -173,7 +217,7 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
               ),
             ),
             Text(
-              'Manage local inference models',
+              'Discover, manage, and compare',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -194,39 +238,23 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: SizedBox(
-                width: double.infinity,
-                child: SegmentedButton<_ModelsSection>(
-                  key: const Key('models-section-selector'),
-                  showSelectedIcon: false,
-                  segments: const [
-                    ButtonSegment(
-                      value: _ModelsSection.installed,
-                      label: Text('Installed'),
-                    ),
-                    ButtonSegment(
-                      value: _ModelsSection.verified,
-                      label: Text('Verified'),
-                    ),
-                    ButtonSegment(
-                      value: _ModelsSection.candidates,
-                      label: Text('Candidates'),
-                    ),
-                  ],
-                  selected: {_section},
-                  onSelectionChanged: (Set<_ModelsSection> selected) {
-                    setState(() => _section = selected.single);
-                  },
-                ),
+              child: _ModelsSectionSelector(
+                selected: _section,
+                onSelected: (_ModelsSection selected) {
+                  setState(() => _section = selected);
+                  if (selected == _ModelsSection.recommended) {
+                    unawaited(_loadRecommendations());
+                  }
+                },
               ),
             ),
             Expanded(
               child: IndexedStack(
                 index: _section.index,
                 children: [
-                  _buildInstalledSection(),
-                  _buildVerifiedSection(),
                   _buildCandidatesSection(),
+                  _buildInstalledSection(),
+                  _buildRecommendedSection(),
                 ],
               ),
             ),
@@ -241,10 +269,7 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
     if (builder != null) return builder(context);
     return GgufDiscoveryScreen(
       embedded: true,
-      onModelInstalled: () async {
-        await widget.modelManager.scanModels();
-        await _refreshAll();
-      },
+      onModelInstalled: widget.modelManager.scanModels,
     );
   }
 
@@ -332,7 +357,7 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
             const SizedBox(height: 8),
             Text(
               widget.modelManager.statusMessage ??
-                  'Rescan the device or install a verified model.',
+                  'Rescan the device or download a Candidate.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -441,6 +466,256 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
       ),
     );
   }
+
+  Widget _buildRecommendedSection() {
+    return ListView(
+      key: const PageStorageKey<String>('recommended-models-list'),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      children: [
+        _buildRecommendationExplanation(),
+        const SizedBox(height: 16),
+        if (_isLoadingRecommendations)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(32),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        else if (_recommendationError != null)
+          _buildRecommendationError(_recommendationError!)
+        else if (_recommendations == null)
+          _buildNoRecommendations()
+        else ...[
+          _buildRecommendationEvidence(_recommendations!),
+          const SizedBox(height: 16),
+          for (final RecommendedModel model in _recommendations!.models) ...[
+            _buildRecommendedModelCard(model),
+            const SizedBox(height: 12),
+          ],
+        ],
+      ],
+    );
+  }
+
+  Widget _buildRecommendationExplanation() {
+    final ThemeData theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.workspace_premium_outlined,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Measured strengths',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Recommendations come from the most recent completed Benchmark '
+              'that compared at least two models. They update after a newer '
+              'qualifying Benchmark and never combine metrics into one score.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNoRecommendations() {
+    final ThemeData theme = Theme.of(context);
+    return Card(
+      key: const Key('no-model-recommendations'),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('No recommendations yet', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(
+              'Run a Benchmark with at least two installed models. Recall and '
+              'performance are compared for every successful test; structured '
+              'length compliance is also compared when applicable.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecommendationError(String message) {
+    final ThemeData theme = Theme.of(context);
+    return Card(
+      margin: EdgeInsets.zero,
+      color: theme.colorScheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text(
+          message,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onErrorContainer,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecommendationEvidence(ModelRecommendationSnapshot snapshot) {
+    final ThemeData theme = Theme.of(context);
+    final String runs = snapshot.runsPerModel == 1 ? 'run' : 'runs';
+    return Card(
+      key: const Key('recommendation-evidence'),
+      margin: EdgeInsets.zero,
+      color: theme.colorScheme.secondaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              snapshot.taskLabel,
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.onSecondaryContainer,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${snapshot.comparedModelCount} models · '
+              '${snapshot.runsPerModel} $runs per model',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSecondaryContainer,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              formatBenchmarkDateTime(snapshot.completedAt.toLocal()),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSecondaryContainer,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecommendedModelCard(RecommendedModel model) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colors = theme.colorScheme;
+    final bool installed = widget.modelManager.summarizerModels.any(
+      (ModelInfo available) => available.id == model.modelId,
+    );
+
+    return Card(
+      key: ValueKey<String>('recommended-model-${model.modelId}'),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text(
+                  model.modelName,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                _buildEngineBadge(model.engine),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              installed
+                  ? 'Installed on this device'
+                  : 'Not currently installed',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: installed ? colors.primary : colors.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 14),
+            for (final ModelRecommendationStrength strength
+                in model.strengths) ...[
+              _buildStrengthRow(strength),
+              if (strength != model.strengths.last) const SizedBox(height: 10),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStrengthRow(ModelRecommendationStrength strength) {
+    final ThemeData theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          _recommendationIcon(strength.metric),
+          size: 20,
+          color: theme.colorScheme.primary,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                strength.metric.label,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                strength.valueLabel,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  IconData _recommendationIcon(ModelRecommendationMetric metric) =>
+      switch (metric) {
+        ModelRecommendationMetric.recall => Icons.fact_check_outlined,
+        ModelRecommendationMetric.lengthCompliance =>
+          Icons.format_list_numbered_rounded,
+        ModelRecommendationMetric.latency => Icons.timer_outlined,
+        ModelRecommendationMetric.ttft => Icons.first_page_rounded,
+        ModelRecommendationMetric.generationSpeed => Icons.speed_rounded,
+      };
 
   Widget _buildEngineBadge(ModelEngine engine) {
     final ThemeData theme = Theme.of(context);
@@ -560,7 +835,6 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
     if (confirmed != true) return;
 
     final bool removed = await widget.modelManager.deleteModel(model);
-    await _refreshAll();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -574,267 +848,10 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
     );
   }
 
-  Widget _buildVerifiedSection() {
-    return ListView(
-      key: const PageStorageKey<String>('verified-models-list'),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-      children: [
-        _buildPrivacyNote(),
-        const SizedBox(height: 20),
-        _buildVerifiedHeading(),
-        const SizedBox(height: 10),
-        for (final CatalogModel model in kModelCatalog) ...[
-          _buildEntry(model),
-          const SizedBox(height: 12),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildPrivacyNote() {
-    final ThemeData theme = Theme.of(context);
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.lock_outline_rounded,
-                  size: 20,
-                  color: theme.colorScheme.primary,
-                ),
-                const SizedBox(width: 8),
-                Text('Network use', style: theme.textTheme.titleMedium),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Downloading here fetches only the Verified model artifact you '
-              'select. Candidate discovery and downloads remain separate '
-              'explicit actions in Candidates. Your text, prompts, results, '
-              'and benchmark numbers remain on this device.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Keep the app open while a download runs.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildVerifiedHeading() {
-    final ThemeData theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Verified models', style: theme.textTheme.titleLarge),
-        const SizedBox(height: 4),
-        Text(
-          'Curated artifacts with fixed source and checksum metadata.',
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEntry(CatalogModel model) {
-    final _EntryState state = _states[model.id]!;
-    final ThemeData theme = Theme.of(context);
-    final ColorScheme colors = theme.colorScheme;
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    model.displayName,
-                    style: theme.textTheme.titleMedium,
-                  ),
-                ),
-                if (state.installed)
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.check_circle_rounded,
-                        size: 16,
-                        color: colors.primary,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Installed',
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: colors.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '${model.sizeLabel} · ${model.license} · GGUF',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colors.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              model.sourcePage,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colors.onSurfaceVariant,
-              ),
-            ),
-            if (state.isDownloading) ...[
-              const SizedBox(height: 12),
-              LinearProgressIndicator(
-                value: state.fraction,
-                color: colors.primary,
-                minHeight: 4,
-              ),
-              const SizedBox(height: 6),
-              Text(state.progressLabel, style: theme.textTheme.bodySmall),
-            ] else if (state.partialBytes > 0 && !state.installed) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Partial download: ${_formatBytes(state.partialBytes)} of '
-                '${model.sizeLabel}',
-                style: theme.textTheme.bodySmall,
-              ),
-            ],
-            if (state.message != null) ...[
-              const SizedBox(height: 8),
-              Text(state.message!, style: theme.textTheme.bodySmall),
-            ],
-            const SizedBox(height: 12),
-            _buildActions(model, state),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildActions(CatalogModel model, _EntryState state) {
-    if (state.installed) {
-      return Text(
-        'Already in your models folder.',
-        style: Theme.of(context).textTheme.bodySmall,
-      );
-    }
-    if (state.isDownloading) {
-      return Align(
-        alignment: Alignment.centerLeft,
-        child: OutlinedButton.icon(
-          onPressed: () => state.cancelToken?.cancel(),
-          icon: const Icon(Icons.stop_rounded, size: 18),
-          label: const Text('Stop'),
-        ),
-      );
-    }
-
-    final bool hasPartial = state.partialBytes > 0;
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        FilledButton.icon(
-          onPressed: () => _startDownload(model),
-          icon: Icon(
-            hasPartial ? Icons.play_arrow_rounded : Icons.download_rounded,
-            size: 18,
-          ),
-          label: Text(hasPartial ? 'Resume' : 'Download'),
-        ),
-        if (hasPartial)
-          TextButton(
-            onPressed: () => _discard(model),
-            child: const Text('Discard'),
-          ),
-      ],
-    );
-  }
-
   static String _formatBytes(int bytes) {
     const int gb = 1000 * 1000 * 1000;
     const int mb = 1000 * 1000;
     if (bytes >= gb) return '${(bytes / gb).toStringAsFixed(2)} GB';
     return '${(bytes / mb).toStringAsFixed(0)} MB';
-  }
-}
-
-class _EntryState {
-  const _EntryState({
-    this.installed = false,
-    this.partialBytes = 0,
-    this.isDownloading = false,
-    this.receivedBytes = 0,
-    this.totalBytes = 0,
-    this.message,
-    this.cancelToken,
-  });
-
-  final bool installed;
-  final int partialBytes;
-  final bool isDownloading;
-  final int receivedBytes;
-  final int totalBytes;
-  final String? message;
-  final DownloadCancelToken? cancelToken;
-
-  double? get fraction {
-    if (totalBytes <= 0) return null;
-    final double value = receivedBytes / totalBytes;
-    return value > 1.0 ? 1.0 : value;
-  }
-
-  String get progressLabel {
-    final String received = _ModelDownloadScreenState._formatBytes(
-      receivedBytes,
-    );
-    if (totalBytes <= 0) return received;
-    final String total = _ModelDownloadScreenState._formatBytes(totalBytes);
-    final double pct = (fraction ?? 0) * 100;
-    return '$received of $total · ${pct.toStringAsFixed(0)}%';
-  }
-
-  _EntryState copyWith({
-    bool? installed,
-    int? partialBytes,
-    bool? isDownloading,
-    int? receivedBytes,
-    int? totalBytes,
-    String? message,
-    DownloadCancelToken? cancelToken,
-    bool clearCancelToken = false,
-  }) {
-    return _EntryState(
-      installed: installed ?? this.installed,
-      partialBytes: partialBytes ?? this.partialBytes,
-      isDownloading: isDownloading ?? this.isDownloading,
-      receivedBytes: receivedBytes ?? this.receivedBytes,
-      totalBytes: totalBytes ?? this.totalBytes,
-      message: message,
-      cancelToken: clearCancelToken ? null : (cancelToken ?? this.cancelToken),
-    );
   }
 }

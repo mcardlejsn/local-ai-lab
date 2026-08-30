@@ -1,7 +1,6 @@
 import '../models/gguf_candidate_assessment.dart';
 import '../models/gguf_discovery_result.dart';
 import '../models/hugging_face_model_metadata.dart';
-import '../models/model_catalog.dart';
 import 'gguf_candidate_screening_service.dart';
 import 'gguf_discovery_seed_service.dart';
 import 'hugging_face_discovery_service.dart';
@@ -19,21 +18,16 @@ class GgufDiscoveryService {
     HuggingFaceDiscoveryService? source,
     GgufCandidateScreeningService? screening,
     GgufSeedRepositoryLoader? loadSeedRepositories,
-    Iterable<CatalogModel>? verifiedCatalog,
   })  : _source = source ?? HuggingFaceDiscoveryService(),
         _screening = screening ?? const GgufCandidateScreeningService(),
         _loadSeedRepositories = loadSeedRepositories ??
-            GgufDiscoverySeedService().loadRepositoryIds,
-        _verifiedCatalog = List<CatalogModel>.unmodifiable(
-          verifiedCatalog ?? kModelCatalog,
-        );
+            GgufDiscoverySeedService().loadRepositoryIds;
 
   static const int _maximumLiveSearchLimit = 50;
 
   final HuggingFaceDiscoveryService _source;
   final GgufCandidateScreeningService _screening;
   final GgufSeedRepositoryLoader _loadSeedRepositories;
-  final List<CatalogModel> _verifiedCatalog;
 
   Future<GgufDiscoveryResult> discover({int limit = 50}) async {
     if (limit < 1 || limit > _maximumLiveSearchLimit) {
@@ -108,11 +102,6 @@ class GgufDiscoveryService {
       );
       if (!assessment.canDownload) continue;
 
-      final GgufCandidateArtifact artifact = assessment.artifact!;
-      // Preserve exact-artifact Verified semantics: an alternate artifact for
-      // the same base model may still remain a Candidate.
-      if (_matchesVerifiedArtifact(artifact)) continue;
-
       final String? baseModelKey = _singleBaseModelKey(metadata);
       if (baseModelKey != null && !selectedBaseModels.add(baseModelKey)) {
         continue;
@@ -120,24 +109,9 @@ class GgufDiscoveryService {
       assessments.add(assessment);
     }
 
-    return excludeVerifiedArtifacts(
-      GgufDiscoveryResult(
-        assessments: assessments,
-        sourceFailures: sourceFailures,
-      ),
-    );
-  }
-
-  /// Applies the same exact-artifact Verified exclusion to live or cached
-  /// discovery results. This prevents a Candidate cached by an older app build
-  /// from remaining unverified after that artifact enters the bundled catalog.
-  GgufDiscoveryResult excludeVerifiedArtifacts(GgufDiscoveryResult result) {
     return GgufDiscoveryResult(
-      assessments: result.assessments.where((assessment) {
-        final GgufCandidateArtifact? artifact = assessment.artifact;
-        return artifact == null || !_matchesVerifiedArtifact(artifact);
-      }),
-      sourceFailures: result.sourceFailures,
+      assessments: assessments,
+      sourceFailures: sourceFailures,
     );
   }
 
@@ -181,28 +155,5 @@ class GgufDiscoveryService {
     if (label == null || label.isEmpty) return true;
     final String lower = label.toLowerCase();
     return lower == 'other' || lower == 'unknown';
-  }
-
-  bool _matchesVerifiedArtifact(GgufCandidateArtifact artifact) {
-    for (final CatalogModel model in _verifiedCatalog) {
-      final Uri? sourcePage = Uri.tryParse(model.sourcePage);
-      if (sourcePage == null) continue;
-      final String catalogRepository = sourcePage.pathSegments
-          .where((String segment) => segment.isNotEmpty)
-          .join('/');
-      if (catalogRepository.toLowerCase() !=
-          artifact.repositoryId.toLowerCase()) {
-        continue;
-      }
-      if (model.fileName.toLowerCase() != artifact.fileName.toLowerCase()) {
-        continue;
-      }
-      if (model.sizeBytes != artifact.sizeBytes) continue;
-      if (model.sha256.toLowerCase() != artifact.sha256.toLowerCase()) {
-        continue;
-      }
-      return true;
-    }
-    return false;
   }
 }

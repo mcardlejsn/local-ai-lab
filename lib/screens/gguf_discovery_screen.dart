@@ -141,15 +141,13 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
       return;
     }
     final GgufDiscoveryCacheEntry restored = entry;
-    final GgufDiscoveryResult visibleResult = _discoveryService
-        .excludeVerifiedArtifacts(restored.result);
 
     setState(() {
-      _result = visibleResult;
+      _result = restored.result;
       _lastRefreshedUtc = restored.discoveredAtUtc;
       _downloadStates.clear();
     });
-    await _refreshCandidateStates(visibleResult, generation);
+    await _refreshCandidateStates(restored.result, generation);
   }
 
   Future<void> _saveDiscoveryCache(

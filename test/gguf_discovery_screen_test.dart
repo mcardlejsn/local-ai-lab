@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:local_ai_summarizer/models/gguf_candidate_assessment.dart';
 import 'package:local_ai_summarizer/models/gguf_compatibility_policy.dart';
 import 'package:local_ai_summarizer/models/gguf_discovery_result.dart';
-import 'package:local_ai_summarizer/models/model_catalog.dart';
 import 'package:local_ai_summarizer/screens/gguf_discovery_screen.dart';
 import 'package:local_ai_summarizer/services/gguf_discovery_cache_service.dart';
 import 'package:local_ai_summarizer/services/gguf_discovery_service.dart';
@@ -554,12 +553,12 @@ void main() {
       expect(cache.saveCalls, 0);
     });
 
-    testWidgets('cached exact Verified artifacts remain excluded', (
+    testWidgets('cached Candidates remain available without rediscovery', (
       WidgetTester tester,
     ) async {
       final _FakeGgufDiscoveryCache cache = _FakeGgufDiscoveryCache(
         entry: GgufDiscoveryCacheEntry(
-          result: _cachedVerifiedCandidateResult(),
+          result: _cachedCandidateResult(),
           discoveredAtUtc: DateTime.utc(2026, 8, 27, 5, 2),
         ),
       );
@@ -581,9 +580,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('0 downloadable Candidates found'), findsOneWidget);
-      expect(find.text(kModelCatalog.first.fileName), findsNothing);
-      expect(find.text('Download'), findsNothing);
+      expect(find.text('1 downloadable Candidate found'), findsOneWidget);
+      expect(find.text('qwen2.5-1.5b-instruct-q4_k_m.gguf'), findsOneWidget);
+      expect(find.text('Download'), findsOneWidget);
     });
 
     testWidgets('hides review, rejection, and repository source errors', (
@@ -784,41 +783,6 @@ GgufDiscoveryResult _cachedCustomLicenseResult() {
           hasCustomLicense: true,
           modelFamily: 'Gemma',
           promptFormat: PromptFormat.gemma,
-        ),
-      ),
-    ],
-    sourceFailures: const <GgufDiscoverySourceFailure>[],
-  );
-}
-
-GgufDiscoveryResult _cachedVerifiedCandidateResult() {
-  final CatalogModel model = kModelCatalog.first;
-  final Uri downloadUri = model.uri;
-  final int resolveIndex = downloadUri.pathSegments.indexOf('resolve');
-  final String commitSha = downloadUri.pathSegments[resolveIndex + 1];
-  final String repositoryId = Uri.parse(
-    model.sourcePage,
-  ).pathSegments.where((String segment) => segment.isNotEmpty).join('/');
-  return GgufDiscoveryResult(
-    assessments: <GgufCandidateAssessment>[
-      GgufCandidateAssessment(
-        repositoryId: repositoryId,
-        disposition: GgufCandidateDisposition.candidate,
-        reasons: const <String>[],
-        warnings: const <String>[],
-        artifact: GgufCandidateArtifact(
-          repositoryId: repositoryId,
-          commitSha: commitSha,
-          fileName: model.fileName,
-          sizeBytes: model.sizeBytes,
-          sha256: model.sha256,
-          downloadUri: downloadUri,
-          sourcePage: Uri.parse(model.sourcePage),
-          license: model.license,
-          licenseSourceRepository: repositoryId,
-          hasCustomLicense: false,
-          modelFamily: 'Qwen/ChatML',
-          promptFormat: PromptFormat.chatml,
         ),
       ),
     ],

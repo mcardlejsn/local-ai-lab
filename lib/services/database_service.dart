@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -8,8 +9,8 @@ enum CandidateQualificationStatus { notRun, completed, failed }
 /// Classifies the newest exact-artifact qualification session.
 ///
 /// Null means no session exists. A saved session with no runs or any runtime
-/// error requires another qualification attempt. Output quality remains a
-/// separate human review rather than an automatic Verified decision.
+/// error requires another qualification attempt. Retained only so historical
+/// qualification rows remain readable after that workflow's removal.
 CandidateQualificationStatus candidateQualificationStatusFromRuns(
   List<Map<String, Object?>>? runs,
 ) {
@@ -25,6 +26,14 @@ class DatabaseService {
   static Database? _database;
 
   DatabaseService._init();
+
+  final ValueNotifier<int> _benchmarkRevision = ValueNotifier<int>(0);
+
+  /// Changes after a completed Benchmark is saved or deleted.
+  ///
+  /// Screens can refresh read-only derived views without polling or coupling
+  /// the Benchmark and Results routes directly to them.
+  ValueListenable<int> get benchmarkChanges => _benchmarkRevision;
 
   Future<Database> get database async {
     if (_database != null) return _database!;
@@ -259,11 +268,13 @@ class DatabaseService {
   /// turns on `PRAGMA foreign_keys`.
   Future<int> deleteBenchmarkSession(int sessionId) async {
     final db = await instance.database;
-    return db.delete(
+    final int deleted = await db.delete(
       'benchmark_sessions',
       where: 'id = ?',
       whereArgs: [sessionId],
     );
+    if (deleted > 0) _benchmarkRevision.value++;
+    return deleted;
   }
 
   Future<int> insertCompletedBenchmark({
@@ -277,7 +288,7 @@ class DatabaseService {
   }) async {
     final db = await instance.database;
 
-    return db.transaction((txn) async {
+    final int sessionId = await db.transaction((txn) async {
       final sessionId = await txn.insert('benchmark_sessions', {
         'passage': passage,
         'instruction': instruction,
@@ -294,6 +305,30 @@ class DatabaseService {
 
       return sessionId;
     });
+    _benchmarkRevision.value++;
+    return sessionId;
+  }
+
+  /// Loads the newest ordinary Benchmark in which at least two models each
+  /// produced a successful run. Candidate-qualification rows retained for
+  /// database compatibility are deliberately excluded.
+  Future<Map<String, Object?>?> getLatestRecommendationBenchmark() async {
+    final db = await instance.database;
+    final List<Map<String, Object?>> sessions = await db.rawQuery('''
+      SELECT benchmark_sessions.*
+      FROM benchmark_sessions
+      WHERE qualification_artifact_id IS NULL
+        AND (
+          SELECT COUNT(DISTINCT benchmark_runs.model_order)
+          FROM benchmark_runs
+          WHERE benchmark_runs.session_id = benchmark_sessions.id
+            AND benchmark_runs.error_message IS NULL
+        ) >= 2
+      ORDER BY completed_at DESC, id DESC
+      LIMIT 1
+    ''');
+    if (sessions.isEmpty) return null;
+    return _loadSessionWithRuns(db, sessions.first);
   }
 
   Future<Map<String, Object?>?> getLatestCompletedBenchmark({
