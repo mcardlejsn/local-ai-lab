@@ -4,8 +4,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/benchmark_session.dart';
+import '../models/gguf_candidate_assessment.dart';
+import '../models/gguf_model_update.dart';
 import '../models/model_recommendation.dart';
 import '../services/database_service.dart';
+import '../services/gguf_discovery_cache_service.dart';
+import '../services/gguf_install_registry_service.dart';
+import '../services/gguf_model_update_service.dart';
 import '../services/model_manager_service.dart';
 import 'gguf_discovery_screen.dart';
 import 'settings_screen.dart';
@@ -26,6 +31,10 @@ class ModelDownloadScreen extends StatefulWidget {
     this.candidateBuilder,
     this.recommendationLoader,
     this.benchmarkChanges,
+    this.installRegistry,
+    this.discoveryCache,
+    this.updateChecker,
+    this.installedModelsOverride,
   });
 
   final ModelManagerService modelManager;
@@ -34,6 +43,12 @@ class ModelDownloadScreen extends StatefulWidget {
   final WidgetBuilder? candidateBuilder;
   final RecommendationBenchmarkLoader? recommendationLoader;
   final ValueListenable<int>? benchmarkChanges;
+  final GgufInstallRegistry? installRegistry;
+  final GgufDiscoveryCache? discoveryCache;
+  final GgufModelUpdateChecker? updateChecker;
+
+  /// Optional installed inventory for focused widget tests.
+  final List<ModelInfo>? installedModelsOverride;
 
   @override
   State<ModelDownloadScreen> createState() => _ModelDownloadScreenState();
@@ -137,11 +152,22 @@ class _ModelsSectionSelector extends StatelessWidget {
 class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
   late final RecommendationBenchmarkLoader _recommendationLoader;
   late final ValueListenable<int> _benchmarkChanges;
+  late final GgufInstallRegistry _installRegistry;
+  late final GgufDiscoveryCache _discoveryCache;
+  late final GgufModelUpdateChecker _updateChecker;
   _ModelsSection _section = _ModelsSection.installed;
   ModelRecommendationSnapshot? _recommendations;
   bool _isLoadingRecommendations = true;
   String? _recommendationError;
   int _recommendationGeneration = 0;
+  Map<String, GgufModelUpdateResult> _modelUpdates =
+      <String, GgufModelUpdateResult>{};
+  bool _isCheckingUpdates = false;
+  String? _updateCheckMessage;
+  int _updateCheckGeneration = 0;
+
+  List<ModelInfo> get _installedModels =>
+      widget.installedModelsOverride ?? widget.modelManager.summarizerModels;
 
   @override
   void initState() {
@@ -151,6 +177,9 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
         DatabaseService.instance.getLatestRecommendationBenchmark;
     _benchmarkChanges =
         widget.benchmarkChanges ?? DatabaseService.instance.benchmarkChanges;
+    _installRegistry = widget.installRegistry ?? GgufInstallRegistryService();
+    _discoveryCache = widget.discoveryCache ?? GgufDiscoveryCacheService();
+    _updateChecker = widget.updateChecker ?? GgufModelUpdateService();
     widget.modelManager.addListener(_onModelManagerChanged);
     _benchmarkChanges.addListener(_onBenchmarkChanged);
     unawaited(_loadRecommendations());
@@ -196,6 +225,135 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
         _recommendations = null;
         _isLoadingRecommendations = false;
         _recommendationError = 'Could not load recommendations: $error';
+      });
+    }
+  }
+
+  Future<void> _checkForUpdates() async {
+    if (_isCheckingUpdates) return;
+    final int generation = ++_updateCheckGeneration;
+    final List<ModelInfo> ggufModels = _installedModels
+        .where((ModelInfo model) => model.engine == ModelEngine.gguf)
+        .toList(growable: false);
+    setState(() {
+      _isCheckingUpdates = true;
+      _updateCheckMessage = null;
+      _modelUpdates = <String, GgufModelUpdateResult>{};
+    });
+
+    try {
+      final List<GgufCandidateArtifact> saved = List<GgufCandidateArtifact>.of(
+        await _installRegistry.load(),
+      );
+      final Map<String, GgufCandidateArtifact> byFileName =
+          <String, GgufCandidateArtifact>{
+            for (final GgufCandidateArtifact artifact in saved)
+              artifact.fileName.toLowerCase(): artifact,
+          };
+      List<GgufCandidateArtifact>? cachedCandidates;
+      final Map<String, GgufModelUpdateResult> results =
+          <String, GgufModelUpdateResult>{};
+      int adoptedCount = 0;
+      int registryFailures = 0;
+
+      for (int index = 0; index < ggufModels.length; index++) {
+        if (!mounted || generation != _updateCheckGeneration) return;
+        final ModelInfo model = ggufModels[index];
+        setState(() {
+          _updateCheckMessage =
+              'Checking model ${index + 1} of ${ggufModels.length}…';
+        });
+        GgufCandidateArtifact? artifact = byFileName[model.name.toLowerCase()];
+        bool localIdentityAlreadyVerified = false;
+
+        if (artifact == null) {
+          if (cachedCandidates == null) {
+            final GgufDiscoveryCacheEntry? cacheEntry = await _discoveryCache
+                .load();
+            cachedCandidates =
+                cacheEntry?.result.assessments
+                    .map((assessment) => assessment.artifact)
+                    .whereType<GgufCandidateArtifact>()
+                    .toList(growable: false) ??
+                <GgufCandidateArtifact>[];
+          }
+          artifact = await _updateChecker.recognizeInstalledArtifact(
+            installedPath: model.path,
+            candidates: cachedCandidates,
+          );
+          if (artifact != null) {
+            if (await _installRegistry.record(artifact)) {
+              byFileName[artifact.fileName.toLowerCase()] = artifact;
+              adoptedCount++;
+              localIdentityAlreadyVerified = true;
+            } else {
+              registryFailures++;
+              artifact = null;
+            }
+          }
+        }
+
+        if (artifact == null) continue;
+        results[model.id] = await _updateChecker.check(
+          installedArtifact: artifact,
+          installedPath: model.path,
+          localIdentityAlreadyVerified: localIdentityAlreadyVerified,
+        );
+      }
+
+      if (!mounted || generation != _updateCheckGeneration) return;
+      final int updateCount = results.values
+          .where((GgufModelUpdateResult result) => result.hasUpdate)
+          .length;
+      final int unavailableCount = results.values
+          .where(
+            (GgufModelUpdateResult result) =>
+                result.status == GgufModelUpdateStatus.unavailable ||
+                result.status == GgufModelUpdateStatus.localFileChanged,
+          )
+          .length;
+      final String adoptedArtifactLabel = adoptedCount == 1
+          ? 'artifact'
+          : 'artifacts';
+      final String adoptionSuffix = adoptedCount == 0
+          ? ''
+          : ' Recognized $adoptedCount existing exact '
+                '$adoptedArtifactLabel.';
+      final String message;
+      if (results.isEmpty) {
+        message = registryFailures == 0
+            ? 'No update-managed GGUF models were found.'
+            : 'Update source information could not be saved.';
+      } else if (updateCount > 0) {
+        final String unavailableSuffix = unavailableCount == 0
+            ? ''
+            : ' $unavailableCount could not be confirmed.';
+        message =
+            '$updateCount ${updateCount == 1 ? 'update' : 'updates'} '
+            'available.$unavailableSuffix$adoptionSuffix';
+      } else if (unavailableCount > 0) {
+        final String modelLabel = results.length == 1 ? 'model' : 'models';
+        message =
+            'Checked ${results.length} $modelLabel; '
+            '$unavailableCount could not be confirmed.$adoptionSuffix';
+      } else {
+        final String modelVerb = results.length == 1
+            ? 'model is'
+            : 'models are';
+        message =
+            '${results.length} $modelVerb up to date.'
+            '$adoptionSuffix';
+      }
+      setState(() {
+        _modelUpdates = results;
+        _updateCheckMessage = message;
+        _isCheckingUpdates = false;
+      });
+    } on Object catch (error) {
+      if (!mounted || generation != _updateCheckGeneration) return;
+      setState(() {
+        _isCheckingUpdates = false;
+        _updateCheckMessage = 'Could not check for updates: $error';
       });
     }
   }
@@ -269,12 +427,14 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
     if (builder != null) return builder(context);
     return GgufDiscoveryScreen(
       embedded: true,
+      discoveryCache: _discoveryCache,
+      installRegistry: _installRegistry,
       onModelInstalled: widget.modelManager.scanModels,
     );
   }
 
   Widget _buildInstalledSection() {
-    final List<ModelInfo> models = widget.modelManager.summarizerModels;
+    final List<ModelInfo> models = _installedModels;
     return ListView(
       key: const PageStorageKey<String>('installed-models-list'),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
@@ -310,34 +470,73 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
       color: theme.colorScheme.secondaryContainer,
       child: Padding(
         padding: const EdgeInsets.all(18),
-        child: Row(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(
-              Icons.storage_outlined,
-              color: theme.colorScheme.onSecondaryContainer,
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.storage_outlined,
+                  color: theme.colorScheme.onSecondaryContainer,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${models.length} $countLabel available on this device',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: theme.colorScheme.onSecondaryContainer,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        storageLabel,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSecondaryContainer,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${models.length} $countLabel available on this device',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: theme.colorScheme.onSecondaryContainer,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    storageLabel,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSecondaryContainer,
-                    ),
-                  ),
-                ],
+            const SizedBox(height: 14),
+            FilledButton.tonalIcon(
+              key: const Key('check-model-updates'),
+              onPressed: _isCheckingUpdates ? null : _checkForUpdates,
+              icon: _isCheckingUpdates
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.system_update_alt_rounded),
+              label: Text(
+                _isCheckingUpdates
+                    ? 'Checking for updates…'
+                    : 'Check for updates',
               ),
             ),
+            const SizedBox(height: 6),
+            Text(
+              'Checks saved sources for app-downloaded GGUF models only.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSecondaryContainer,
+              ),
+            ),
+            if (_updateCheckMessage != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                _updateCheckMessage!,
+                key: const Key('model-update-summary'),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSecondaryContainer,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -440,6 +639,10 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
                 ),
               ],
             ),
+            if (_modelUpdates[model.id] != null) ...[
+              const SizedBox(height: 12),
+              _buildModelUpdateStatus(_modelUpdates[model.id]!),
+            ],
             const SizedBox(height: 12),
             Wrap(
               spacing: 8,
@@ -464,6 +667,73 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildModelUpdateStatus(GgufModelUpdateResult update) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colors = theme.colorScheme;
+    final (IconData, String, Color) presentation = switch (update.status) {
+      GgufModelUpdateStatus.upToDate => (
+        Icons.cloud_done_outlined,
+        'Up to date',
+        colors.primary,
+      ),
+      GgufModelUpdateStatus.updateAvailable => (
+        Icons.system_update_alt_rounded,
+        'Update available',
+        colors.tertiary,
+      ),
+      GgufModelUpdateStatus.localFileChanged => (
+        Icons.warning_amber_rounded,
+        'Local file could not be verified',
+        colors.error,
+      ),
+      GgufModelUpdateStatus.unavailable => (
+        Icons.cloud_off_outlined,
+        'Update check unavailable',
+        colors.error,
+      ),
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(presentation.$1, size: 20, color: presentation.$3),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                presentation.$2,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: presentation.$3,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          update.message,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: colors.onSurfaceVariant,
+          ),
+        ),
+        if (update.hasUpdate) ...[
+          const SizedBox(height: 4),
+          TextButton.icon(
+            key: ValueKey<String>(
+              'review-model-update-${update.installedArtifact.fileName}',
+            ),
+            onPressed: () => _showUpdateReview(update),
+            icon: const Icon(Icons.compare_arrows_rounded),
+            label: const Text('Review update'),
+          ),
+        ],
+      ],
     );
   }
 
@@ -625,7 +895,7 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
   Widget _buildRecommendedModelCard(RecommendedModel model) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme colors = theme.colorScheme;
-    final bool installed = widget.modelManager.summarizerModels.any(
+    final bool installed = _installedModels.any(
       (ModelInfo available) => available.id == model.modelId,
     );
 
@@ -787,6 +1057,87 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
     );
   }
 
+  Future<void> _showUpdateReview(GgufModelUpdateResult update) {
+    final GgufCandidateArtifact? remote = update.remoteArtifact;
+    if (remote == null) return Future<void>.value();
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('Review update'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Current installed artifact',
+                style: Theme.of(dialogContext).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 10),
+              _buildArtifactDetails(update.installedArtifact),
+              const Divider(height: 28),
+              Text(
+                'Current remote artifact',
+                style: Theme.of(dialogContext).textTheme.titleSmall,
+              ),
+              const SizedBox(height: 10),
+              _buildArtifactDetails(remote),
+              const SizedBox(height: 8),
+              Text(
+                'This review does not download or replace either file.',
+                style: Theme.of(dialogContext).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(dialogContext).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildArtifactDetails(GgufCandidateArtifact artifact) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSelectableDetailRow('Repository', artifact.repositoryId),
+        _buildSelectableDetailRow('Filename', artifact.fileName),
+        _buildSelectableDetailRow(
+          'File size',
+          _formatBytes(artifact.sizeBytes),
+        ),
+        _buildSelectableDetailRow('Commit / revision', artifact.commitSha),
+        _buildSelectableDetailRow('SHA-256', artifact.sha256),
+      ],
+    );
+  }
+
+  Widget _buildSelectableDetailRow(String label, String value) {
+    final ThemeData theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 2),
+          SelectableText(value, style: theme.textTheme.bodyMedium),
+        ],
+      ),
+    );
+  }
+
   Widget _buildDetailRow(String label, String value) {
     final ThemeData theme = Theme.of(context);
     return Padding(
@@ -835,12 +1186,20 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
     if (confirmed != true) return;
 
     final bool removed = await widget.modelManager.deleteModel(model);
+    bool registryCleared = true;
+    if (removed && model.engine == ModelEngine.gguf) {
+      registryCleared = await _installRegistry.remove(model.name);
+      _modelUpdates.remove(model.id);
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           removed
-              ? 'Removed ${model.name}.'
+              ? registryCleared
+                    ? 'Removed ${model.name}.'
+                    : 'Removed ${model.name}, but its saved update source '
+                          'could not be cleared.'
               : widget.modelManager.statusMessage ??
                     'Could not remove the model.',
         ),

@@ -8,6 +8,7 @@ import '../models/gguf_discovery_result.dart';
 import '../services/gguf_discovery_cache_service.dart';
 import '../services/gguf_discovery_service.dart';
 import '../services/gguf_discovery_seed_service.dart';
+import '../services/gguf_install_registry_service.dart';
 import '../services/hugging_face_discovery_service.dart';
 import '../services/model_download_service.dart';
 
@@ -26,6 +27,7 @@ class GgufDiscoveryScreen extends StatefulWidget {
     this.discoveryService,
     this.discoveryCache,
     this.downloadService,
+    this.installRegistry,
     this.onModelInstalled,
     this.externalUriLauncher,
   });
@@ -42,6 +44,10 @@ class GgufDiscoveryScreen extends StatefulWidget {
 
   /// Injectable so widget tests never touch Android storage or the network.
   final ModelDownloadService? downloadService;
+
+  /// Records source identity only after a Candidate passes download
+  /// verification. Injectable so widget tests avoid app-private storage.
+  final GgufInstallRegistry? installRegistry;
 
   /// Called after an exact candidate artifact is installed successfully.
   final Future<void> Function()? onModelInstalled;
@@ -64,6 +70,7 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
   late final GgufDiscoveryService _discoveryService;
   late final GgufDiscoveryCache _discoveryCache;
   late final ModelDownloadService _downloadService;
+  late final GgufInstallRegistry _installRegistry;
   late final ExternalUriLauncher _externalUriLauncher;
   GgufDiscoveryResult? _result;
   DateTime? _lastRefreshedUtc;
@@ -82,6 +89,7 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     _discoveryService = widget.discoveryService ?? GgufDiscoveryService();
     _discoveryCache = widget.discoveryCache ?? GgufDiscoveryCacheService();
     _downloadService = widget.downloadService ?? ModelDownloadService();
+    _installRegistry = widget.installRegistry ?? GgufInstallRegistryService();
     _externalUriLauncher = widget.externalUriLauncher ?? _launchExternalUri;
     unawaited(_restoreCachedDiscovery());
   }
@@ -295,11 +303,20 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
     );
 
     if (!mounted) return;
-    final String message = _candidateMessageFor(result);
-    final _CandidateDownloadState refreshed = await _readArtifactState(
+    String message = _candidateMessageFor(result);
+    _CandidateDownloadState refreshed = await _readArtifactState(
       artifact,
       message: message,
     );
+    bool provenanceSaved = true;
+    if (result.isSuccess && refreshed.installed) {
+      provenanceSaved = await _installRegistry.record(artifact);
+      if (!provenanceSaved) {
+        message =
+            'Installed, but update source information could not be saved.';
+        refreshed = refreshed.copyWith(message: message);
+      }
+    }
     if (!mounted) return;
     setState(() {
       _downloadStates[key] = refreshed;
@@ -307,6 +324,11 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
 
     if (result.isSuccess && refreshed.installed) {
       await widget.onModelInstalled?.call();
+      if (!provenanceSaved && mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
+      }
     }
   }
 

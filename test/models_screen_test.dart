@@ -1,7 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:local_ai_summarizer/models/gguf_candidate_assessment.dart';
+import 'package:local_ai_summarizer/models/gguf_discovery_result.dart';
+import 'package:local_ai_summarizer/models/gguf_model_update.dart';
 import 'package:local_ai_summarizer/screens/model_download_screen.dart';
+import 'package:local_ai_summarizer/services/gguf_discovery_cache_service.dart';
+import 'package:local_ai_summarizer/services/gguf_install_registry_service.dart';
+import 'package:local_ai_summarizer/services/gguf_model_update_service.dart';
 import 'package:local_ai_summarizer/services/model_manager_service.dart';
 import 'package:local_ai_summarizer/theme/app_theme.dart';
 
@@ -80,12 +86,161 @@ void main() {
     expect(find.text('Highest generation speed'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('Installed checks and reviews a read-only GGUF update', (
+    WidgetTester tester,
+  ) async {
+    final ValueNotifier<int> benchmarkChanges = ValueNotifier<int>(0);
+    addTearDown(benchmarkChanges.dispose);
+    final GgufCandidateArtifact current = _updateArtifact(
+      commitSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      sha256Value:
+          'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      sizeBytes: 500000000,
+    );
+    final GgufCandidateArtifact remote = _updateArtifact(
+      commitSha: 'cccccccccccccccccccccccccccccccccccccccc',
+      sha256Value:
+          'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+      sizeBytes: 510000000,
+    );
+    final _FakeInstallRegistry registry = _FakeInstallRegistry(
+      <GgufCandidateArtifact>[current],
+    );
+    final _FakeUpdateChecker updateChecker = _FakeUpdateChecker(
+      GgufModelUpdateResult(
+        status: GgufModelUpdateStatus.updateAvailable,
+        installedArtifact: current,
+        remoteArtifact: remote,
+        message: 'The current remote artifact has a different SHA-256.',
+      ),
+    );
+
+    await _pumpModels(
+      tester,
+      benchmarkChanges: benchmarkChanges,
+      recommendationLoader: () async => null,
+      installRegistry: registry,
+      updateChecker: updateChecker,
+      installedModelsOverride: <ModelInfo>[
+        ModelInfo(
+          id: '/models/${current.fileName}',
+          name: current.fileName,
+          path: '/models/${current.fileName}',
+          engine: ModelEngine.gguf,
+          sizeBytes: current.sizeBytes,
+          promptFormat: PromptFormat.chatml,
+        ),
+      ],
+    );
+
+    expect(updateChecker.checkCalls, 0);
+    await tester.tap(find.byKey(const Key('check-model-updates')));
+    await tester.pumpAndSettle();
+
+    expect(updateChecker.checkCalls, 1);
+    expect(find.text('1 update available.'), findsOneWidget);
+    expect(find.text('Update available'), findsOneWidget);
+
+    await tester.tap(find.text('Review update'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Current installed artifact'), findsOneWidget);
+    expect(find.text('Current remote artifact'), findsOneWidget);
+    expect(find.text('Repository'), findsNWidgets(2));
+    expect(find.text('Filename'), findsNWidgets(2));
+    expect(find.text('Commit / revision'), findsNWidgets(2));
+    expect(find.text('SHA-256'), findsNWidgets(2));
+    expect(
+      find.text('This review does not download or replace either file.'),
+      findsOneWidget,
+    );
+    expect(find.text('Download update'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Installed adopts an exact existing cached Candidate once', (
+    WidgetTester tester,
+  ) async {
+    final ValueNotifier<int> benchmarkChanges = ValueNotifier<int>(0);
+    addTearDown(benchmarkChanges.dispose);
+    final GgufCandidateArtifact artifact = _updateArtifact(
+      commitSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      sha256Value:
+          'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      sizeBytes: 500000000,
+    );
+    final _FakeInstallRegistry registry = _FakeInstallRegistry(
+      <GgufCandidateArtifact>[],
+    );
+    final _FakeUpdateChecker updateChecker = _FakeUpdateChecker(
+      GgufModelUpdateResult(
+        status: GgufModelUpdateStatus.upToDate,
+        installedArtifact: artifact,
+        remoteArtifact: artifact,
+        message: 'The installed artifact matches the current remote bytes.',
+      ),
+      recognitionResult: artifact,
+    );
+    final _FakeDiscoveryCache cache = _FakeDiscoveryCache(
+      GgufDiscoveryCacheEntry(
+        result: GgufDiscoveryResult(
+          assessments: <GgufCandidateAssessment>[
+            GgufCandidateAssessment(
+              repositoryId: artifact.repositoryId,
+              disposition: GgufCandidateDisposition.candidate,
+              reasons: const <String>[],
+              warnings: const <String>[],
+              artifact: artifact,
+            ),
+          ],
+          sourceFailures: const <GgufDiscoverySourceFailure>[],
+        ),
+        discoveredAtUtc: DateTime.utc(2026, 8, 30),
+      ),
+    );
+
+    await _pumpModels(
+      tester,
+      benchmarkChanges: benchmarkChanges,
+      recommendationLoader: () async => null,
+      installRegistry: registry,
+      discoveryCache: cache,
+      updateChecker: updateChecker,
+      installedModelsOverride: <ModelInfo>[
+        ModelInfo(
+          id: '/models/${artifact.fileName}',
+          name: artifact.fileName,
+          path: '/models/${artifact.fileName}',
+          engine: ModelEngine.gguf,
+          sizeBytes: artifact.sizeBytes,
+          promptFormat: PromptFormat.chatml,
+        ),
+      ],
+    );
+
+    await tester.tap(find.byKey(const Key('check-model-updates')));
+    await tester.pumpAndSettle();
+
+    expect(registry.artifacts, hasLength(1));
+    expect(updateChecker.recognizeCalls, 1);
+    expect(updateChecker.localIdentityAlreadyVerifiedValues, <bool>[true]);
+    expect(
+      find.text('1 model is up to date. Recognized 1 existing exact artifact.'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Future<void> _pumpModels(
   WidgetTester tester, {
   required ValueListenable<int> benchmarkChanges,
   required RecommendationBenchmarkLoader recommendationLoader,
+  GgufInstallRegistry? installRegistry,
+  GgufDiscoveryCache? discoveryCache,
+  GgufModelUpdateChecker? updateChecker,
+  List<ModelInfo>? installedModelsOverride,
 }) async {
   await tester.binding.setSurfaceSize(const Size(430, 1800));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -105,6 +260,10 @@ Future<void> _pumpModels(
         modelManager: ModelManagerService(),
         recommendationLoader: recommendationLoader,
         benchmarkChanges: benchmarkChanges,
+        installRegistry: installRegistry,
+        discoveryCache: discoveryCache,
+        updateChecker: updateChecker,
+        installedModelsOverride: installedModelsOverride,
         candidateBuilder: (_) => const Center(
           child: Text(
             'Candidate discovery content',
@@ -115,6 +274,111 @@ Future<void> _pumpModels(
     ),
   );
   await tester.pumpAndSettle();
+}
+
+GgufCandidateArtifact _updateArtifact({
+  required String commitSha,
+  required String sha256Value,
+  required int sizeBytes,
+}) {
+  const String repository = 'Publisher/Qwen-1B-Instruct-GGUF';
+  const String fileName = 'qwen-1b-instruct-q4_k_m.gguf';
+  return GgufCandidateArtifact(
+    repositoryId: repository,
+    commitSha: commitSha,
+    fileName: fileName,
+    sizeBytes: sizeBytes,
+    sha256: sha256Value,
+    downloadUri: Uri.parse(
+      'https://huggingface.co/$repository/resolve/$commitSha/$fileName',
+    ),
+    sourcePage: Uri.parse('https://huggingface.co/$repository'),
+    license: 'Apache-2.0',
+    licenseSourceRepository: repository,
+    hasCustomLicense: false,
+    modelFamily: 'Qwen/ChatML',
+    promptFormat: PromptFormat.chatml,
+  );
+}
+
+class _FakeInstallRegistry implements GgufInstallRegistry {
+  _FakeInstallRegistry(this.artifacts);
+
+  final List<GgufCandidateArtifact> artifacts;
+
+  @override
+  Future<List<GgufCandidateArtifact>> load() async =>
+      List<GgufCandidateArtifact>.unmodifiable(artifacts);
+
+  @override
+  Future<bool> record(GgufCandidateArtifact artifact) async {
+    artifacts.removeWhere(
+      (GgufCandidateArtifact saved) =>
+          saved.fileName.toLowerCase() == artifact.fileName.toLowerCase(),
+    );
+    artifacts.add(artifact);
+    return true;
+  }
+
+  @override
+  Future<bool> remove(String fileName) async {
+    artifacts.removeWhere(
+      (GgufCandidateArtifact saved) =>
+          saved.fileName.toLowerCase() == fileName.toLowerCase(),
+    );
+    return true;
+  }
+}
+
+class _FakeUpdateChecker implements GgufModelUpdateChecker {
+  _FakeUpdateChecker(this.result, {this.recognitionResult});
+
+  final GgufModelUpdateResult result;
+  final GgufCandidateArtifact? recognitionResult;
+  int checkCalls = 0;
+  int recognizeCalls = 0;
+  final List<bool> localIdentityAlreadyVerifiedValues = <bool>[];
+
+  @override
+  Future<GgufModelUpdateResult> check({
+    required GgufCandidateArtifact installedArtifact,
+    required String installedPath,
+    bool localIdentityAlreadyVerified = false,
+  }) async {
+    checkCalls++;
+    localIdentityAlreadyVerifiedValues.add(localIdentityAlreadyVerified);
+    return result;
+  }
+
+  @override
+  Future<GgufCandidateArtifact?> recognizeInstalledArtifact({
+    required String installedPath,
+    required Iterable<GgufCandidateArtifact> candidates,
+  }) async {
+    recognizeCalls++;
+    return recognitionResult;
+  }
+}
+
+class _FakeDiscoveryCache implements GgufDiscoveryCache {
+  _FakeDiscoveryCache(this.entry);
+
+  GgufDiscoveryCacheEntry? entry;
+
+  @override
+  Future<GgufDiscoveryCacheEntry?> load() async => entry;
+
+  @override
+  Future<bool> save(
+    GgufDiscoveryResult result, {
+    required DateTime discoveredAtUtc,
+  }) async {
+    entry = GgufDiscoveryCacheEntry(
+      result: result,
+      discoveredAtUtc: discoveredAtUtc,
+    );
+    return true;
+  }
 }
 
 Map<String, Object?> _recommendationSession() {

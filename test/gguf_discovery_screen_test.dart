@@ -6,6 +6,7 @@ import 'package:local_ai_summarizer/models/gguf_discovery_result.dart';
 import 'package:local_ai_summarizer/screens/gguf_discovery_screen.dart';
 import 'package:local_ai_summarizer/services/gguf_discovery_cache_service.dart';
 import 'package:local_ai_summarizer/services/gguf_discovery_service.dart';
+import 'package:local_ai_summarizer/services/gguf_install_registry_service.dart';
 import 'package:local_ai_summarizer/services/hugging_face_discovery_service.dart';
 import 'package:local_ai_summarizer/services/model_download_service.dart';
 
@@ -51,6 +52,8 @@ void main() {
         Uri? openedLicenseUri;
         final _FakeModelDownloadService downloader =
             _FakeModelDownloadService();
+        final _FakeGgufInstallRegistry installRegistry =
+            _FakeGgufInstallRegistry();
         final _FakeGgufDiscoveryCache cache = _FakeGgufDiscoveryCache();
         final GgufDiscoveryService service = GgufDiscoveryService(
           loadSeedRepositories: _noSeeds,
@@ -75,6 +78,7 @@ void main() {
               discoveryService: service,
               discoveryCache: cache,
               downloadService: downloader,
+              installRegistry: installRegistry,
               externalUriLauncher: (Uri uri) async {
                 openedLicenseUri = uri;
                 return true;
@@ -143,6 +147,11 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(downloader.downloadCalls, 1);
+        expect(installRegistry.recordCalls, 1);
+        expect(
+          installRegistry.artifacts.single.fileName,
+          'qwen2.5-1.5b-instruct-q4_k_m.gguf',
+        );
         expect(rescans, 1);
         expect(
           find.byKey(
@@ -358,6 +367,8 @@ void main() {
       final _FakeModelDownloadService downloader = _FakeModelDownloadService(
         partial: 125000000,
       );
+      final _FakeGgufInstallRegistry installRegistry =
+          _FakeGgufInstallRegistry();
       final GgufDiscoveryService service = _singleCandidateService();
 
       await tester.pumpWidget(
@@ -366,6 +377,7 @@ void main() {
             discoveryService: service,
             discoveryCache: _FakeGgufDiscoveryCache(),
             downloadService: downloader,
+            installRegistry: installRegistry,
           ),
         ),
       );
@@ -384,6 +396,7 @@ void main() {
       expect(find.text('Download Candidate?'), findsNothing);
       expect(find.byType(AlertDialog), findsNothing);
       expect(downloader.downloadCalls, 1);
+      expect(installRegistry.recordCalls, 1);
       expect(
         find.byKey(
           const ValueKey<String>('discovery-Qwen/Qwen2.5-1.5B-Instruct-GGUF'),
@@ -812,6 +825,35 @@ class _FakeGgufDiscoveryCache implements GgufDiscoveryCache {
     entry = GgufDiscoveryCacheEntry(
       result: result,
       discoveredAtUtc: discoveredAtUtc,
+    );
+    return true;
+  }
+}
+
+class _FakeGgufInstallRegistry implements GgufInstallRegistry {
+  final List<GgufCandidateArtifact> artifacts = <GgufCandidateArtifact>[];
+  int recordCalls = 0;
+
+  @override
+  Future<List<GgufCandidateArtifact>> load() async =>
+      List<GgufCandidateArtifact>.unmodifiable(artifacts);
+
+  @override
+  Future<bool> record(GgufCandidateArtifact artifact) async {
+    recordCalls++;
+    artifacts.removeWhere(
+      (GgufCandidateArtifact saved) =>
+          saved.fileName.toLowerCase() == artifact.fileName.toLowerCase(),
+    );
+    artifacts.add(artifact);
+    return true;
+  }
+
+  @override
+  Future<bool> remove(String fileName) async {
+    artifacts.removeWhere(
+      (GgufCandidateArtifact saved) =>
+          saved.fileName.toLowerCase() == fileName.toLowerCase(),
     );
     return true;
   }
