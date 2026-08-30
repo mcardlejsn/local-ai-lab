@@ -7,9 +7,7 @@ import '../models/hugging_face_model_metadata.dart';
 /// Applies Local AI Lab's mechanical discovery policy to already-fetched
 /// Hugging Face metadata. It performs no network requests.
 class GgufCandidateScreeningService {
-  const GgufCandidateScreeningService({
-    this.maximumSizeBytes = 3000000000,
-  });
+  const GgufCandidateScreeningService({this.maximumSizeBytes = 3000000000});
 
   final int maximumSizeBytes;
 
@@ -29,13 +27,23 @@ class GgufCandidateScreeningService {
     final List<HuggingFaceRepositoryFile> q4Files = metadata.files
         .where((file) => _isQ4Km(file.path))
         .toList(growable: false);
-    final List<HuggingFaceRepositoryFile> completeQ4Files =
-        q4Files.where((file) => !_isShard(file.path)).toList(growable: false);
+    final List<HuggingFaceRepositoryFile> completeQ4Files = q4Files
+        .where((file) => !_isShard(file.path))
+        .toList(growable: false);
 
     final String identity = <String>[
       metadata.id,
       ...q4Files.map((file) => file.path),
     ].join(' ');
+    final String purposeIdentity = <String>[
+      metadata.id.split('/').last,
+      ...q4Files.map((file) => p.posix.basename(file.path)),
+    ].join(' ');
+    if (_isExcludedCandidateVariant(purposeIdentity)) {
+      failures.add(
+        'The repository or artifact is an excluded specialized or modified model.',
+      );
+    }
     if (_isExplicitBase(identity)) {
       failures.add('The repository or artifact is explicitly a Base model.');
     } else if (!_isInstructionTuned(identity, metadata.tags)) {
@@ -49,13 +57,12 @@ class GgufCandidateScreeningService {
     } else if (completeQ4Files.isEmpty) {
       failures.add('Q4_K_M is available only as split artifacts.');
     } else if (completeQ4Files.length > 1) {
-      reviewReasons.add(
-        'More than one complete Q4_K_M artifact is available.',
-      );
+      reviewReasons.add('More than one complete Q4_K_M artifact is available.');
     }
 
-    final HuggingFaceRepositoryFile? selectedFile =
-        completeQ4Files.length == 1 ? completeQ4Files.single : null;
+    final HuggingFaceRepositoryFile? selectedFile = completeQ4Files.length == 1
+        ? completeQ4Files.single
+        : null;
     GgufCompatibilityAssessment? compatibility;
     if (selectedFile != null) {
       if (selectedFile.sizeBytes == null) {
@@ -91,15 +98,15 @@ class GgufCandidateScreeningService {
 
     final List<String> reasons =
         disposition == GgufCandidateDisposition.rejected
-            ? <String>[...failures, ...reviewReasons]
-            : reviewReasons;
+        ? <String>[...failures, ...reviewReasons]
+        : reviewReasons;
     final bool hasCompleteCandidateFacts =
         disposition == GgufCandidateDisposition.candidate &&
-            selectedFile != null &&
-            selectedFile.sizeBytes != null &&
-            selectedFile.sha256 != null &&
-            compatibility != null &&
-            resolvedLicense != null;
+        selectedFile != null &&
+        selectedFile.sizeBytes != null &&
+        selectedFile.sha256 != null &&
+        compatibility != null &&
+        resolvedLicense != null;
 
     return GgufCandidateAssessment(
       repositoryId: metadata.id,
@@ -185,8 +192,10 @@ class GgufCandidateScreeningService {
     }
 
     final String upstreamId = metadata.quantizedBaseModels.single;
-    final HuggingFaceRepositoryMetadata? upstream =
-        _findMetadata(upstreamId, upstreamMetadata);
+    final HuggingFaceRepositoryMetadata? upstream = _findMetadata(
+      upstreamId,
+      upstreamMetadata,
+    );
     if (upstream == null) {
       reviewReasons.add(
         'License metadata must be retrieved from the linked upstream model.',
@@ -261,6 +270,15 @@ class GgufCandidateScreeningService {
   bool _isExplicitBase(String identity) {
     return RegExp(
       r'(?:^|[-_./ ])base(?:$|[-_./ ])',
+      caseSensitive: false,
+    ).hasMatch(identity);
+  }
+
+  bool _isExcludedCandidateVariant(String identity) {
+    return RegExp(
+      r'(?:^|[-_./ ])'
+      r'(?:coder|speculator|eagle\d*|functiongemma|dflash|abliterated|uncensored)'
+      r'(?:$|[-_./ ])',
       caseSensitive: false,
     ).hasMatch(identity);
   }

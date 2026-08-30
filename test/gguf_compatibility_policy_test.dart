@@ -34,9 +34,7 @@ void main() {
     });
 
     test('records the audited Qwen3.5 2B incompatibility exactly', () {
-      final assessment = assessGgufCompatibility(
-        'Qwen_Qwen3.5-2B-Q4_K_M.gguf',
-      );
+      final assessment = assessGgufCompatibility('Qwen_Qwen3.5-2B-Q4_K_M.gguf');
 
       // Preserve the previous prompt-resolution result for sideloaded files.
       expect(assessment.promptFormat, PromptFormat.chatml);
@@ -69,10 +67,31 @@ void main() {
       );
     });
 
-    test('keeps unknown sideloaded files on the plain prompt fallback', () {
-      final assessment = assessGgufCompatibility(
-        'unknown-model-Q4_K_M.gguf',
+    test('limits Gemma discovery support to Gemma 2 and Gemma 3', () {
+      final gemma2 = assessGgufCompatibility('gemma-2-2b-it-Q4_K_M.gguf');
+      final gemma3 = assessGgufCompatibility(
+        'google_gemma-3-1b-it-Q4_K_M.gguf',
       );
+      final gemma4 = assessGgufCompatibility('gemma-4-1b-it-Q4_K_M.gguf');
+
+      expect(gemma2.promptFormat, PromptFormat.gemma);
+      expect(gemma2.discoveryEligible, isTrue);
+      expect(gemma3.promptFormat, PromptFormat.gemma);
+      expect(gemma3.discoveryEligible, isTrue);
+      expect(gemma4.promptFormat, PromptFormat.gemma);
+      expect(gemma4.isRecognized, isTrue);
+      expect(gemma4.isSupported, isFalse);
+      expect(gemma4.isKnownIncompatible, isFalse);
+      expect(gemma4.discoveryEligible, isFalse);
+      expect(gemma4.explanation, contains('Gemma 2 and Gemma 3'));
+      expect(
+        resolvePromptFormat('gemma-4-1b-it-Q4_K_M.gguf'),
+        PromptFormat.gemma,
+      );
+    });
+
+    test('keeps unknown sideloaded files on the plain prompt fallback', () {
+      final assessment = assessGgufCompatibility('unknown-model-Q4_K_M.gguf');
 
       expect(assessment.promptFormat, PromptFormat.plain);
       expect(assessment.isRecognized, isFalse);

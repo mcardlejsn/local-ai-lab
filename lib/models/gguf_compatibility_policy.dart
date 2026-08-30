@@ -88,7 +88,8 @@ GgufCompatibilityAssessment assessGgufCompatibility(String fileName) {
     return _supported('ChatML/Hermes', PromptFormat.chatml);
   }
 
-  final bool isFalconH105B = name.contains('falcon-h1-0.5b') ||
+  final bool isFalconH105B =
+      name.contains('falcon-h1-0.5b') ||
       name.contains('falcon_h1_0.5b') ||
       name.contains('falconh1-0.5b') ||
       name.contains('falconh1_0.5b');
@@ -105,11 +106,13 @@ GgufCompatibilityAssessment assessGgufCompatibility(String fileName) {
     );
   }
 
-  final bool isQwen35 = name.contains('qwen3.5') ||
+  final bool isQwen35 =
+      name.contains('qwen3.5') ||
       name.contains('qwen-3.5') ||
       name.contains('qwen_3.5');
   if (isQwen35) {
-    final bool isQwen352B = name.contains('qwen3.5-2b') ||
+    final bool isQwen352B =
+        name.contains('qwen3.5-2b') ||
         name.contains('qwen3.5_2b') ||
         name.contains('qwen-3.5-2b') ||
         name.contains('qwen-3.5_2b') ||
@@ -153,8 +156,23 @@ GgufCompatibilityAssessment assessGgufCompatibility(String fileName) {
       name.contains('phi_4')) {
     return _supported('Phi-4', PromptFormat.phi4);
   }
-  if (name.contains('gemma')) {
+  final bool isSupportedGemma = RegExp(
+    r'(?:^|[-_./ ])gemma[-_. ]?[23](?:$|[-_./ ])',
+  ).hasMatch(name);
+  if (isSupportedGemma) {
     return _supported('Gemma', PromptFormat.gemma);
+  }
+  if (name.contains('gemma')) {
+    return const GgufCompatibilityAssessment(
+      family: 'Gemma',
+      promptFormat: PromptFormat.gemma,
+      isRecognized: true,
+      isSupported: false,
+      isKnownIncompatible: false,
+      discoveryEligible: false,
+      explanation:
+          'Only Gemma 2 and Gemma 3 variants have an audited Local AI Lab prompt/runtime path.',
+    );
   }
   if (name.contains('llama-3') ||
       name.contains('llama3') ||
