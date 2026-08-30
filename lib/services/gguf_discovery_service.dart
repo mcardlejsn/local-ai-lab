@@ -7,21 +7,22 @@ import 'hugging_face_discovery_service.dart';
 
 typedef GgufSeedRepositoryLoader = Future<List<String>> Function();
 
-/// Coordinates one explicit seed-assisted Hugging Face discovery request.
+/// Coordinates one explicit live-first Hugging Face discovery request.
 ///
 /// Constructing this service performs no asset read or network activity. Both
 /// occur only when [discover] is called. Repository metadata requests are
 /// intentionally sequential, and linked upstream metadata is fetched only
-/// when it is required to resolve an otherwise unusable license.
+/// when it is required to resolve an otherwise unusable license. Maintained
+/// repositories are evaluated after live results as bounded fallbacks.
 class GgufDiscoveryService {
   GgufDiscoveryService({
     HuggingFaceDiscoveryService? source,
     GgufCandidateScreeningService? screening,
     GgufSeedRepositoryLoader? loadSeedRepositories,
-  })  : _source = source ?? HuggingFaceDiscoveryService(),
-        _screening = screening ?? const GgufCandidateScreeningService(),
-        _loadSeedRepositories = loadSeedRepositories ??
-            GgufDiscoverySeedService().loadRepositoryIds;
+  }) : _source = source ?? HuggingFaceDiscoveryService(),
+       _screening = screening ?? const GgufCandidateScreeningService(),
+       _loadSeedRepositories =
+           loadSeedRepositories ?? GgufDiscoverySeedService().loadRepositoryIds;
 
   static const int _maximumLiveSearchLimit = 50;
 
@@ -38,8 +39,8 @@ class GgufDiscoveryService {
     }
 
     final List<String> seedRepositories = await _loadSeedRepositories();
-    final List<HuggingFaceRepositorySummary> summaries =
-        await _source.searchPublicGgufRepositories(limit: limit);
+    final List<HuggingFaceRepositorySummary> summaries = await _source
+        .searchPublicGgufRepositories(limit: limit);
     final List<GgufCandidateAssessment> assessments =
         <GgufCandidateAssessment>[];
     final List<GgufDiscoverySourceFailure> sourceFailures =
@@ -53,19 +54,19 @@ class GgufDiscoveryService {
       }
     }
 
-    for (final String repositoryId in seedRepositories) {
-      addRepository(repositoryId);
-    }
     for (final HuggingFaceRepositorySummary summary in summaries) {
       addRepository(summary.id);
+    }
+    for (final String repositoryId in seedRepositories) {
+      addRepository(repositoryId);
     }
 
     // A null value records a failed lookup so a shared upstream repository is
     // never requested repeatedly during the same discovery run.
     final Map<String, HuggingFaceRepositoryMetadata?> upstreamCache =
         <String, HuggingFaceRepositoryMetadata?>{};
-    // Repositories are ordered with maintained seeds first, followed by live
-    // results in popularity order. Keep only the first passing artifact for a
+    // Repositories are ordered with live results in popularity order, followed
+    // by maintained fallbacks. Keep only the first passing artifact for a
     // declared upstream/base model.
     final Set<String> selectedBaseModels = <String>{};
 

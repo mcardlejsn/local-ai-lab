@@ -122,45 +122,48 @@ void main() {
       },
     );
 
-    test('prefers a seed for a case-insensitive shared base model', () async {
-      final GgufDiscoveryService service = GgufDiscoveryService(
-        loadSeedRepositories: () async => <String>[
-          'Seed/Qwen2.5-1.5B-Instruct-GGUF',
-        ],
-        source: HuggingFaceDiscoveryService(
-          fetchJson: (Uri uri) async {
-            if (uri.path == '/api/models') {
-              return <Object?>[_summary('Live/Qwen2.5-1.5B-Instruct-GGUF')];
-            }
-            if (uri.path == '/api/models/Seed/Qwen2.5-1.5B-Instruct-GGUF') {
-              return _repository(
-                id: 'Seed/Qwen2.5-1.5B-Instruct-GGUF',
-                license: 'apache-2.0',
-                fileName: 'seed-qwen2.5-1.5b-instruct-q4_k_m.gguf',
-                upstreamId: 'Qwen/Qwen2.5-1.5B-Instruct',
-              );
-            }
-            if (uri.path == '/api/models/Live/Qwen2.5-1.5B-Instruct-GGUF') {
-              return _repository(
-                id: 'Live/Qwen2.5-1.5B-Instruct-GGUF',
-                license: 'apache-2.0',
-                fileName: 'live-qwen2.5-1.5b-instruct-q4_k_m.gguf',
-                upstreamId: 'qwen/qwen2.5-1.5b-instruct',
-              );
-            }
-            throw StateError('Unexpected request: $uri');
-          },
-        ),
-      );
+    test(
+      'prefers a live result for a case-insensitive shared base model',
+      () async {
+        final GgufDiscoveryService service = GgufDiscoveryService(
+          loadSeedRepositories: () async => <String>[
+            'Seed/Qwen2.5-1.5B-Instruct-GGUF',
+          ],
+          source: HuggingFaceDiscoveryService(
+            fetchJson: (Uri uri) async {
+              if (uri.path == '/api/models') {
+                return <Object?>[_summary('Live/Qwen2.5-1.5B-Instruct-GGUF')];
+              }
+              if (uri.path == '/api/models/Seed/Qwen2.5-1.5B-Instruct-GGUF') {
+                return _repository(
+                  id: 'Seed/Qwen2.5-1.5B-Instruct-GGUF',
+                  license: 'apache-2.0',
+                  fileName: 'seed-qwen2.5-1.5b-instruct-q4_k_m.gguf',
+                  upstreamId: 'Qwen/Qwen2.5-1.5B-Instruct',
+                );
+              }
+              if (uri.path == '/api/models/Live/Qwen2.5-1.5B-Instruct-GGUF') {
+                return _repository(
+                  id: 'Live/Qwen2.5-1.5B-Instruct-GGUF',
+                  license: 'apache-2.0',
+                  fileName: 'live-qwen2.5-1.5b-instruct-q4_k_m.gguf',
+                  upstreamId: 'qwen/qwen2.5-1.5b-instruct',
+                );
+              }
+              throw StateError('Unexpected request: $uri');
+            },
+          ),
+        );
 
-      final result = await service.discover();
+        final result = await service.discover();
 
-      expect(result.assessments, hasLength(1));
-      expect(
-        result.assessments.single.repositoryId,
-        'Seed/Qwen2.5-1.5B-Instruct-GGUF',
-      );
-    });
+        expect(result.assessments, hasLength(1));
+        expect(
+          result.assessments.single.repositoryId,
+          'Live/Qwen2.5-1.5B-Instruct-GGUF',
+        );
+      },
+    );
 
     test('continues after one candidate-detail request fails', () async {
       final GgufDiscoveryService service = GgufDiscoveryService(
@@ -268,40 +271,43 @@ void main() {
       expect(result.assessments, hasLength(1));
     });
 
-    test('merges seeds first and deduplicates live repositories', () async {
-      final List<String> detailPaths = <String>[];
-      final GgufDiscoveryService service = GgufDiscoveryService(
-        loadSeedRepositories: () async => <String>[
-          'Seed/Qwen2.5-1B-Instruct-GGUF',
-        ],
-        source: HuggingFaceDiscoveryService(
-          fetchJson: (Uri uri) async {
-            if (uri.path == '/api/models') {
-              expect(uri.queryParameters['limit'], '50');
-              return <Object?>[
-                _summary('seed/qwen2.5-1b-instruct-gguf'),
-                _summary('Live/Qwen2.5-2B-Instruct-GGUF'),
-              ];
-            }
-            detailPaths.add(uri.path);
-            final String id = uri.pathSegments.skip(2).join('/');
-            return _repository(
-              id: id,
-              license: 'apache-2.0',
-              fileName: '${id.split('/').last.toLowerCase()}-q4_k_m.gguf',
-            );
-          },
-        ),
-      );
+    test(
+      'merges live results first and deduplicates fallback repositories',
+      () async {
+        final List<String> detailPaths = <String>[];
+        final GgufDiscoveryService service = GgufDiscoveryService(
+          loadSeedRepositories: () async => <String>[
+            'Seed/Qwen2.5-1B-Instruct-GGUF',
+          ],
+          source: HuggingFaceDiscoveryService(
+            fetchJson: (Uri uri) async {
+              if (uri.path == '/api/models') {
+                expect(uri.queryParameters['limit'], '50');
+                return <Object?>[
+                  _summary('seed/qwen2.5-1b-instruct-gguf'),
+                  _summary('Live/Qwen2.5-2B-Instruct-GGUF'),
+                ];
+              }
+              detailPaths.add(uri.path);
+              final String id = uri.pathSegments.skip(2).join('/');
+              return _repository(
+                id: id,
+                license: 'apache-2.0',
+                fileName: '${id.split('/').last.toLowerCase()}-q4_k_m.gguf',
+              );
+            },
+          ),
+        );
 
-      final result = await service.discover();
+        final result = await service.discover();
 
-      expect(detailPaths, <String>[
-        '/api/models/Seed/Qwen2.5-1B-Instruct-GGUF',
-        '/api/models/Live/Qwen2.5-2B-Instruct-GGUF',
-      ]);
-      expect(result.candidateCount, 2);
-    });
+        expect(detailPaths, <String>[
+          '/api/models/seed/qwen2.5-1b-instruct-gguf',
+          '/api/models/Live/Qwen2.5-2B-Instruct-GGUF',
+        ]);
+        expect(result.candidateCount, 2);
+      },
+    );
 
     test('returns Candidates only after screening', () async {
       final GgufDiscoveryService service = GgufDiscoveryService(
