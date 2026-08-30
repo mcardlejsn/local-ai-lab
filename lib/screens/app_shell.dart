@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/benchmark_test_case.dart';
 import '../services/model_manager_service.dart';
 import 'benchmark_screen.dart';
 import 'model_download_screen.dart';
@@ -24,6 +25,7 @@ class _AppShellState extends State<AppShell> {
   static const int _destinationCount = 4;
 
   late final ModelManagerService _modelManager;
+  late final ValueNotifier<BenchmarkTestCase?> _playgroundTestCase;
   late final List<Widget?> _pages;
   int _selectedIndex = 0;
 
@@ -31,6 +33,7 @@ class _AppShellState extends State<AppShell> {
   void initState() {
     super.initState();
     _modelManager = ModelManagerService();
+    _playgroundTestCase = ValueNotifier<BenchmarkTestCase?>(null);
     _pages = List<Widget?>.filled(_destinationCount, null);
     _pages[0] = _buildPage(0);
   }
@@ -42,12 +45,32 @@ class _AppShellState extends State<AppShell> {
     }
 
     return switch (index) {
-      0 => SummarizerScreen(modelManager: _modelManager),
-      1 => const BenchmarkScreen(),
+      0 => SummarizerScreen(
+        modelManager: _modelManager,
+        onUseInBenchmark: _useInBenchmark,
+      ),
+      1 => BenchmarkScreen(
+        modelManager: _modelManager,
+        playgroundTestCase: _playgroundTestCase,
+      ),
       2 => ModelDownloadScreen(modelManager: _modelManager),
       3 => const ResultsScreen(),
       _ => throw RangeError.index(index, _pages, 'index'),
     };
+  }
+
+  void _useInBenchmark(BenchmarkTestCase testCase) {
+    _playgroundTestCase.value = testCase;
+    setState(() {
+      _pages[1] ??= _buildPage(1);
+      _selectedIndex = 1;
+    });
+  }
+
+  @override
+  void dispose() {
+    _playgroundTestCase.dispose();
+    super.dispose();
   }
 
   void _selectDestination(int index) {

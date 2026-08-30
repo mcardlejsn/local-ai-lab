@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:local_ai_summarizer/models/benchmark_test_case.dart';
 import 'package:local_ai_summarizer/screens/benchmark_screen.dart';
 import 'package:local_ai_summarizer/services/model_manager_service.dart';
 import 'package:local_ai_summarizer/theme/app_theme.dart';
@@ -39,28 +40,88 @@ void main() {
 
     expect(find.text('Benchmark'), findsOneWidget);
     expect(find.text('Controlled on-device comparison'), findsOneWidget);
-    expect(find.byKey(const Key('benchmark-status-banner')), findsOneWidget);
+    expect(find.byKey(const Key('benchmark-status-banner')), findsNothing);
     expect(find.byKey(const Key('benchmark-test-case-card')), findsOneWidget);
     expect(find.byKey(const Key('benchmark-model-selection')), findsOneWidget);
     expect(find.byKey(const Key('benchmark-runs-per-model')), findsOneWidget);
     expect(find.byKey(const Key('benchmark-run-button')), findsOneWidget);
 
     expect(find.text('From Playground'), findsNothing);
+    expect(find.text('Controlled test'), findsOneWidget);
     expect(find.textContaining('Length met'), findsNothing);
-
-    await tester.tap(find.byKey(const Key('benchmark-edit-test-case')));
-    await tester.pump();
     expect(
-      find.byKey(const Key('benchmark-instruction-field')),
+      find.byKey(const Key('benchmark-read-only-instruction')),
       findsOneWidget,
     );
-    expect(find.byKey(const Key('benchmark-passage-field')), findsOneWidget);
+    expect(
+      find.byKey(const Key('benchmark-read-only-passage')),
+      findsOneWidget,
+    );
+    expect(find.byType(TextField), findsNothing);
 
     await tester.ensureVisible(find.text('5 runs'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('5 runs'));
     await tester.pump();
     expect(find.text('Run 0 models × 5 runs'), findsOneWidget);
+  });
+
+  testWidgets('Playground test case is a read-only reproducible snapshot', (
+    WidgetTester tester,
+  ) async {
+    final ValueNotifier<BenchmarkTestCase?> testCase =
+        ValueNotifier<BenchmarkTestCase?>(null);
+    addTearDown(testCase.dispose);
+
+    await pumpAtLargeText(
+      tester,
+      BenchmarkScreen(
+        modelManager: ModelManagerService(),
+        initializeOnInit: false,
+        playgroundTestCase: testCase,
+      ),
+    );
+
+    expect(find.text('Controlled test'), findsOneWidget);
+
+    testCase.value = const BenchmarkTestCase(
+      passage: 'A Playground passage that must not drift.',
+      instruction: 'Summarize this passage in exactly two sentences.',
+      source: BenchmarkTestCaseSource.playground,
+      taskType: '2-Sentence Summary',
+    );
+    await tester.pump();
+
+    expect(find.text('From Playground'), findsOneWidget);
+    expect(find.text('Playground test case ready to compare.'), findsNothing);
+    expect(
+      find.text('A Playground passage that must not drift.'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Summarize this passage in exactly two sentences.'),
+      findsOneWidget,
+    );
+    expect(find.byType(TextField), findsNothing);
+
+    await tester.tap(find.byKey(const Key('benchmark-use-controlled-test')));
+    await tester.pump();
+
+    expect(find.text('Controlled test'), findsOneWidget);
+    expect(find.text('From Playground'), findsNothing);
+    expect(
+      find.byKey(const Key('benchmark-use-playground-test')),
+      findsOneWidget,
+    );
+    expect(find.text('Controlled test ready to compare.'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('benchmark-use-playground-test')));
+    await tester.pump();
+
+    expect(find.text('From Playground'), findsOneWidget);
+    expect(find.text('Controlled test'), findsNothing);
+    expect(find.text('Playground test case ready to compare.'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('responsive result cards retain benchmark metrics and outputs', (

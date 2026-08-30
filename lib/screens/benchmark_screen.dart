@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/benchmark_session.dart';
+import '../models/benchmark_test_case.dart';
 import '../models/recall_checklist.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
@@ -26,6 +28,7 @@ class BenchmarkScreen extends StatefulWidget {
     this.qualificationArtifactId,
     this.modelManager,
     this.initializeOnInit = true,
+    this.playgroundTestCase,
   }) : assert(
          (targetModelId == null) == (qualificationArtifactId == null),
          'Candidate target and exact artifact identity must be supplied '
@@ -46,6 +49,10 @@ class BenchmarkScreen extends StatefulWidget {
   final ModelManagerService? modelManager;
 
   final bool initializeOnInit;
+
+  /// Optional read-only Playground snapshot supplied by AppShell. Candidate
+  /// qualification routes omit it and retain the fixed controlled test.
+  final ValueListenable<BenchmarkTestCase?>? playgroundTestCase;
 
   bool get isCandidateQualification => targetModelId != null;
 
@@ -109,21 +116,22 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   bool _isRestoring = true;
   bool _hasRestoredSession = false;
   bool _hasInitializedModelSelection = false;
-  bool _isEditingTestCase = false;
+  late BenchmarkTestCase _testCase;
   int _currentRunningIndex = -1;
   int _currentRunNumber = 0;
-  String _currentStatus = 'Ready to benchmark.';
 
   @override
   void initState() {
     super.initState();
     _modelManager = widget.modelManager ?? ModelManagerService();
-    if (widget.isCandidateQualification) {
-      _currentStatus = 'Finding the installed model...';
-    }
+    _testCase =
+        widget.playgroundTestCase?.value ?? BenchmarkTestCase.controlled();
+    _promptController.text = _testCase.passage;
+    _instructionController.text = _testCase.instruction;
+    widget.playgroundTestCase?.addListener(_onPlaygroundTestCaseChanged);
     _modelManager.addListener(_onModelManagerStateChanged);
-    // The picker's selection is derived from the passage text, so edits typed
-    // straight into the field have to redraw it.
+    // The picker is derived from the passage text, so applying a different
+    // read-only snapshot has to redraw it.
     _promptController.addListener(_onPassageTextChanged);
     if (widget.initializeOnInit) {
       _initializeScreen();
@@ -137,15 +145,11 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   }
 
   Future<void> _initializeScreen() async {
-    if (!widget.isCandidateQualification) {
+    if (!widget.isCandidateQualification && !_testCase.isFromPlayground) {
       try {
         await _restoreLatestBenchmark();
       } catch (e) {
-        if (mounted) {
-          setState(() {
-            _currentStatus = 'Could not restore the latest benchmark: $e';
-          });
-        }
+        debugPrint('Could not restore the latest benchmark: $e');
       }
     }
 
@@ -164,15 +168,16 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     final saved = await DatabaseService.instance.getLatestCompletedBenchmark(
       comparisonOnly: true,
     );
-    if (saved == null || !mounted) return;
+    if (saved == null || !mounted || _testCase.isFromPlayground) return;
 
     final runMaps = (saved['runs'] as List).cast<Map<String, Object?>>();
     final restored = buildAggregatesFromSavedRuns(runMaps);
-    final completedAt = DateTime.parse(
-      saved['completed_at'] as String,
-    ).toLocal();
-
     setState(() {
+      _testCase = BenchmarkTestCase(
+        passage: saved['passage'] as String,
+        instruction: saved['instruction'] as String,
+        source: BenchmarkTestCaseSource.restored,
+      );
       _promptController.text = saved['passage'] as String;
       _instructionController.text = saved['instruction'] as String;
       _runsPerModel = saved['runs_per_model'] as int;
@@ -180,9 +185,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         ..clear()
         ..addAll(restored);
       _hasRestoredSession = true;
-      _currentStatus =
-          'Restored benchmark completed '
-          '${formatBenchmarkDateTime(completedAt)}.';
     });
   }
 
@@ -215,11 +217,55 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
 
   @override
   void dispose() {
+    widget.playgroundTestCase?.removeListener(_onPlaygroundTestCaseChanged);
     _modelManager.removeListener(_onModelManagerStateChanged);
     _promptController.removeListener(_onPassageTextChanged);
     _promptController.dispose();
     _instructionController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant BenchmarkScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.playgroundTestCase == widget.playgroundTestCase) return;
+    oldWidget.playgroundTestCase?.removeListener(_onPlaygroundTestCaseChanged);
+    widget.playgroundTestCase?.addListener(_onPlaygroundTestCaseChanged);
+    _onPlaygroundTestCaseChanged();
+  }
+
+  void _onPlaygroundTestCaseChanged() {
+    final BenchmarkTestCase? testCase = widget.playgroundTestCase?.value;
+    if (testCase == null || _isRunning || !mounted) return;
+
+    setState(() {
+      _applyTestCase(testCase);
+    });
+  }
+
+  void _useControlledTestCase() {
+    if (_isRunning || _isRestoring) return;
+    setState(() {
+      _applyTestCase(BenchmarkTestCase.controlled());
+    });
+  }
+
+  void _usePlaygroundTestCase() {
+    if (_isRunning || _isRestoring) return;
+    final BenchmarkTestCase? testCase = widget.playgroundTestCase?.value;
+    if (testCase == null) return;
+
+    setState(() {
+      _applyTestCase(testCase);
+    });
+  }
+
+  void _applyTestCase(BenchmarkTestCase testCase) {
+    _testCase = testCase;
+    _promptController.text = testCase.passage;
+    _instructionController.text = testCase.instruction;
+    _aggregates.clear();
+    _hasRestoredSession = false;
   }
 
   void _onModelManagerStateChanged() {
@@ -245,30 +291,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
             _selectedModelIds.retainAll(availableIds);
           }
         }
-
-        if (!_isRunning && !_isRestoring && !_hasRestoredSession) {
-          final List<ModelInfo> models = benchmarkModelsForTarget(
-            _modelManager.availableModels,
-            targetModelId: widget.targetModelId,
-            selectedModelIds: widget.isCandidateQualification
-                ? null
-                : _selectedModelIds,
-          );
-          if (availableModels.isEmpty) {
-            _currentStatus = widget.isCandidateQualification
-                ? 'The selected model is no longer installed.'
-                : 'No models found to benchmark.';
-          } else if (widget.isCandidateQualification) {
-            _currentStatus =
-                'Installed model ready to benchmark: ${models.single.name}';
-          } else if (availableModels.length < 2) {
-            _currentStatus =
-                'At least 2 installed models are required for comparison.';
-          } else {
-            _currentStatus =
-                '${models.length} of ${availableModels.length} models selected.';
-          }
-        }
       });
     }
   }
@@ -282,9 +304,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
       } else {
         _selectedModelIds.remove(modelId);
       }
-      _currentStatus = _selectedModelIds.length < 2
-          ? 'Select at least 2 models to run the comparison suite.'
-          : '${_selectedModelIds.length} models selected for comparison.';
     });
   }
 
@@ -295,8 +314,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
       _selectedModelIds
         ..clear()
         ..addAll(availableModels.map((ModelInfo model) => model.id));
-      _currentStatus =
-          'All ${availableModels.length} models selected for comparison.';
     });
   }
 
@@ -318,7 +335,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
 
     setState(() {
       _isRunning = true;
-      _isEditingTestCase = false;
       _hasRestoredSession = false;
       _currentRunningIndex = 0;
       _currentRunNumber = 1;
@@ -357,8 +373,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
 
         setState(() {
           _currentRunNumber = run + 1;
-          _currentStatus =
-              'Benchmarking (${i + 1}/${models.length}) run ${run + 1}/$runsPerModel: ${model.name}...';
         });
 
         await Future.delayed(const Duration(milliseconds: 250));
@@ -392,20 +406,17 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         _hasRestoredSession = saveError == null;
         _currentRunningIndex = -1;
         _currentRunNumber = 0;
-        if (saveError == null) {
-          _currentStatus = widget.isCandidateQualification
-              ? 'Single-model benchmark completed and saved: '
-                    '$runsPerModel ${runsPerModel == 1 ? 'run' : 'runs'}.'
-              : 'Benchmark suite completed and saved: '
-                    '${_aggregates.length} models × $runsPerModel runs.';
-        } else {
-          _currentStatus = widget.isCandidateQualification
-              ? 'Single-model benchmark completed, but the session could not '
-                    'be saved: $saveError'
-              : 'Benchmark suite completed, but the grouped session '
-                    'could not be saved: $saveError';
-        }
       });
+      if (saveError != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Benchmark completed, but the session could not be saved: '
+              '$saveError',
+            ),
+          ),
+        );
+      }
     }
 
     // Restore the model the user has selected. The suite leaves its last GGUF
@@ -605,61 +616,18 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     }
   }
 
-  Widget _buildStatusBanner({required bool canRun, required bool isScanning}) {
-    final ColorScheme colors = Theme.of(context).colorScheme;
-    final bool isUnavailable =
-        !canRun && !isScanning && !_isRunning && !_isRestoring;
-    final bool isComplete = _hasRestoredSession && !_isRunning;
-
-    final Color backgroundColor = isUnavailable
-        ? colors.errorContainer
-        : isComplete
-        ? colors.tertiaryContainer
-        : colors.secondaryContainer;
-    final Color foregroundColor = isUnavailable
-        ? colors.onErrorContainer
-        : isComplete
-        ? colors.onTertiaryContainer
-        : colors.onSecondaryContainer;
-
-    final IconData icon = _isRunning
-        ? Icons.hourglass_top_rounded
-        : isUnavailable
-        ? Icons.error_outline_rounded
-        : isComplete
-        ? Icons.check_circle_outline_rounded
-        : Icons.info_outline_rounded;
-
-    return Container(
-      key: const Key('benchmark-status-banner'),
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: foregroundColor),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              _currentStatus,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: foregroundColor,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildTestCaseCard() {
     final ThemeData theme = Theme.of(context);
     final bool disabled = _isRunning || _isRestoring;
+    final bool hasPlaygroundTestCase = widget.playgroundTestCase?.value != null;
+    final String helperText = switch (_testCase.source) {
+      BenchmarkTestCaseSource.controlled =>
+        'Fixed test case for repeatable comparisons across models and sessions.',
+      BenchmarkTestCaseSource.playground =>
+        'Read-only snapshot of the passage and instruction used in Playground.',
+      BenchmarkTestCaseSource.restored =>
+        'Read-only test case from the latest completed comparison.',
+    };
 
     return Card(
       key: const Key('benchmark-test-case-card'),
@@ -669,34 +637,73 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 12,
+              runSpacing: 8,
               children: [
-                Expanded(
-                  child: Text(
-                    'Test case',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                TextButton.icon(
-                  key: const Key('benchmark-edit-test-case'),
-                  onPressed: disabled
-                      ? null
-                      : () => setState(
-                          () => _isEditingTestCase = !_isEditingTestCase,
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 240),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Test case',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
                         ),
-                  icon: Icon(
-                    _isEditingTestCase
-                        ? Icons.check_rounded
-                        : Icons.edit_outlined,
+                      ),
+                      const SizedBox(height: 6),
+                      Container(
+                        key: const Key('benchmark-test-case-source'),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.secondaryContainer,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          _testCase.sourceLabel,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: theme.colorScheme.onSecondaryContainer,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  label: Text(_isEditingTestCase ? 'Done' : 'Edit'),
                 ),
+                if (!widget.isCandidateQualification &&
+                    _testCase.source != BenchmarkTestCaseSource.controlled) ...[
+                  TextButton.icon(
+                    key: const Key('benchmark-use-controlled-test'),
+                    onPressed: disabled ? null : _useControlledTestCase,
+                    icon: const Icon(Icons.restart_alt_rounded),
+                    label: const Text('Use controlled test'),
+                  ),
+                ] else if (!widget.isCandidateQualification &&
+                    hasPlaygroundTestCase) ...[
+                  TextButton.icon(
+                    key: const Key('benchmark-use-playground-test'),
+                    onPressed: disabled ? null : _usePlaygroundTestCase,
+                    icon: const Icon(Icons.compare_arrows_rounded),
+                    label: const Text('Use Playground test'),
+                  ),
+                ],
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
+            Text(
+              helperText,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 20),
             Text(
               'INSTRUCTION',
               style: theme.textTheme.labelMedium?.copyWith(
@@ -706,28 +713,16 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            if (_isEditingTestCase)
-              TextField(
-                key: const Key('benchmark-instruction-field'),
-                controller: _instructionController,
-                minLines: 2,
-                maxLines: 4,
-                enabled: !disabled,
-                decoration: const InputDecoration(
-                  hintText: 'Enter the benchmark instruction',
-                  border: OutlineInputBorder(),
-                ),
-              )
-            else
-              Text(
-                _instructionController.text.trim().isEmpty
-                    ? '(No instruction)'
-                    : _instructionController.text.trim(),
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  height: 1.35,
-                ),
+            Text(
+              _instructionController.text.trim().isEmpty
+                  ? '(No instruction)'
+                  : _instructionController.text.trim(),
+              key: const Key('benchmark-read-only-instruction'),
+              style: theme.textTheme.bodyLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+                height: 1.35,
               ),
+            ),
             const SizedBox(height: 20),
             Text(
               'PASSAGE',
@@ -738,27 +733,15 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            if (_isEditingTestCase)
-              TextField(
-                key: const Key('benchmark-passage-field'),
-                controller: _promptController,
-                minLines: 4,
-                maxLines: 8,
-                enabled: !disabled,
-                decoration: const InputDecoration(
-                  hintText: 'Enter the passage to compare',
-                  border: OutlineInputBorder(),
-                ),
-              )
-            else
-              Text(
-                _promptController.text.trim().isEmpty
-                    ? '(No passage)'
-                    : _promptController.text.trim(),
-                maxLines: 5,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyLarge?.copyWith(height: 1.45),
-              ),
+            Text(
+              _promptController.text.trim().isEmpty
+                  ? '(No passage)'
+                  : _promptController.text.trim(),
+              key: const Key('benchmark-read-only-passage'),
+              maxLines: 5,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyLarge?.copyWith(height: 1.45),
+            ),
           ],
         ),
       ),
@@ -1018,8 +1001,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
           children: [
-            _buildStatusBanner(canRun: canRun, isScanning: isScanning),
-            const SizedBox(height: 16),
             _buildTestCaseCard(),
             const SizedBox(height: 16),
             if (!widget.isCandidateQualification) ...[

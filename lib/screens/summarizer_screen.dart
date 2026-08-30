@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../models/benchmark_test_case.dart';
 import '../models/summary_record.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
@@ -19,6 +20,7 @@ class SummarizerScreen extends StatefulWidget {
     super.key,
     required this.modelManager,
     this.scanModelsOnInit = true,
+    this.onUseInBenchmark,
   });
 
   final ModelManagerService modelManager;
@@ -26,6 +28,10 @@ class SummarizerScreen extends StatefulWidget {
   /// Lets focused widget tests render the screen without starting platform
   /// model discovery. Production callers keep the default behavior.
   final bool scanModelsOnInit;
+
+  /// Receives an immutable snapshot of the successful Playground test case.
+  /// AppShell uses it to open Benchmark without duplicating editable fields.
+  final ValueChanged<BenchmarkTestCase>? onUseInBenchmark;
 
   @override
   State<SummarizerScreen> createState() => _SummarizerScreenState();
@@ -49,6 +55,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
   // Inference State
   bool _isStreaming = false;
   String _generatedOutput = '';
+  BenchmarkTestCase? _runningTestCase;
+  BenchmarkTestCase? _completedTestCase;
 
   // Hyperparameters
   double _temperature = 0.20;
@@ -132,6 +140,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     if (mounted) {
       setState(() {
         _isStreaming = false;
+        _runningTestCase = null;
         _totalLatencySeconds = _inferenceStopwatch.elapsedMilliseconds / 1000.0;
         _estimatedTokenCount = estimateOutputTokens(_generatedOutput);
         if (_totalLatencySeconds != null && _totalLatencySeconds! > 0) {
@@ -165,6 +174,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
         offset: _inputController.text.length,
       );
       _generatedOutput = '';
+      _runningTestCase = null;
+      _completedTestCase = null;
       _resetMetrics();
     });
     _showSnackBar('Sample passage loaded.');
@@ -174,6 +185,8 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     _inputController.clear();
     setState(() {
       _generatedOutput = '';
+      _runningTestCase = null;
+      _completedTestCase = null;
       _resetMetrics();
     });
   }
@@ -194,13 +207,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     FocusScope.of(context).unfocus();
     _resetMetrics();
 
-    String instruction = _presetPrompts[_selectedAction] ?? '';
-    if (_selectedAction == 'Custom') {
-      instruction = _customPromptController.text.trim();
-      if (instruction.isEmpty) {
-        instruction = 'Summarize the following passage:';
-      }
-    }
+    final String instruction = _selectedInstruction();
 
     final fullPrompt = buildInferencePrompt(
       format: activeModel.promptFormat,
@@ -211,6 +218,13 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     setState(() {
       _isStreaming = true;
       _generatedOutput = '';
+      _runningTestCase = BenchmarkTestCase(
+        passage: rawText,
+        instruction: instruction,
+        source: BenchmarkTestCaseSource.playground,
+        taskType: _selectedAction,
+      );
+      _completedTestCase = null;
     });
 
     _inferenceStopwatch.start();
@@ -239,13 +253,18 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
             _totalLatencySeconds = totalSec;
             _estimatedTokenCount = estTokens;
             _tokensPerSecond = totalSec > 0 ? (estTokens / totalSec) : 0;
+            _completedTestCase = _runningTestCase;
+            _runningTestCase = null;
           });
           _autoScroll();
         }
       } catch (e) {
         _stopTimers();
         if (mounted) {
-          setState(() => _isStreaming = false);
+          setState(() {
+            _isStreaming = false;
+            _runningTestCase = null;
+          });
           _showSnackBar('Nano Inference Failed: $e');
         }
       }
@@ -265,7 +284,10 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
       } catch (e) {
         _stopTimers();
         if (mounted) {
-          setState(() => _isStreaming = false);
+          setState(() {
+            _isStreaming = false;
+            _runningTestCase = null;
+          });
           _showSnackBar('GGUF Inference Failed: $e');
         }
       }
@@ -283,7 +305,10 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
       } catch (e) {
         _stopTimers();
         if (mounted) {
-          setState(() => _isStreaming = false);
+          setState(() {
+            _isStreaming = false;
+            _runningTestCase = null;
+          });
           _showSnackBar('LiteRT-LM Inference Failed: $e');
         }
       }
@@ -292,9 +317,31 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
 
     _stopTimers();
     if (mounted) {
-      setState(() => _isStreaming = false);
+      setState(() {
+        _isStreaming = false;
+        _runningTestCase = null;
+      });
       _showSnackBar('The selected model engine is no longer supported.');
     }
+  }
+
+  String _selectedInstruction() {
+    if (_selectedAction != 'Custom') {
+      return _presetPrompts[_selectedAction] ?? '';
+    }
+
+    final String customInstruction = _customPromptController.text.trim();
+    return customInstruction.isEmpty
+        ? 'Summarize the following passage:'
+        : customInstruction;
+  }
+
+  void _useInBenchmark() {
+    final ValueChanged<BenchmarkTestCase>? callback = widget.onUseInBenchmark;
+    final BenchmarkTestCase? testCase = _completedTestCase;
+    if (callback == null || testCase == null) return;
+
+    callback(testCase);
   }
 
   void _listenToGenerationStream(
@@ -331,7 +378,10 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
       onError: (error) {
         _stopTimers();
         if (mounted) {
-          setState(() => _isStreaming = false);
+          setState(() {
+            _isStreaming = false;
+            _runningTestCase = null;
+          });
           _showSnackBar('$engineLabel Stream Error: $error');
         }
       },
@@ -345,6 +395,10 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
             if (_totalLatencySeconds! > 0) {
               _tokensPerSecond = _estimatedTokenCount / _totalLatencySeconds!;
             }
+            if (_generatedOutput.trim().isNotEmpty) {
+              _completedTestCase = _runningTestCase;
+            }
+            _runningTestCase = null;
           });
         }
       },
@@ -1039,6 +1093,14 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                     label: const Text('Save'),
                     onPressed: _saveCurrentSummary,
                   ),
+                  if (widget.onUseInBenchmark != null &&
+                      _completedTestCase != null)
+                    TextButton.icon(
+                      key: const Key('playground-use-in-benchmark'),
+                      icon: const Icon(Icons.compare_arrows_rounded),
+                      label: const Text('Use in Benchmark'),
+                      onPressed: _useInBenchmark,
+                    ),
                 ],
               ),
             ],
