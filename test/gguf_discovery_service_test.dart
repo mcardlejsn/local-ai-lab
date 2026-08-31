@@ -51,8 +51,15 @@ void main() {
 
         final result = await service.discover(limit: 7);
 
-        expect(requests, hasLength(2));
-        expect(requests.first.queryParameters['limit'], '7');
+        expect(requests, hasLength(4));
+        expect(
+          requests.take(3).map((Uri uri) => uri.queryParameters['search']),
+          <String>['instruct', 'chat', 'it-GGUF'],
+        );
+        expect(
+          requests.take(3).map((Uri uri) => uri.queryParameters['limit']),
+          <String>['7', '7', '7'],
+        );
         expect(result.assessments, hasLength(1));
         expect(
           result.assessments.single.disposition,
@@ -353,23 +360,38 @@ void main() {
       },
     );
 
-    test('skips duplicate search entries case-insensitively', () async {
-      int detailRequests = 0;
+    test('merges three searches and skips duplicate repositories '
+        'case-insensitively', () async {
+      final List<String> searchTerms = <String>[];
+      final List<String> detailPaths = <String>[];
       final GgufDiscoveryService service = GgufDiscoveryService(
         loadSeedRepositories: _noSeeds,
         source: HuggingFaceDiscoveryService(
           fetchJson: (Uri uri) async {
             if (uri.path == '/api/models') {
-              return <Object?>[
-                _summary('Qwen/Qwen2.5-Instruct-GGUF'),
-                _summary('qwen/qwen2.5-instruct-gguf'),
-              ];
+              final String searchTerm = uri.queryParameters['search']!;
+              searchTerms.add(searchTerm);
+              if (searchTerm == 'instruct') {
+                return <Object?>[_summary('Qwen/Qwen2.5-1B-Instruct-GGUF')];
+              }
+              if (searchTerm == 'chat') {
+                return <Object?>[
+                  _summary('qwen/qwen2.5-1b-instruct-gguf'),
+                  _summary('Qwen/Qwen1.5-0.5B-Chat-GGUF'),
+                ];
+              }
+              return <Object?>[_summary('QWEN/QWEN1.5-0.5B-CHAT-GGUF')];
             }
-            detailRequests++;
+            detailPaths.add(uri.path);
+            final bool isChat = uri.path.toLowerCase().contains('chat');
             return _repository(
-              id: 'Qwen/Qwen2.5-Instruct-GGUF',
+              id: isChat
+                  ? 'Qwen/Qwen1.5-0.5B-Chat-GGUF'
+                  : 'Qwen/Qwen2.5-1B-Instruct-GGUF',
               license: 'apache-2.0',
-              fileName: 'qwen2.5-instruct-q4_k_m.gguf',
+              fileName: isChat
+                  ? 'qwen1.5-0.5b-chat-q4_k_m.gguf'
+                  : 'qwen2.5-1b-instruct-q4_k_m.gguf',
             );
           },
         ),
@@ -377,8 +399,12 @@ void main() {
 
       final result = await service.discover();
 
-      expect(detailRequests, 1);
-      expect(result.assessments, hasLength(1));
+      expect(searchTerms, <String>['instruct', 'chat', 'it-GGUF']);
+      expect(detailPaths, <String>[
+        '/api/models/Qwen/Qwen2.5-1B-Instruct-GGUF',
+        '/api/models/Qwen/Qwen1.5-0.5B-Chat-GGUF',
+      ]);
+      expect(result.assessments, hasLength(2));
     });
 
     test(

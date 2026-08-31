@@ -8,7 +8,7 @@ import 'hugging_face_discovery_service.dart';
 
 typedef GgufSeedRepositoryLoader = Future<List<String>> Function();
 
-/// Coordinates one explicit live-first Hugging Face discovery request.
+/// Coordinates one explicit live-first Hugging Face discovery run.
 ///
 /// Constructing this service performs no asset read or network activity. Both
 /// occur only when [discover] is called. Repository metadata requests are
@@ -26,6 +26,11 @@ class GgufDiscoveryService {
            loadSeedRepositories ?? GgufDiscoverySeedService().loadRepositoryIds;
 
   static const int _maximumLiveSearchLimit = 50;
+  static const List<String> _liveSearchTerms = <String>[
+    'instruct',
+    'chat',
+    'it-GGUF',
+  ];
 
   final HuggingFaceDiscoveryService _source;
   final GgufCandidateScreeningService _screening;
@@ -34,14 +39,12 @@ class GgufDiscoveryService {
   Future<GgufDiscoveryResult> discover({int limit = 50}) async {
     if (limit < 1 || limit > _maximumLiveSearchLimit) {
       throw ArgumentError(
-        'Live discovery limit must be between 1 and '
+        'Live discovery limit per search must be between 1 and '
         '$_maximumLiveSearchLimit.',
       );
     }
 
     final List<String> seedRepositories = await _loadSeedRepositories();
-    final List<HuggingFaceRepositorySummary> summaries = await _source
-        .searchPublicGgufRepositories(limit: limit);
     final List<GgufCandidateAssessment> assessments =
         <GgufCandidateAssessment>[];
     final List<GgufDiscoverySourceFailure> sourceFailures =
@@ -55,8 +58,12 @@ class GgufDiscoveryService {
       }
     }
 
-    for (final HuggingFaceRepositorySummary summary in summaries) {
-      addRepository(summary.id);
+    for (final String searchTerm in _liveSearchTerms) {
+      final List<HuggingFaceRepositorySummary> summaries = await _source
+          .searchPublicGgufRepositories(searchTerm: searchTerm, limit: limit);
+      for (final HuggingFaceRepositorySummary summary in summaries) {
+        addRepository(summary.id);
+      }
     }
     for (final String repositoryId in seedRepositories) {
       addRepository(repositoryId);
@@ -66,9 +73,9 @@ class GgufDiscoveryService {
     // never requested repeatedly during the same discovery run.
     final Map<String, HuggingFaceRepositoryMetadata?> upstreamCache =
         <String, HuggingFaceRepositoryMetadata?>{};
-    // Repositories are ordered with live results in popularity order, followed
-    // by maintained fallbacks. Keep only the first passing artifact for an
-    // equivalent underlying model.
+    // Repositories are ordered by bounded live-search group and popularity,
+    // followed by maintained fallbacks. Keep only the first passing artifact
+    // for an equivalent underlying model.
     final List<HuggingFaceRepositoryMetadata> selectedModels =
         <HuggingFaceRepositoryMetadata>[];
 

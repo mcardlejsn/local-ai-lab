@@ -20,7 +20,7 @@ class HuggingFaceDiscoveryException implements Exception {
 ///
 /// Constructing this service performs no network activity. A request occurs
 /// only when [searchPublicGgufRepositories] or [getRepositoryMetadata] is
-/// explicitly called. Nothing in the running app calls this service yet.
+/// explicitly called during user-triggered discovery.
 class HuggingFaceDiscoveryService {
   HuggingFaceDiscoveryService({
     HuggingFaceJsonFetcher? fetchJson,
@@ -35,11 +35,17 @@ class HuggingFaceDiscoveryService {
   final HuggingFaceJsonFetcher? _fetchJsonOverride;
   final Duration requestTimeout;
 
-  /// Returns a limited page of popular public, ungated GGUF instruction repos.
-  /// Detailed access status is checked again by [getRepositoryMetadata].
+  /// Returns a limited page of popular public, ungated GGUF repositories
+  /// matching [searchTerm]. Detailed access status is checked again by
+  /// [getRepositoryMetadata].
   Future<List<HuggingFaceRepositorySummary>> searchPublicGgufRepositories({
+    String searchTerm = 'instruct',
     int limit = 50,
   }) async {
+    final String normalizedSearchTerm = searchTerm.trim();
+    if (normalizedSearchTerm.isEmpty) {
+      throw ArgumentError('Search term must not be empty.');
+    }
     if (limit < 1 || limit > _maximumSearchLimit) {
       throw ArgumentError('Search limit must be between 1 and 50.');
     }
@@ -47,7 +53,7 @@ class HuggingFaceDiscoveryService {
     final Uri uri = Uri.https(_host, '/api/models', <String, String>{
       'filter': 'gguf',
       'pipeline_tag': 'text-generation',
-      'search': 'instruct',
+      'search': normalizedSearchTerm,
       'gated': 'false',
       'sort': 'downloads',
       'direction': '-1',
@@ -71,8 +77,8 @@ class HuggingFaceDiscoveryService {
       try {
         final HuggingFaceRepositorySummary summary =
             HuggingFaceRepositorySummary.fromJson(
-          Map<String, dynamic>.from(value),
-        );
+              Map<String, dynamic>.from(value),
+            );
         // Do not trust the query filter alone. Silently exclude any restricted
         // result the server includes rather than exposing it to v1 discovery.
         if (summary.isPublicAndUngated) results.add(summary);
@@ -116,12 +122,14 @@ class HuggingFaceDiscoveryService {
 
     final HttpClient client = HttpClient()..connectionTimeout = requestTimeout;
     try {
-      final HttpClientRequest request =
-          await client.getUrl(uri).timeout(requestTimeout);
+      final HttpClientRequest request = await client
+          .getUrl(uri)
+          .timeout(requestTimeout);
       request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      final HttpClientResponse response =
-          await request.close().timeout(requestTimeout);
+      final HttpClientResponse response = await request.close().timeout(
+        requestTimeout,
+      );
       if (response.statusCode != HttpStatus.ok) {
         await response.drain<void>();
         throw HuggingFaceDiscoveryException(
@@ -130,8 +138,10 @@ class HuggingFaceDiscoveryService {
           statusCode: response.statusCode,
         );
       }
-      final String body =
-          await utf8.decoder.bind(response).join().timeout(requestTimeout);
+      final String body = await utf8.decoder
+          .bind(response)
+          .join()
+          .timeout(requestTimeout);
       try {
         return jsonDecode(body);
       } on FormatException {
@@ -160,9 +170,9 @@ class HuggingFaceDiscoveryService {
 
   List<String> _validatedRepositoryParts(String repositoryId) {
     final String trimmed = repositoryId.trim().replaceAll(
-          RegExp(r'^/+|/+$'),
-          '',
-        );
+      RegExp(r'^/+|/+$'),
+      '',
+    );
     final List<String> parts = trimmed.split('/');
     if (parts.length != 2 || parts.any((String part) => part.trim().isEmpty)) {
       throw ArgumentError(
