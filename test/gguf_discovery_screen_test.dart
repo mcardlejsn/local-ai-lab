@@ -97,7 +97,7 @@ void main() {
         await tester.tap(find.byKey(const Key('discover-gguf-button')));
         await tester.pumpAndSettle();
 
-        expect(requests, 2);
+        expect(requests, 4);
         expect(cache.saveCalls, 1);
         expect(find.text('Qwen/Qwen2.5-1.5B-Instruct-GGUF'), findsOneWidget);
         expect(find.text('Candidate — discovery screened'), findsOneWidget);
