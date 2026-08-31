@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -7,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 typedef ModelsDirectoryResolver = Future<Directory?> Function();
+typedef FileSha256Resolver = Future<String> Function(File file);
 
 /// Downloads a single model file into the same directory
 /// [ModelManagerService.scanModels] reads from.
@@ -103,12 +105,13 @@ class DownloadCancelToken {
 }
 
 class ModelDownloadService {
-  ModelDownloadService({this.modelsDirectoryResolver});
+  ModelDownloadService({this.modelsDirectoryResolver, this.fileSha256Resolver});
 
   static const String _userAgent = 'LocalAILab/1.0 (Android; Dart:io)';
   static const Duration _connectionTimeout = Duration(seconds: 30);
 
   final ModelsDirectoryResolver? modelsDirectoryResolver;
+  final FileSha256Resolver? fileSha256Resolver;
 
   /// The app's external files directory — `Android/data/<package>/files/`,
   /// the directory [ModelManagerService.scanModels] reads. Downloads land
@@ -373,6 +376,7 @@ class ModelDownloadService {
       }
 
       await part.rename(target.path);
+      await _saveVerificationRecord(target, actual);
       return DownloadResult(DownloadOutcome.completed, filePath: target.path);
     } on SocketException catch (e) {
       return DownloadResult(DownloadOutcome.networkError, message: e.message);
@@ -400,6 +404,8 @@ class ModelDownloadService {
 
   /// Streams the file through sha256 rather than loading ~1GB into memory.
   Future<String> _sha256OfFile(File file) async {
+    final FileSha256Resolver? override = fileSha256Resolver;
+    if (override != null) return override(file);
     final Digest digest = await sha256.bind(file.openRead()).first;
     return digest.toString();
   }
@@ -409,10 +415,71 @@ class ModelDownloadService {
     String expectedSha256,
   ) async {
     if (!await target.exists()) return InstalledArtifactStatus.absent;
-    final String actualSha256 = await _sha256OfFile(target);
+    final FileStat stat = await target.stat();
+    final String? cachedSha256 = await _readVerificationRecord(target, stat);
+    final String actualSha256;
+    if (cachedSha256 != null) {
+      actualSha256 = cachedSha256;
+    } else {
+      actualSha256 = await _sha256OfFile(target);
+      await _saveVerificationRecord(target, actualSha256);
+    }
     return actualSha256.toLowerCase() == expectedSha256.toLowerCase()
         ? InstalledArtifactStatus.matchesExpected
         : InstalledArtifactStatus.differentFile;
+  }
+
+  Future<String?> _readVerificationRecord(File target, FileStat stat) async {
+    final File record = _verificationRecordFile(target);
+    try {
+      if (!await record.exists()) return null;
+      final Object? decoded = jsonDecode(await record.readAsString());
+      if (decoded is! Map<String, dynamic>) return null;
+
+      final String normalizedPath = _normalizedPath(target.path);
+      final Object? savedPath = decoded['normalizedPath'];
+      final Object? savedSize = decoded['sizeBytes'];
+      final Object? savedModified = decoded['modifiedMicrosecondsUtc'];
+      final Object? savedSha256 = decoded['sha256'];
+      if (savedPath != normalizedPath ||
+          savedSize != stat.size ||
+          savedModified != stat.modified.toUtc().microsecondsSinceEpoch ||
+          savedSha256 is! String ||
+          !_isSha256(savedSha256)) {
+        return null;
+      }
+      return savedSha256;
+    } on FileSystemException {
+      return null;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  Future<void> _saveVerificationRecord(File target, String sha256Value) async {
+    try {
+      final FileStat stat = await target.stat();
+      final Map<String, Object> record = <String, Object>{
+        'normalizedPath': _normalizedPath(target.path),
+        'sizeBytes': stat.size,
+        'modifiedMicrosecondsUtc': stat.modified.toUtc().microsecondsSinceEpoch,
+        'sha256': sha256Value.toLowerCase(),
+      };
+      await _verificationRecordFile(target).writeAsString(jsonEncode(record));
+    } on FileSystemException {
+      // Verification still succeeded. A later check will hash again if the
+      // small reuse record could not be persisted.
+    }
+  }
+
+  File _verificationRecordFile(File target) {
+    return File('${target.path}.local_ai_lab_verification.json');
+  }
+
+  String _normalizedPath(String path) => p.normalize(p.absolute(path));
+
+  bool _isSha256(String value) {
+    return RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(value);
   }
 
   int? _contentLengthOrNull(HttpClientResponse response) {

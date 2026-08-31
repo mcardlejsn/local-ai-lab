@@ -77,13 +77,22 @@ void main() {
   group('exact installed artifact protection', () {
     late Directory temporaryDirectory;
     late ModelDownloadService service;
+    late int hashCount;
 
     setUp(() async {
       temporaryDirectory = await Directory.systemTemp.createTemp(
         'local_ai_lab_download_test_',
       );
+      hashCount = 0;
       service = ModelDownloadService(
         modelsDirectoryResolver: () async => temporaryDirectory,
+        fileSha256Resolver: (File file) async {
+          hashCount++;
+          return sha256
+              .bind(file.openRead())
+              .first
+              .then((Digest digest) => digest.toString());
+        },
       );
     });
 
@@ -100,6 +109,181 @@ void main() {
       );
 
       expect(status, InstalledArtifactStatus.absent);
+      expect(hashCount, 0);
+    });
+
+    test('reuses the saved digest for an unchanged installed file', () async {
+      final List<int> bytes = <int>[1, 2, 3, 4, 5];
+      await File(
+        p.join(temporaryDirectory.path, 'candidate.gguf'),
+      ).writeAsBytes(bytes);
+      final String expectedSha256 = _sha256(bytes);
+
+      final first = await service.installedArtifactStatus(
+        fileName: 'candidate.gguf',
+        expectedSha256: expectedSha256,
+      );
+      final second = await service.installedArtifactStatus(
+        fileName: 'candidate.gguf',
+        expectedSha256: expectedSha256,
+      );
+
+      expect(first, InstalledArtifactStatus.matchesExpected);
+      expect(second, InstalledArtifactStatus.matchesExpected);
+      expect(hashCount, 1);
+    });
+
+    test('rehashes when the installed file size changes', () async {
+      final File target = File(
+        p.join(temporaryDirectory.path, 'candidate.gguf'),
+      );
+      final List<int> originalBytes = <int>[1, 2, 3, 4];
+      await target.writeAsBytes(originalBytes);
+      final String expectedSha256 = _sha256(originalBytes);
+      await service.installedArtifactStatus(
+        fileName: 'candidate.gguf',
+        expectedSha256: expectedSha256,
+      );
+
+      await target.writeAsBytes(<int>[1, 2, 3, 4, 5]);
+      final status = await service.installedArtifactStatus(
+        fileName: 'candidate.gguf',
+        expectedSha256: expectedSha256,
+      );
+
+      expect(status, InstalledArtifactStatus.differentFile);
+      expect(hashCount, 2);
+    });
+
+    test(
+      'rehashes when the installed file modification time changes',
+      () async {
+        final File target = File(
+          p.join(temporaryDirectory.path, 'candidate.gguf'),
+        );
+        final List<int> bytes = <int>[1, 2, 3, 4];
+        await target.writeAsBytes(bytes);
+        final DateTime firstModified = DateTime.utc(2026, 8, 30, 20);
+        await target.setLastModified(firstModified);
+        final String expectedSha256 = _sha256(bytes);
+        await service.installedArtifactStatus(
+          fileName: 'candidate.gguf',
+          expectedSha256: expectedSha256,
+        );
+
+        await target.setLastModified(
+          firstModified.add(const Duration(seconds: 1)),
+        );
+        final status = await service.installedArtifactStatus(
+          fileName: 'candidate.gguf',
+          expectedSha256: expectedSha256,
+        );
+
+        expect(status, InstalledArtifactStatus.matchesExpected);
+        expect(hashCount, 2);
+      },
+    );
+
+    test('rehashes when the saved verification record is missing', () async {
+      final File target = File(
+        p.join(temporaryDirectory.path, 'candidate.gguf'),
+      );
+      final List<int> bytes = <int>[1, 2, 3, 4];
+      await target.writeAsBytes(bytes);
+      final String expectedSha256 = _sha256(bytes);
+      await service.installedArtifactStatus(
+        fileName: 'candidate.gguf',
+        expectedSha256: expectedSha256,
+      );
+      await File('${target.path}.local_ai_lab_verification.json').delete();
+
+      final status = await service.installedArtifactStatus(
+        fileName: 'candidate.gguf',
+        expectedSha256: expectedSha256,
+      );
+
+      expect(status, InstalledArtifactStatus.matchesExpected);
+      expect(hashCount, 2);
+    });
+
+    test('rehashes when the saved verification record is invalid', () async {
+      final File target = File(
+        p.join(temporaryDirectory.path, 'candidate.gguf'),
+      );
+      final List<int> bytes = <int>[1, 2, 3, 4];
+      await target.writeAsBytes(bytes);
+      final String expectedSha256 = _sha256(bytes);
+      await service.installedArtifactStatus(
+        fileName: 'candidate.gguf',
+        expectedSha256: expectedSha256,
+      );
+      await File(
+        '${target.path}.local_ai_lab_verification.json',
+      ).writeAsString('not json');
+
+      final status = await service.installedArtifactStatus(
+        fileName: 'candidate.gguf',
+        expectedSha256: expectedSha256,
+      );
+
+      expect(status, InstalledArtifactStatus.matchesExpected);
+      expect(hashCount, 2);
+    });
+
+    test('changed bytes cannot reuse a stale verified digest', () async {
+      final File target = File(
+        p.join(temporaryDirectory.path, 'candidate.gguf'),
+      );
+      final List<int> expectedBytes = <int>[1, 2, 3, 4];
+      final DateTime firstModified = DateTime.utc(2026, 8, 30, 20);
+      await target.writeAsBytes(expectedBytes);
+      await target.setLastModified(firstModified);
+      final String expectedSha256 = _sha256(expectedBytes);
+      await service.installedArtifactStatus(
+        fileName: 'candidate.gguf',
+        expectedSha256: expectedSha256,
+      );
+
+      await target.writeAsBytes(<int>[9, 8, 7, 6]);
+      await target.setLastModified(
+        firstModified.add(const Duration(seconds: 1)),
+      );
+      final status = await service.installedArtifactStatus(
+        fileName: 'candidate.gguf',
+        expectedSha256: expectedSha256,
+      );
+
+      expect(status, InstalledArtifactStatus.differentFile);
+      expect(hashCount, 2);
+    });
+
+    test('reuses the digest calculated by a successful download', () async {
+      final List<int> bytes = <int>[1, 2, 3, 4, 5];
+      final HttpServer server = await HttpServer.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      final Future<void> response = server.first.then((request) async {
+        request.response.contentLength = bytes.length;
+        request.response.add(bytes);
+        await request.response.close();
+      });
+      addTearDown(() async => server.close(force: true));
+
+      final DownloadResult result = await service.download(
+        url: Uri.parse('http://${server.address.host}:${server.port}/model'),
+        fileName: 'candidate.gguf',
+        expectedSha256: _sha256(bytes),
+      );
+      await response;
+      final status = await service.installedArtifactStatus(
+        fileName: 'candidate.gguf',
+        expectedSha256: _sha256(bytes),
+      );
+
+      expect(result.outcome, DownloadOutcome.completed);
+      expect(status, InstalledArtifactStatus.matchesExpected);
+      expect(hashCount, 1);
     });
 
     test(
