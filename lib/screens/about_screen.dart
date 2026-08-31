@@ -160,6 +160,116 @@ class _AboutLocalAiLabScreenState extends State<AboutLocalAiLabScreen> {
                   'and license information. Gemini Nano and installed GGUF '
                   'model inference run on-device.',
             ),
+            const SizedBox(height: 16),
+            const _AboutInfoCard(
+              icon: Icons.fact_check_outlined,
+              title: 'Discovery Candidates',
+              body:
+                  'Candidates are ordinary supported instruction or chat GGUF '
+                  'models that meet Local AI Lab’s mechanical download and '
+                  'compatibility requirements: public and ungated; one '
+                  'complete, unsharded Q4_K_M artifact no larger than 3 GB; a '
+                  'supported prompt and runtime family; resolvable license '
+                  'information; and an available SHA-256 hash.\n\n'
+                  'Discovery uses three bounded Hugging Face searches—'
+                  'instruct, chat, and it-GGUF—together with maintained '
+                  'fallback repositories. Duplicate repositories and '
+                  'equivalent model results are removed.\n\n'
+                  'Candidate status does not establish output quality, safety, '
+                  'or practical performance on this phone. Use Playground and '
+                  'Benchmark to evaluate behavior.',
+            ),
+            const SizedBox(height: 16),
+            const _AboutInfoCard(
+              icon: Icons.help_outline_rounded,
+              title: 'Understanding the requirements',
+              body:
+                  'GGUF is the model-file format used by Local AI Lab’s bundled '
+                  'llama.cpp runtime.\n\n'
+                  'Q4_K_M is a balanced 4-bit quantization. Q4 means most model '
+                  'weights use roughly four bits, reducing file size and '
+                  'memory use. K identifies llama.cpp’s grouped quantization '
+                  'family. M is the medium variant, retaining higher precision '
+                  'for selected weights. Requiring one quantization keeps '
+                  'phone downloads practical and comparisons more consistent; '
+                  'it does not mean Q4_K_M is best for every device.\n\n'
+                  'Single and unsharded means the model is one complete GGUF '
+                  'file rather than several pieces, keeping installation and '
+                  'exact verification reliable.\n\n'
+                  'The 3 GB limit keeps Candidate downloads within the app’s '
+                  'phone-focused boundary, but does not guarantee good speed '
+                  'or memory behavior.\n\n'
+                  'A supported prompt family means Local AI Lab recognizes how '
+                  'the model expects instructions and conversation messages to '
+                  'be formatted.\n\n'
+                  'SHA-256 is a digital fingerprint used to confirm that the '
+                  'downloaded bytes match the exact artifact advertised by '
+                  'Hugging Face.\n\n'
+                  'Public and ungated means the repository can be accessed '
+                  'without an account, approval request, or access token.',
+            ),
+            const SizedBox(height: 16),
+            const _AboutInfoCard(
+              icon: Icons.analytics_outlined,
+              title: 'How Benchmark results are calculated',
+              body:
+                  'Benchmark can run each selected model 1, 3, or 5 times. '
+                  'Each run is executed independently and its individual '
+                  'metrics and output remain available for inspection.\n\n'
+                  'When more than one run succeeds, Local AI Lab summarizes '
+                  'the completed runs using medians rather than averages. '
+                  'Recall, latency, time to first token (TTFT), estimated '
+                  'generation rate, and estimated token count use the median '
+                  'of the applicable successful runs. Medians reduce the '
+                  'influence of an unusually fast or slow individual run.\n\n'
+                  'Latency also retains the minimum-to-maximum range when '
+                  'multiple runs succeed. Failed runs are excluded from '
+                  'median calculations, but the completed-run count still '
+                  'shows how many requested runs succeeded.\n\n'
+                  'For Two-Sentence Summary, Length Met is reported as the '
+                  'number of completed structured runs that produced exactly '
+                  'two sentences, such as 4/5. The representative output is '
+                  'the successful run with median latency; individual runs '
+                  'and outputs remain available for review.',
+            ),
+            const SizedBox(height: 16),
+            const _AboutInfoCard(
+              icon: Icons.recommend_outlined,
+              title: 'Recommended models',
+              body:
+                  'Recommended is based on the most recent saved Benchmark '
+                  'with successful results from at least two models. Models are '
+                  'compared only against the other models tested in that '
+                  'Benchmark.\n\n'
+                  'Recommended highlights the model or models with the strongest '
+                  'measured results for recall, length compliance when available, '
+                  'latency, time to first token (TTFT), and generation speed. '
+                  'Ties are preserved. There is no combined overall score or '
+                  'comparison across multiple Benchmark sessions.\n\n'
+                  'Recommendations are specific to the device, task, models, and '
+                  'Benchmark comparison tested. They are not a universal ranking '
+                  'or a guarantee of future performance.',
+            ),
+            const SizedBox(height: 16),
+            const _AboutInfoCard(
+              icon: Icons.devices_other_rounded,
+              title: 'Device-specific results',
+              body:
+                  'Hardware and software differ across Android devices. A '
+                  'Candidate can meet the file and format requirements yet '
+                  'fail to load, run slowly, heat the device, or be stopped by '
+                  'the system when memory is limited. The 3 GB artifact limit '
+                  'is a download boundary, not a runtime-memory guarantee. '
+                  'Gemini Nano availability depends on device-specific AICore '
+                  'support.\n\n'
+                  'Benchmark and Recommended results are device-specific. The '
+                  'same model can behave differently on other hardware or '
+                  'software, so results from this device do not establish a '
+                  'universal ranking or guarantee future performance.\n\n'
+                  'Local AI Lab is currently Android-only. Other devices and '
+                  'future platform versions require separate implementation '
+                  'and testing.',
+            ),
           ],
         ),
       ),

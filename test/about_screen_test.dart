@@ -43,6 +43,129 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('About explains Candidate criteria and technical terms', (
+    WidgetTester tester,
+  ) async {
+    await pumpScreen(
+      tester,
+      AboutLocalAiLabScreen(
+        packageDetailsLoader: () async =>
+            const AppPackageDetails(version: '1.2.3', buildNumber: '45'),
+      ),
+    );
+
+    await tester.scrollUntilVisible(find.text('Discovery Candidates'), 400);
+    expect(
+      find.textContaining('mechanical download and compatibility requirements'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('one complete, unsharded Q4_K_M artifact'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('instruct, chat, and it-GGUF'), findsOneWidget);
+    expect(
+      find.textContaining('does not establish output quality'),
+      findsOneWidget,
+    );
+    await tester.scrollUntilVisible(
+      find.text('Understanding the requirements'),
+      400,
+    );
+    expect(find.textContaining('Q4_K_M is a balanced'), findsOneWidget);
+    expect(find.textContaining('Single and unsharded'), findsOneWidget);
+    expect(
+      find.textContaining('SHA-256 is a digital fingerprint'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Public and ungated'), findsOneWidget);
+
+    await tester.scrollUntilVisible(find.text('Device-specific results'), 400);
+    expect(
+      find.textContaining('not a runtime-memory guarantee'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('device-specific AICore support'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        'Benchmark and Recommended results are device-specific',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        'results from this device do not establish a universal ranking',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('currently Android-only'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('About explains Benchmark aggregation and Recommended semantics', (
+    WidgetTester tester,
+  ) async {
+    await pumpScreen(
+      tester,
+      AboutLocalAiLabScreen(
+        packageDetailsLoader: () async =>
+            const AppPackageDetails(version: '1.2.3', buildNumber: '45'),
+      ),
+    );
+
+    await tester.scrollUntilVisible(
+      find.text('How Benchmark results are calculated'),
+      400,
+    );
+    expect(find.textContaining('1, 3, or 5 times'), findsOneWidget);
+    expect(find.textContaining('medians rather than averages'), findsOneWidget);
+    expect(find.textContaining('minimum-to-maximum range'), findsOneWidget);
+    expect(find.textContaining('Failed runs are excluded'), findsOneWidget);
+    expect(find.textContaining('such as 4/5'), findsOneWidget);
+    expect(
+      find.textContaining('successful run with median latency'),
+      findsOneWidget,
+    );
+
+    await tester.scrollUntilVisible(find.text('Recommended models'), 400);
+    expect(find.textContaining('most recent saved Benchmark'), findsOneWidget);
+    expect(find.textContaining('at least two models'), findsOneWidget);
+    expect(
+      find.textContaining('only against the other models tested'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        'strongest measured results for recall, length compliance when available',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining(
+        'latency, time to first token (TTFT), and generation speed',
+      ),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Ties are preserved'), findsOneWidget);
+    expect(find.textContaining('no combined overall score'), findsOneWidget);
+    expect(
+      find.textContaining('comparison across multiple Benchmark sessions'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('device, task, models, and Benchmark comparison'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('guarantee of future performance'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('diagnostics reports AICore and bundled llama.cpp status', (
     WidgetTester tester,
   ) async {
