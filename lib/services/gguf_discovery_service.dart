@@ -1,4 +1,5 @@
 import '../models/gguf_candidate_assessment.dart';
+import '../models/gguf_candidate_identity.dart';
 import '../models/gguf_discovery_result.dart';
 import '../models/hugging_face_model_metadata.dart';
 import 'gguf_candidate_screening_service.dart';
@@ -66,9 +67,10 @@ class GgufDiscoveryService {
     final Map<String, HuggingFaceRepositoryMetadata?> upstreamCache =
         <String, HuggingFaceRepositoryMetadata?>{};
     // Repositories are ordered with live results in popularity order, followed
-    // by maintained fallbacks. Keep only the first passing artifact for a
-    // declared upstream/base model.
-    final Set<String> selectedBaseModels = <String>{};
+    // by maintained fallbacks. Keep only the first passing artifact for an
+    // equivalent underlying model.
+    final List<HuggingFaceRepositoryMetadata> selectedModels =
+        <HuggingFaceRepositoryMetadata>[];
 
     for (final String repositoryId in repositories) {
       final HuggingFaceRepositoryMetadata? metadata = await _getMetadata(
@@ -103,10 +105,12 @@ class GgufDiscoveryService {
       );
       if (!assessment.canDownload) continue;
 
-      final String? baseModelKey = _singleBaseModelKey(metadata);
-      if (baseModelKey != null && !selectedBaseModels.add(baseModelKey)) {
+      if (selectedModels.any(
+        (selected) => areEquivalentGgufCandidates(selected, metadata),
+      )) {
         continue;
       }
+      selectedModels.add(metadata);
       assessments.add(assessment);
     }
 
@@ -143,11 +147,6 @@ class GgufDiscoveryService {
       );
       return null;
     }
-  }
-
-  String? _singleBaseModelKey(HuggingFaceRepositoryMetadata metadata) {
-    if (metadata.quantizedBaseModels.length != 1) return null;
-    return metadata.quantizedBaseModels.single.trim().toLowerCase();
   }
 
   bool _requiresUpstreamLicense(HuggingFaceRepositoryMetadata metadata) {

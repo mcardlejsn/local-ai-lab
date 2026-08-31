@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:local_ai_summarizer/models/gguf_candidate_assessment.dart';
+import 'package:local_ai_summarizer/models/gguf_candidate_identity.dart';
+import 'package:local_ai_summarizer/models/hugging_face_model_metadata.dart';
 import 'package:local_ai_summarizer/services/gguf_discovery_service.dart';
 import 'package:local_ai_summarizer/services/hugging_face_discovery_service.dart';
 
@@ -121,6 +123,114 @@ void main() {
         );
       },
     );
+
+    test(
+      'deduplicates the audited Qwen repository missing base metadata',
+      () async {
+        final GgufDiscoveryService service = GgufDiscoveryService(
+          loadSeedRepositories: _noSeeds,
+          source: HuggingFaceDiscoveryService(
+            fetchJson: (Uri uri) async {
+              if (uri.path == '/api/models') {
+                return <Object?>[
+                  _summary('Qwen/Qwen1.5-0.5B-Chat-GGUF'),
+                  _summary('DevQuasar-9/Qwen.Qwen1.5-0.5B-Chat-GGUF'),
+                ];
+              }
+              if (uri.path == '/api/models/Qwen/Qwen1.5-0.5B-Chat-GGUF') {
+                return _repository(
+                  id: 'Qwen/Qwen1.5-0.5B-Chat-GGUF',
+                  license: 'apache-2.0',
+                  fileName: 'qwen1_5-0_5b-chat-q4_k_m.gguf',
+                );
+              }
+              if (uri.path ==
+                  '/api/models/DevQuasar-9/Qwen.Qwen1.5-0.5B-Chat-GGUF') {
+                return _repository(
+                  id: 'DevQuasar-9/Qwen.Qwen1.5-0.5B-Chat-GGUF',
+                  license: 'apache-2.0',
+                  fileName: 'Qwen.Qwen1.5-0.5B-Chat.Q4_K_M.gguf',
+                  upstreamId: 'Qwen/Qwen1.5-0.5B-Chat',
+                );
+              }
+              throw StateError('Unexpected request: $uri');
+            },
+          ),
+        );
+
+        final result = await service.discover();
+
+        expect(result.assessments, hasLength(1));
+        expect(
+          result.assessments.single.repositoryId,
+          'Qwen/Qwen1.5-0.5B-Chat-GGUF',
+        );
+      },
+    );
+
+    test('applies conservative fallback identity boundaries', () {
+      final missingQwen05Chat = _identityMetadata(
+        'Qwen/Qwen1.5-0.5B-Chat-GGUF',
+      );
+
+      expect(
+        areEquivalentGgufCandidates(
+          missingQwen05Chat,
+          _identityMetadata('Mirror/Qwen1.5-0.5B-Chat-GGUF'),
+        ),
+        isTrue,
+      );
+      expect(
+        areEquivalentGgufCandidates(
+          missingQwen05Chat,
+          _identityMetadata('Qwen/Qwen1.5-1.8B-Chat-GGUF'),
+        ),
+        isFalse,
+      );
+      expect(
+        areEquivalentGgufCandidates(
+          missingQwen05Chat,
+          _identityMetadata('Qwen/Qwen1.5-0.5B-Instruct-GGUF'),
+        ),
+        isFalse,
+      );
+      expect(
+        areEquivalentGgufCandidates(
+          _identityMetadata(
+            'Publisher/First-Shared-Model-GGUF',
+            baseModels: const <String>['Organization-A/Shared-Model'],
+          ),
+          _identityMetadata(
+            'Publisher/Second-Shared-Model-GGUF',
+            baseModels: const <String>['Organization-B/Shared-Model'],
+          ),
+        ),
+        isFalse,
+      );
+      expect(
+        areEquivalentGgufCandidates(
+          _identityMetadata(
+            'Publisher/Qwen1.5-0.5B-Chat-GGUF',
+            baseModels: const <String>[
+              'Qwen/Qwen1.5-0.5B-Chat',
+              'Publisher/Additional-Model',
+            ],
+          ),
+          missingQwen05Chat,
+        ),
+        isFalse,
+      );
+      expect(
+        areEquivalentGgufCandidates(
+          _identityMetadata('Publisher/Qwen1.5-0.5B-Chat'),
+          _identityMetadata(
+            'Wrapper/Qwen1.5-0.5B-Chat-GGUF',
+            baseModels: const <String>['Qwen/Qwen1.5-0.5B-Chat'],
+          ),
+        ),
+        isFalse,
+      );
+    });
 
     test(
       'prefers a live result for a case-insensitive shared base model',
@@ -397,6 +507,23 @@ void main() {
 }
 
 Future<List<String>> _noSeeds() async => const <String>[];
+
+HuggingFaceRepositoryMetadata _identityMetadata(
+  String id, {
+  List<String> baseModels = const <String>[],
+}) {
+  return HuggingFaceRepositoryMetadata(
+    id: id,
+    commitSha: '0123456789abcdef0123456789abcdef01234567',
+    isPrivate: false,
+    gatedStatus: 'false',
+    tags: const <String>['gguf', 'conversational'],
+    files: const <HuggingFaceRepositoryFile>[],
+    quantizedBaseModels: baseModels,
+    license: 'apache-2.0',
+    licenseName: null,
+  );
+}
 
 Map<String, Object?> _summary(String id) {
   return <String, Object?>{
