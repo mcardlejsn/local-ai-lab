@@ -642,17 +642,6 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                     ),
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline_rounded),
-                  tooltip: 'Remove model file',
-                  onPressed:
-                      (_isStreaming ||
-                          isLoading ||
-                          active == null ||
-                          active.engine == ModelEngine.nano)
-                      ? null
-                      : () => _confirmDeleteModel(active),
-                ),
               ],
             ),
             const SizedBox(height: 8),
@@ -798,46 +787,6 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
           ),
         ),
       ],
-    );
-  }
-
-  Future<void> _confirmDeleteModel(ModelInfo model) async {
-    final bool? confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Remove model file?'),
-        content: Text(
-          '${model.name} (${model.formattedSize}) will be deleted from your '
-          'device. Saved summaries and benchmark sessions are not affected.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: TextButton.styleFrom(
-              foregroundColor: Theme.of(dialogContext).colorScheme.error,
-            ),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    final bool removed = await _modelManager.deleteModel(model);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          removed
-              ? 'Removed ${model.name}.'
-              : _modelManager.statusMessage ?? 'Could not remove the model.',
-        ),
-      ),
     );
   }
 
