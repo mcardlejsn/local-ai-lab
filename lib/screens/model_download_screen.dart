@@ -35,6 +35,7 @@ class ModelDownloadScreen extends StatefulWidget {
     this.discoveryCache,
     this.updateChecker,
     this.installedModelsOverride,
+    this.installedModelsLoadingOverride,
   });
 
   final ModelManagerService modelManager;
@@ -49,6 +50,9 @@ class ModelDownloadScreen extends StatefulWidget {
 
   /// Optional installed inventory for focused widget tests.
   final List<ModelInfo>? installedModelsOverride;
+
+  /// Optional initial-scan state for focused widget tests.
+  final bool? installedModelsLoadingOverride;
 
   @override
   State<ModelDownloadScreen> createState() => _ModelDownloadScreenState();
@@ -168,6 +172,12 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
 
   List<ModelInfo> get _installedModels =>
       widget.installedModelsOverride ?? widget.modelManager.summarizerModels;
+
+  bool get _isInstalledInventoryLoading =>
+      widget.installedModelsLoadingOverride ??
+      (widget.installedModelsOverride == null &&
+          widget.modelManager.isLoading &&
+          _installedModels.isEmpty);
 
   @override
   void initState() {
@@ -435,20 +445,64 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
 
   Widget _buildInstalledSection() {
     final List<ModelInfo> models = _installedModels;
+    final bool isLoading = models.isEmpty && _isInstalledInventoryLoading;
     return ListView(
       key: const PageStorageKey<String>('installed-models-list'),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
       children: [
-        _buildInstalledSummary(models),
-        const SizedBox(height: 16),
-        if (models.isEmpty)
-          _buildNoInstalledModels()
-        else
-          for (final ModelInfo model in models) ...[
-            _buildInstalledModelCard(model),
-            const SizedBox(height: 12),
-          ],
+        if (isLoading)
+          _buildInstalledScanningState()
+        else ...[
+          _buildInstalledSummary(models),
+          const SizedBox(height: 16),
+          if (models.isEmpty)
+            _buildNoInstalledModels()
+          else
+            for (final ModelInfo model in models) ...[
+              _buildInstalledModelCard(model),
+              const SizedBox(height: 12),
+            ],
+        ],
       ],
+    );
+  }
+
+  Widget _buildInstalledScanningState() {
+    final ThemeData theme = Theme.of(context);
+    return Card(
+      key: const Key('installed-models-scanning'),
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox.square(
+              dimension: 22,
+              child: CircularProgressIndicator(strokeWidth: 2.5),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Scanning for models…',
+                    style: theme.textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Checking system and downloaded models on this device.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

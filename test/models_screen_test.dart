@@ -54,6 +54,33 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets(
+    'Installed shows a neutral state while the initial model scan is running',
+    (WidgetTester tester) async {
+      final ValueNotifier<int> benchmarkChanges = ValueNotifier<int>(0);
+      addTearDown(benchmarkChanges.dispose);
+
+      await _pumpModels(
+        tester,
+        benchmarkChanges: benchmarkChanges,
+        recommendationLoader: () async => null,
+        installedModelsOverride: const <ModelInfo>[],
+        installedModelsLoadingOverride: true,
+        settle: false,
+      );
+
+      expect(
+        find.byKey(const Key('installed-models-scanning')),
+        findsOneWidget,
+      );
+      expect(find.text('Scanning for models…'), findsOneWidget);
+      expect(find.textContaining('0 models available'), findsNothing);
+      expect(find.text('No models found'), findsNothing);
+      expect(find.byKey(const Key('check-model-updates')), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('Recommended refreshes after the Benchmark change signal', (
     WidgetTester tester,
   ) async {
@@ -241,6 +268,8 @@ Future<void> _pumpModels(
   GgufDiscoveryCache? discoveryCache,
   GgufModelUpdateChecker? updateChecker,
   List<ModelInfo>? installedModelsOverride,
+  bool? installedModelsLoadingOverride,
+  bool settle = true,
 }) async {
   await tester.binding.setSurfaceSize(const Size(430, 1800));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -264,6 +293,7 @@ Future<void> _pumpModels(
         discoveryCache: discoveryCache,
         updateChecker: updateChecker,
         installedModelsOverride: installedModelsOverride,
+        installedModelsLoadingOverride: installedModelsLoadingOverride,
         candidateBuilder: (_) => const Center(
           child: Text(
             'Candidate discovery content',
@@ -273,7 +303,11 @@ Future<void> _pumpModels(
       ),
     ),
   );
-  await tester.pumpAndSettle();
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    await tester.pump();
+  }
 }
 
 GgufCandidateArtifact _updateArtifact({
