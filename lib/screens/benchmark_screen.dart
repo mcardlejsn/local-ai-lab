@@ -118,6 +118,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   bool _hasRestoredSession = false;
   bool _hasInitializedModelSelection = false;
   late BenchmarkTestCase _testCase;
+  BenchmarkTestCase? _alternateTestCase;
   int _currentRunningIndex = -1;
   int _currentRunNumber = 0;
 
@@ -125,8 +126,8 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   void initState() {
     super.initState();
     _modelManager = widget.modelManager ?? ModelManagerService();
-    _testCase =
-        widget.playgroundTestCase?.value ?? BenchmarkTestCase.controlled();
+    _alternateTestCase = widget.playgroundTestCase?.value;
+    _testCase = _alternateTestCase ?? BenchmarkTestCase.controlled();
     _promptController.text = _testCase.passage;
     _instructionController.text = _testCase.instruction;
     widget.playgroundTestCase?.addListener(_onPlaygroundTestCaseChanged);
@@ -174,12 +175,14 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     final runMaps = (saved['runs'] as List).cast<Map<String, Object?>>();
     final restored = buildAggregatesFromSavedRuns(runMaps);
     setState(() {
-      _testCase = BenchmarkTestCase(
+      final BenchmarkTestCase restoredTestCase = BenchmarkTestCase(
         passage: saved['passage'] as String,
         instruction: saved['instruction'] as String,
         source: BenchmarkTestCaseSource.restored,
         taskType: saved['task_type'] as String?,
       );
+      _alternateTestCase = restoredTestCase;
+      _testCase = restoredTestCase;
       _promptController.text = saved['passage'] as String;
       _instructionController.text = saved['instruction'] as String;
       _runsPerModel = saved['runs_per_model'] as int;
@@ -241,6 +244,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     if (testCase == null || _isRunning || !mounted) return;
 
     setState(() {
+      _alternateTestCase = testCase;
       _applyTestCase(testCase);
     });
   }
@@ -254,7 +258,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
 
   void _usePlaygroundTestCase() {
     if (_isRunning || _isRestoring) return;
-    final BenchmarkTestCase? testCase = widget.playgroundTestCase?.value;
+    final BenchmarkTestCase? testCase = _alternateTestCase;
     if (testCase == null) return;
 
     setState(() {
@@ -638,7 +642,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   Widget _buildTestCaseCard() {
     final ThemeData theme = Theme.of(context);
     final bool disabled = _isRunning || _isRestoring;
-    final bool hasPlaygroundTestCase = widget.playgroundTestCase?.value != null;
+    final BenchmarkTestCase? alternateTestCase = _alternateTestCase;
     final String helperText = switch (_testCase.source) {
       BenchmarkTestCaseSource.controlled =>
         'Fixed test case for repeatable comparisons across models and sessions.',
@@ -688,13 +692,17 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                 label: const Text('Use controlled test'),
               ),
             ] else if (!widget.isCandidateQualification &&
-                hasPlaygroundTestCase) ...[
+                alternateTestCase != null) ...[
               const SizedBox(height: 6),
               TextButton.icon(
                 key: const Key('benchmark-use-playground-test'),
                 onPressed: disabled ? null : _usePlaygroundTestCase,
                 icon: const Icon(Icons.compare_arrows_rounded),
-                label: const Text('Use Run test'),
+                label: Text(
+                  alternateTestCase.source == BenchmarkTestCaseSource.restored
+                      ? 'Use saved test'
+                      : 'Use Run test',
+                ),
               ),
             ],
             const SizedBox(height: 10),

@@ -66,7 +66,7 @@ void main() {
     expect(find.text('Run 0 models × 5 runs'), findsOneWidget);
   });
 
-  testWidgets('Playground test case is a read-only reproducible snapshot', (
+  testWidgets('alternate test case remains a read-only reproducible snapshot', (
     WidgetTester tester,
   ) async {
     final ValueNotifier<BenchmarkTestCase?> testCase =
@@ -140,12 +140,40 @@ void main() {
       ),
     );
 
+    testCase.value = null;
+    await tester.pump();
+    expect(find.text('Use Run test'), findsOneWidget);
+
     await tester.tap(find.byKey(const Key('benchmark-use-playground-test')));
     await tester.pump();
 
     expect(find.text('From Run'), findsOneWidget);
     expect(find.text('Controlled test'), findsNothing);
     expect(find.text('Run test case ready to compare.'), findsNothing);
+
+    testCase.value = const BenchmarkTestCase(
+      passage: 'A restored passage that must remain available.',
+      instruction: 'Summarize this restored passage.',
+      source: BenchmarkTestCaseSource.restored,
+      taskType: '2-Sentence Summary',
+    );
+    await tester.pump();
+
+    expect(find.text('Latest saved benchmark'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('benchmark-use-controlled-test')));
+    await tester.pump();
+    expect(find.text('Controlled test'), findsOneWidget);
+    expect(find.text('Use saved test'), findsOneWidget);
+
+    testCase.value = null;
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('benchmark-use-playground-test')));
+    await tester.pump();
+    expect(find.text('Latest saved benchmark'), findsOneWidget);
+    expect(
+      find.text('A restored passage that must remain available.'),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
