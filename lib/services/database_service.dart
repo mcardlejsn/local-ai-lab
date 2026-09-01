@@ -27,7 +27,14 @@ class DatabaseService {
 
   DatabaseService._init();
 
+  final ValueNotifier<int> _summaryRevision = ValueNotifier<int>(0);
   final ValueNotifier<int> _benchmarkRevision = ValueNotifier<int>(0);
+
+  /// Changes after a Playground summary is saved or deleted.
+  ///
+  /// Results can refresh its preserved tab state without polling or coupling
+  /// the Playground and Results routes directly to each other.
+  ValueListenable<int> get summaryChanges => _summaryRevision;
 
   /// Changes after a completed Benchmark is saved or deleted.
   ///
@@ -223,11 +230,13 @@ class DatabaseService {
 
   Future<int> insertSummary(SummaryRecord record) async {
     final db = await instance.database;
-    return db.insert(
+    final int summaryId = await db.insert(
       'summaries',
       record.toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+    _summaryRevision.value++;
+    return summaryId;
   }
 
   Future<List<SummaryRecord>> getAllSummaries() async {
@@ -260,7 +269,13 @@ class DatabaseService {
 
   Future<int> deleteSummary(int id) async {
     final db = await instance.database;
-    return db.delete('summaries', where: 'id = ?', whereArgs: [id]);
+    final int deleted = await db.delete(
+      'summaries',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    if (deleted > 0) _summaryRevision.value++;
+    return deleted;
   }
 
   /// Deletes a completed benchmark session. Its rows in `benchmark_runs` go

@@ -1,14 +1,28 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/summary_record.dart';
 import '../services/database_service.dart';
 
+typedef SummaryHistoryLoader = Future<List<SummaryRecord>> Function();
+
 class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key, this.embedded = false});
+  const HistoryScreen({
+    super.key,
+    this.embedded = false,
+    this.recordsLoader,
+    this.summaryChanges,
+  });
 
   /// Omits the standalone scaffold when shown inside the Results screen.
   final bool embedded;
+
+  /// Optional platform-free dependencies for focused widget tests.
+  final SummaryHistoryLoader? recordsLoader;
+  final ValueListenable<int>? summaryChanges;
 
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
@@ -16,10 +30,13 @@ class HistoryScreen extends StatefulWidget {
 
 class _HistoryScreenState extends State<HistoryScreen> {
   final TextEditingController _searchController = TextEditingController();
+  late final SummaryHistoryLoader _recordsLoader;
+  late final ValueListenable<int> _summaryChanges;
   List<SummaryRecord> _records = <SummaryRecord>[];
   List<SummaryRecord> _filteredRecords = <SummaryRecord>[];
   String _selectedFilter = 'All';
   bool _isLoading = true;
+  int _loadGeneration = 0;
 
   static const List<String> _filters = <String>[
     'All',
@@ -32,12 +49,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
   @override
   void initState() {
     super.initState();
+    _recordsLoader =
+        widget.recordsLoader ?? DatabaseService.instance.getAllSummaries;
+    _summaryChanges =
+        widget.summaryChanges ?? DatabaseService.instance.summaryChanges;
     _searchController.addListener(_applyFilters);
-    _loadHistory();
+    _summaryChanges.addListener(_onSummaryChanged);
+    unawaited(_loadHistory());
   }
 
   @override
   void dispose() {
+    _summaryChanges.removeListener(_onSummaryChanged);
     _searchController
       ..removeListener(_applyFilters)
       ..dispose();
@@ -45,15 +68,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Future<void> _loadHistory() async {
+    final int generation = ++_loadGeneration;
     setState(() => _isLoading = true);
-    final List<SummaryRecord> data = await DatabaseService.instance
-        .getAllSummaries();
-    if (!mounted) return;
+    final List<SummaryRecord> data = await _recordsLoader();
+    if (!mounted || generation != _loadGeneration) return;
     setState(() {
       _records = data;
       _isLoading = false;
     });
     _applyFilters();
+  }
+
+  void _onSummaryChanged() {
+    unawaited(_loadHistory());
   }
 
   void _applyFilters() {
@@ -79,7 +106,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   Future<void> _deleteRecord(int id) async {
     await DatabaseService.instance.deleteSummary(id);
-    await _loadHistory();
     _showSnackBar('Record removed.');
   }
 
@@ -177,64 +203,64 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bool hasSavedRecords = _records.isNotEmpty;
     final Widget content = Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: TextField(
-            key: const Key('results-playground-search'),
-            controller: _searchController,
-            decoration: const InputDecoration(
-              hintText: 'Search models, tasks, or text',
-              prefixIcon: Icon(Icons.search_rounded),
-              border: OutlineInputBorder(),
+        if (hasSavedRecords) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: TextField(
+              key: const Key('results-playground-search'),
+              controller: _searchController,
+              decoration: const InputDecoration(
+                hintText: 'Search models, tasks, or text',
+                prefixIcon: Icon(Icons.search_rounded),
+                border: OutlineInputBorder(),
+              ),
             ),
           ),
-        ),
-        SizedBox(
-          height: 48,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: _filters.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (BuildContext context, int index) {
-              final String filter = _filters[index];
-              return ChoiceChip(
-                label: Text(filter),
-                selected: _selectedFilter == filter,
-                onSelected: (bool selected) {
-                  if (!selected) return;
-                  setState(() => _selectedFilter = filter);
-                  _applyFilters();
-                },
-              );
-            },
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Saved Playground runs',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${_filteredRecords.length} saved '
-                  '${_filteredRecords.length == 1 ? 'run' : 'runs'}',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+            child: DropdownMenu<String>(
+              key: const Key('results-playground-task-filter'),
+              initialSelection: _selectedFilter,
+              expandedInsets: EdgeInsets.zero,
+              label: const Text('Task filter'),
+              dropdownMenuEntries: [
+                for (final String filter in _filters)
+                  DropdownMenuEntry<String>(value: filter, label: filter),
               ],
+              onSelected: (String? filter) {
+                if (filter == null || filter == _selectedFilter) return;
+                setState(() => _selectedFilter = filter);
+                _applyFilters();
+              },
             ),
           ),
-        ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Saved Playground runs',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${_filteredRecords.length} saved '
+                    '${_filteredRecords.length == 1 ? 'run' : 'runs'}',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
         Expanded(child: _buildRecordList()),
       ],
     );
@@ -253,12 +279,36 @@ class _HistoryScreenState extends State<HistoryScreen> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(
-            'No saved Playground runs found.',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodyLarge?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _records.isEmpty
+                    ? Icons.bookmark_border_rounded
+                    : Icons.search_off_rounded,
+                color: theme.colorScheme.onSurfaceVariant,
+                size: 48,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                _records.isEmpty
+                    ? 'No saved Playground runs yet.'
+                    : 'No saved runs match these filters.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleMedium,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _records.isEmpty
+                    ? 'After generating an output in Playground, tap Save to '
+                          'keep its output and telemetry here.'
+                    : 'Try another task filter or search term.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
           ),
         ),
       );
