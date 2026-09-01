@@ -135,7 +135,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   children: [
                     Expanded(
                       child: Text(
-                        'Saved Playground run',
+                        'Saved run',
                         style: theme.textTheme.titleLarge,
                       ),
                     ),
@@ -245,7 +245,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Saved Playground runs',
+                    'Saved runs',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 2),
@@ -267,7 +267,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     if (widget.embedded) return content;
     return Scaffold(
-      appBar: AppBar(title: const Text('Saved Playground runs')),
+      appBar: AppBar(title: const Text('Saved runs')),
       body: SafeArea(child: content),
     );
   }
@@ -292,7 +292,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               const SizedBox(height: 12),
               Text(
                 _records.isEmpty
-                    ? 'No saved Playground runs yet.'
+                    ? 'No saved runs yet.'
                     : 'No saved runs match these filters.',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.titleMedium,
@@ -300,7 +300,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               const SizedBox(height: 6),
               Text(
                 _records.isEmpty
-                    ? 'After generating an output in Playground, tap Save to '
+                    ? 'After generating an output in Run, tap Save to '
                           'keep its output and telemetry here.'
                     : 'Try another task filter or search term.',
                 textAlign: TextAlign.center,

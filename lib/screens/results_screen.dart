@@ -70,7 +70,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                   segments: const [
                     ButtonSegment(
                       value: _ResultsSection.playground,
-                      label: Text('Playground runs'),
+                      label: Text('Runs'),
                     ),
                     ButtonSegment(
                       value: _ResultsSection.benchmarks,

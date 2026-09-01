@@ -6,7 +6,7 @@ import 'package:local_ai_summarizer/screens/results_screen.dart';
 import 'package:local_ai_summarizer/theme/app_theme.dart';
 
 void main() {
-  testWidgets('Results keeps Playground and Benchmark archives distinct', (
+  testWidgets('Results keeps Run and Benchmark archives distinct', (
     WidgetTester tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(430, 1800));
@@ -26,7 +26,7 @@ void main() {
         home: ResultsScreen(
           playgroundRunsBuilder: (_) => const Center(
             child: Text(
-              'Playground archive content',
+              'Run archive content',
               key: Key('playground-archive-test-content'),
             ),
           ),
@@ -42,6 +42,8 @@ void main() {
 
     expect(find.text('Results'), findsOneWidget);
     expect(find.text('Saved runs and benchmarks'), findsOneWidget);
+    expect(find.text('Runs'), findsOneWidget);
+    expect(find.text('Playground runs'), findsNothing);
     expect(
       find.byKey(const Key('playground-archive-test-content')),
       findsOneWidget,
@@ -57,7 +59,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('saved Playground runs refresh and reveal history controls', (
+  testWidgets('saved runs refresh and reveal history controls', (
     WidgetTester tester,
   ) async {
     await tester.binding.setSurfaceSize(const Size(430, 1800));
@@ -86,7 +88,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('No saved Playground runs yet.'), findsOneWidget);
+    expect(find.text('No saved runs yet.'), findsOneWidget);
     expect(
       find.textContaining('tap Save to keep its output and telemetry here'),
       findsOneWidget,
