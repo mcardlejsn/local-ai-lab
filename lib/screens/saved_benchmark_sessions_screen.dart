@@ -5,14 +5,21 @@ import '../services/database_service.dart';
 import 'benchmark_comparison_screen.dart';
 import 'saved_benchmark_detail_screen.dart';
 
+typedef BenchmarkSessionsLoader = Future<List<Map<String, Object?>>> Function();
+
 /// Read-only archive of completed benchmark sessions.
 ///
 /// Session details, deletion, and two-session comparison retain their existing
 /// behavior whether this archive is standalone or embedded in Results.
 class SavedBenchmarkSessionsScreen extends StatefulWidget {
-  const SavedBenchmarkSessionsScreen({super.key, this.embedded = false});
+  const SavedBenchmarkSessionsScreen({
+    super.key,
+    this.embedded = false,
+    this.sessionsLoader,
+  });
 
   final bool embedded;
+  final BenchmarkSessionsLoader? sessionsLoader;
 
   @override
   State<SavedBenchmarkSessionsScreen> createState() =>
@@ -35,8 +42,10 @@ class _SavedBenchmarkSessionsScreenState
 
   Future<void> _loadSessions() async {
     try {
-      final List<Map<String, Object?>> sessions = await DatabaseService.instance
-          .getBenchmarkSessionSummaries();
+      final BenchmarkSessionsLoader loader =
+          widget.sessionsLoader ??
+          DatabaseService.instance.getBenchmarkSessionSummaries;
+      final List<Map<String, Object?>> sessions = await loader();
       if (!mounted) return;
       setState(() {
         _sessions = sessions;
@@ -151,7 +160,6 @@ class _SavedBenchmarkSessionsScreenState
   Widget build(BuildContext context) {
     final Widget content = Column(
       children: [
-        if (widget.embedded) _buildEmbeddedHeader(),
         Expanded(child: _buildBody()),
         if (_selectionMode) _buildComparisonAction(),
       ],
@@ -184,40 +192,36 @@ class _SavedBenchmarkSessionsScreenState
     final ThemeData theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _selectionMode
-                      ? 'Select 2 sessions'
-                      : 'Saved benchmark sessions',
-                  style: theme.textTheme.titleLarge,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${_sessions.length} saved '
-                  '${_sessions.length == 1 ? 'session' : 'sessions'}',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
+          Text(
+            _selectionMode ? 'Select 2 sessions' : 'Saved benchmark sessions',
+            style: theme.textTheme.titleLarge,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '${_sessions.length} saved '
+            '${_sessions.length == 1 ? 'session' : 'sessions'}',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
-          if (_sessions.length >= 2)
-            TextButton.icon(
-              onPressed: _toggleSelectionMode,
-              icon: Icon(
-                _selectionMode
-                    ? Icons.close_rounded
-                    : Icons.compare_arrows_rounded,
+          if (_sessions.length >= 2) ...[
+            const SizedBox(height: 6),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _toggleSelectionMode,
+                icon: Icon(
+                  _selectionMode
+                      ? Icons.close_rounded
+                      : Icons.compare_arrows_rounded,
+                ),
+                label: Text(_selectionMode ? 'Cancel' : 'Compare'),
               ),
-              label: Text(_selectionMode ? 'Cancel' : 'Compare'),
             ),
+          ],
         ],
       ),
     );
@@ -225,60 +229,86 @@ class _SavedBenchmarkSessionsScreenState
 
   Widget _buildBody() {
     final ThemeData theme = Theme.of(context);
-    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (_isLoading) {
+      return Column(
+        children: [
+          if (widget.embedded) _buildEmbeddedHeader(),
+          const Expanded(child: Center(child: CircularProgressIndicator())),
+        ],
+      );
+    }
     if (_errorMessage != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-            _errorMessage!,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.error,
+      return Column(
+        children: [
+          if (widget.embedded) _buildEmbeddedHeader(),
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  _errorMessage!,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              ),
             ),
           ),
-        ),
+        ],
       );
     }
     if (_sessions.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.inbox_outlined,
-                color: theme.colorScheme.onSurfaceVariant,
-                size: 48,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'No saved benchmark sessions yet.',
-                style: theme.textTheme.titleMedium,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Completed benchmark sessions will be saved here '
-                'automatically.',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+      return Column(
+        children: [
+          if (widget.embedded) _buildEmbeddedHeader(),
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.inbox_outlined,
+                      color: theme.colorScheme.onSurfaceVariant,
+                      size: 48,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'No saved benchmark sessions yet.',
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Completed benchmark sessions will be saved here '
+                      'automatically.',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       );
     }
 
-    return ListView.separated(
-      key: const PageStorageKey<String>('benchmark-results-list'),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-      itemCount: _sessions.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
+    final int headerCount = widget.embedded ? 1 : 0;
+    return ListView.builder(
+      key: const Key('results-benchmarks-scroll'),
+      padding: const EdgeInsets.only(bottom: 20),
+      itemCount: _sessions.length + headerCount,
       itemBuilder: (BuildContext context, int index) {
-        return _buildSessionCard(_sessions[index]);
+        if (widget.embedded && index == 0) return _buildEmbeddedHeader();
+        final int sessionIndex = index - headerCount;
+        return Padding(
+          padding: EdgeInsets.fromLTRB(16, sessionIndex == 0 ? 8 : 6, 16, 6),
+          child: _buildSessionCard(_sessions[sessionIndex]),
+        );
       },
     );
   }
@@ -295,6 +325,7 @@ class _SavedBenchmarkSessionsScreenState
     final String completedLabel = _formatCompletedAt(session['completed_at']);
 
     return Card(
+      key: ValueKey<String>('benchmark-session-$sessionId'),
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
@@ -332,14 +363,6 @@ class _SavedBenchmarkSessionsScreenState
                       style: theme.textTheme.titleMedium,
                     ),
                   ),
-                  if (!_selectionMode)
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline_rounded),
-                      color: colors.error,
-                      tooltip: 'Delete session',
-                      onPressed: () =>
-                          _confirmDeleteSession(sessionId, completedLabel),
-                    ),
                 ],
               ),
               const SizedBox(height: 10),
@@ -352,23 +375,30 @@ class _SavedBenchmarkSessionsScreenState
               ),
               if (modelNames.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                Text(
-                  modelNames.join(' · '),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colors.onSurfaceVariant,
-                    height: 1.4,
-                  ),
-                ),
+                ..._buildModelNameSummary(modelNames, theme),
               ],
               if (!_selectionMode) ...[
                 const SizedBox(height: 10),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    onPressed: () => _openSession(sessionId),
-                    icon: const Icon(Icons.chevron_right_rounded),
-                    label: const Text('View session'),
-                  ),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () => _openSession(sessionId),
+                      icon: const Icon(Icons.chevron_right_rounded),
+                      label: const Text('View session'),
+                    ),
+                    TextButton.icon(
+                      onPressed: () =>
+                          _confirmDeleteSession(sessionId, completedLabel),
+                      style: TextButton.styleFrom(
+                        foregroundColor: colors.error,
+                      ),
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      label: const Text('Delete'),
+                    ),
+                  ],
                 ),
               ],
             ],
@@ -376,6 +406,39 @@ class _SavedBenchmarkSessionsScreenState
         ),
       ),
     );
+  }
+
+  List<Widget> _buildModelNameSummary(
+    List<String> modelNames,
+    ThemeData theme,
+  ) {
+    const int visibleLimit = 2;
+    final List<String> visibleNames = modelNames
+        .take(visibleLimit)
+        .toList(growable: false);
+    final int hiddenCount = modelNames.length - visibleNames.length;
+    final TextStyle? style = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+      height: 1.4,
+    );
+
+    return <Widget>[
+      for (final String name in visibleNames)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 2),
+          child: Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: style,
+          ),
+        ),
+      if (hiddenCount > 0)
+        Text(
+          '+$hiddenCount more',
+          style: style?.copyWith(fontWeight: FontWeight.w700),
+        ),
+    ];
   }
 
   Widget _buildComparisonAction() {

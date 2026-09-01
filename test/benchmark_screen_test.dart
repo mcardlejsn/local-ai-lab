@@ -107,6 +107,16 @@ void main() {
       findsOneWidget,
     );
     expect(find.byType(TextField), findsNothing);
+    expect(
+      tester
+          .getRect(find.byKey(const Key('benchmark-use-controlled-test')))
+          .top,
+      greaterThan(
+        tester
+            .getRect(find.byKey(const Key('benchmark-test-case-source')))
+            .bottom,
+      ),
+    );
 
     await tester.tap(find.byKey(const Key('benchmark-use-controlled-test')));
     await tester.pump();
@@ -119,6 +129,16 @@ void main() {
     );
     expect(find.text('Use Run test'), findsOneWidget);
     expect(find.text('Controlled test ready to compare.'), findsNothing);
+    expect(
+      tester
+          .getRect(find.byKey(const Key('benchmark-use-playground-test')))
+          .top,
+      greaterThan(
+        tester
+            .getRect(find.byKey(const Key('benchmark-test-case-source')))
+            .bottom,
+      ),
+    );
 
     await tester.tap(find.byKey(const Key('benchmark-use-playground-test')));
     await tester.pump();

@@ -656,64 +656,47 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 12,
-              runSpacing: 8,
-              children: [
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 240),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Test case',
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Container(
-                        key: const Key('benchmark-test-case-source'),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.secondaryContainer,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          _testCase.sourceLabel,
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            color: theme.colorScheme.onSecondaryContainer,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (!widget.isCandidateQualification &&
-                    _testCase.source != BenchmarkTestCaseSource.controlled) ...[
-                  TextButton.icon(
-                    key: const Key('benchmark-use-controlled-test'),
-                    onPressed: disabled ? null : _useControlledTestCase,
-                    icon: const Icon(Icons.restart_alt_rounded),
-                    label: const Text('Use controlled test'),
-                  ),
-                ] else if (!widget.isCandidateQualification &&
-                    hasPlaygroundTestCase) ...[
-                  TextButton.icon(
-                    key: const Key('benchmark-use-playground-test'),
-                    onPressed: disabled ? null : _usePlaygroundTestCase,
-                    icon: const Icon(Icons.compare_arrows_rounded),
-                    label: const Text('Use Run test'),
-                  ),
-                ],
-              ],
+            Text(
+              'Test case',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
+            const SizedBox(height: 6),
+            Container(
+              key: const Key('benchmark-test-case-source'),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.secondaryContainer,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                _testCase.sourceLabel,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: theme.colorScheme.onSecondaryContainer,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            if (!widget.isCandidateQualification &&
+                _testCase.source != BenchmarkTestCaseSource.controlled) ...[
+              const SizedBox(height: 6),
+              TextButton.icon(
+                key: const Key('benchmark-use-controlled-test'),
+                onPressed: disabled ? null : _useControlledTestCase,
+                icon: const Icon(Icons.restart_alt_rounded),
+                label: const Text('Use controlled test'),
+              ),
+            ] else if (!widget.isCandidateQualification &&
+                hasPlaygroundTestCase) ...[
+              const SizedBox(height: 6),
+              TextButton.icon(
+                key: const Key('benchmark-use-playground-test'),
+                onPressed: disabled ? null : _usePlaygroundTestCase,
+                icon: const Icon(Icons.compare_arrows_rounded),
+                label: const Text('Use Run test'),
+              ),
+            ],
             const SizedBox(height: 10),
             Text(
               helperText,

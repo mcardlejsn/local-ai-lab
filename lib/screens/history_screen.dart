@@ -203,12 +203,57 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bool hasSavedRecords = _records.isNotEmpty;
-    final Widget content = Column(
-      children: [
-        if (hasSavedRecords) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+    final Widget content = _buildRecordList();
+
+    if (widget.embedded) return content;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Saved runs')),
+      body: SafeArea(child: content),
+    );
+  }
+
+  Widget _buildRecordList() {
+    final ThemeData theme = Theme.of(context);
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (_records.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.bookmark_border_rounded,
+                color: theme.colorScheme.onSurfaceVariant,
+                size: 48,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'No saved runs yet.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleMedium,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'After generating an output in Run, tap Save to '
+                'keep its output and telemetry here.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return CustomScrollView(
+      key: const Key('results-runs-scroll'),
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          sliver: SliverToBoxAdapter(
             child: TextField(
               key: const Key('results-playground-search'),
               controller: _searchController,
@@ -219,8 +264,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+          sliver: SliverToBoxAdapter(
             child: DropdownMenu<String>(
               key: const Key('results-playground-task-filter'),
               initialSelection: _selectedFilter,
@@ -237,89 +284,71 @@ class _HistoryScreenState extends State<HistoryScreen> {
               },
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Saved runs',
-                    style: Theme.of(context).textTheme.titleLarge,
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+          sliver: SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Saved runs', style: theme.textTheme.titleLarge),
+                const SizedBox(height: 2),
+                Text(
+                  '${_filteredRecords.length} saved '
+                  '${_filteredRecords.length == 1 ? 'run' : 'runs'}',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${_filteredRecords.length} saved '
-                    '${_filteredRecords.length == 1 ? 'run' : 'runs'}',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_filteredRecords.isEmpty)
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.search_off_rounded,
+                      color: theme.colorScheme.onSurfaceVariant,
+                      size: 48,
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    Text(
+                      'No saved runs match these filters.',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Try another task filter or search term.',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (BuildContext context, int index) =>
+                    _buildRecordCard(_filteredRecords[index]),
+                childCount: _filteredRecords.length,
               ),
             ),
           ),
-        ],
-        Expanded(child: _buildRecordList()),
       ],
-    );
-
-    if (widget.embedded) return content;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Saved runs')),
-      body: SafeArea(child: content),
-    );
-  }
-
-  Widget _buildRecordList() {
-    final ThemeData theme = Theme.of(context);
-    if (_isLoading) return const Center(child: CircularProgressIndicator());
-    if (_filteredRecords.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                _records.isEmpty
-                    ? Icons.bookmark_border_rounded
-                    : Icons.search_off_rounded,
-                color: theme.colorScheme.onSurfaceVariant,
-                size: 48,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                _records.isEmpty
-                    ? 'No saved runs yet.'
-                    : 'No saved runs match these filters.',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.titleMedium,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                _records.isEmpty
-                    ? 'After generating an output in Run, tap Save to '
-                          'keep its output and telemetry here.'
-                    : 'Try another task filter or search term.',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return ListView.builder(
-      key: const PageStorageKey<String>('playground-results-list'),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-      itemCount: _filteredRecords.length,
-      itemBuilder: (BuildContext context, int index) =>
-          _buildRecordCard(_filteredRecords[index]),
     );
   }
 
