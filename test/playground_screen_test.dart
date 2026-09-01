@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:local_ai_summarizer/screens/summarizer_screen.dart';
+import 'package:local_ai_summarizer/presentation/model_identity_presentation.dart';
 import 'package:local_ai_summarizer/services/model_manager_service.dart';
 import 'package:local_ai_summarizer/theme/app_theme.dart';
 
@@ -93,4 +94,31 @@ void main() {
       expect(find.text('Max Output Tokens'), findsOneWidget);
     },
   );
+
+  testWidgets('runtime badges remain compact at larger text', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark,
+        home: const MediaQuery(
+          data: MediaQueryData(textScaler: TextScaler.linear(1.3)),
+          child: Scaffold(
+            body: Wrap(
+              children: <Widget>[
+                ModelRuntimeBadge(engine: ModelEngine.nano),
+                ModelRuntimeBadge(engine: ModelEngine.gguf),
+                ModelRuntimeBadge(engine: ModelEngine.litertlm),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('AICore'), findsOneWidget);
+    expect(find.text('GGUF'), findsOneWidget);
+    expect(find.text('LiteRT-LM'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

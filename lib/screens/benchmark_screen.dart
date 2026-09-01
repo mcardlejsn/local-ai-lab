@@ -8,6 +8,7 @@ import '../models/benchmark_session.dart';
 import '../models/benchmark_test_case.dart';
 import '../models/recall_checklist.dart';
 import '../models/sentence_count_evaluation.dart';
+import '../presentation/model_identity_presentation.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
 import '../services/llama_gguf_service.dart';
@@ -758,33 +759,6 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     );
   }
 
-  String _engineLabel(ModelEngine engine) {
-    return switch (engine) {
-      ModelEngine.nano => 'AICore',
-      ModelEngine.gguf => 'GGUF',
-      ModelEngine.litertlm => 'LiteRT-LM',
-      ModelEngine.mediapipe => 'Legacy',
-    };
-  }
-
-  Widget _buildEngineBadge(ModelEngine engine) {
-    final ColorScheme colors = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: colors.secondaryContainer,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        _engineLabel(engine),
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-          color: colors.onSecondaryContainer,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-
   Widget _buildModelSelection({
     required List<ModelInfo> availableModels,
     required bool disabled,
@@ -795,6 +769,15 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         .length;
     final bool allSelected =
         availableModels.isNotEmpty && selectedCount == availableModels.length;
+    final Map<String, String> displayNames = resolveConciseModelNames(
+      availableModels.map(
+        (ModelInfo model) => ModelDisplayIdentity(
+          key: model.id,
+          technicalName: model.name,
+          engine: model.engine,
+        ),
+      ),
+    );
 
     return Card(
       key: const Key('benchmark-model-selection'),
@@ -862,7 +845,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                   controlAffinity: ListTileControlAffinity.leading,
                   contentPadding: const EdgeInsets.symmetric(horizontal: 4),
                   title: Text(
-                    model.name,
+                    displayNames[model.id]!,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.titleMedium?.copyWith(
@@ -870,7 +853,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                     ),
                   ),
                   subtitle: Text(model.formattedSize),
-                  secondary: _buildEngineBadge(model.engine),
+                  secondary: ModelRuntimeBadge(engine: model.engine),
                 ),
             if (availableModels.length < 2)
               Padding(

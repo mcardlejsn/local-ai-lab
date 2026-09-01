@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/benchmark_session.dart';
+import '../presentation/model_identity_presentation.dart';
 import '../services/model_manager_service.dart';
 
 typedef BenchmarkRunScoreCallback =
@@ -21,7 +22,11 @@ class BenchmarkResultsTable extends StatelessWidget {
   final bool showAccuracy;
   final BenchmarkRunScoreCallback? onScoreRun;
 
-  void _showOutputModal(BuildContext context, BenchmarkAggregate item) {
+  void _showOutputModal(
+    BuildContext context,
+    BenchmarkAggregate item,
+    String displayName,
+  ) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
@@ -39,6 +44,7 @@ class BenchmarkResultsTable extends StatelessWidget {
           builder: (_, ScrollController controller) {
             return _OutputModalContent(
               item: item,
+              displayName: displayName,
               scrollController: controller,
               onScoreRun: onScoreRun,
               hostContext: context,
@@ -50,18 +56,18 @@ class BenchmarkResultsTable extends StatelessWidget {
     );
   }
 
-  String _engineLabel(ModelEngine engine) {
-    return switch (engine) {
-      ModelEngine.nano => 'AICore',
-      ModelEngine.gguf => 'GGUF',
-      ModelEngine.litertlm => 'LiteRT-LM',
-      ModelEngine.mediapipe => 'Legacy',
-    };
-  }
-
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    final Map<String, String> displayNames = resolveConciseModelNames(
+      aggregates.map(
+        (BenchmarkAggregate aggregate) => ModelDisplayIdentity(
+          key: aggregate.modelId,
+          technicalName: aggregate.modelName,
+          engine: aggregate.engine,
+        ),
+      ),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -70,11 +76,15 @@ class BenchmarkResultsTable extends StatelessWidget {
           _BenchmarkResultCard(
             key: Key('benchmark-result-${aggregates[index].modelId}'),
             aggregate: aggregates[index],
-            engineLabel: _engineLabel(aggregates[index].engine),
+            displayName: displayNames[aggregates[index].modelId]!,
             showAccuracy: showAccuracy,
             onViewOutput: aggregates[index].runs.isEmpty
                 ? null
-                : () => _showOutputModal(context, aggregates[index]),
+                : () => _showOutputModal(
+                    context,
+                    aggregates[index],
+                    displayNames[aggregates[index].modelId]!,
+                  ),
           ),
           if (index != aggregates.length - 1) const SizedBox(height: 12),
         ],
@@ -120,13 +130,13 @@ class _BenchmarkResultCard extends StatelessWidget {
   const _BenchmarkResultCard({
     super.key,
     required this.aggregate,
-    required this.engineLabel,
+    required this.displayName,
     required this.showAccuracy,
     required this.onViewOutput,
   });
 
   final BenchmarkAggregate aggregate;
-  final String engineLabel;
+  final String displayName;
   final bool showAccuracy;
   final VoidCallback? onViewOutput;
 
@@ -166,16 +176,13 @@ class _BenchmarkResultCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 12,
-            runSpacing: 8,
+          Row(
+            key: Key('benchmark-result-header-${aggregate.modelId}'),
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 260),
+              Expanded(
                 child: Text(
-                  aggregate.modelName,
+                  displayName,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.titleMedium?.copyWith(
@@ -183,22 +190,10 @@ class _BenchmarkResultCard extends StatelessWidget {
                   ),
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: colors.secondaryContainer,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  engineLabel,
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: colors.onSecondaryContainer,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+              const SizedBox(width: 12),
+              ModelRuntimeBadge(
+                key: Key('benchmark-result-runtime-${aggregate.modelId}'),
+                engine: aggregate.engine,
               ),
             ],
           ),
@@ -287,7 +282,7 @@ class _BenchmarkResultCard extends StatelessWidget {
                     label: 'LENGTH MET',
                     value:
                         '${aggregate.sentenceCountMetRunCount}/$sentenceCountRunCount',
-                    detail: 'completed runs',
+                    detail: 'runs met target',
                     valueColor:
                         aggregate.sentenceCountMetRunCount ==
                             sentenceCountRunCount
@@ -413,6 +408,7 @@ Color accuracyScoreColor(double score) {
 class _OutputModalContent extends StatefulWidget {
   const _OutputModalContent({
     required this.item,
+    required this.displayName,
     required this.scrollController,
     required this.onScoreRun,
     required this.hostContext,
@@ -420,6 +416,7 @@ class _OutputModalContent extends StatefulWidget {
   });
 
   final BenchmarkAggregate item;
+  final String displayName;
   final ScrollController scrollController;
   final BenchmarkRunScoreCallback? onScoreRun;
   final BuildContext hostContext;
@@ -461,7 +458,7 @@ class _OutputModalContentState extends State<_OutputModalContent> {
       context: context,
       builder: (_) => _ScoreDialog(
         runNumber: index + 1,
-        modelName: widget.item.modelName,
+        modelName: widget.displayName,
         initialScore: run.accuracyScore,
         initialNote: run.scoreNote,
       ),
@@ -499,7 +496,7 @@ class _OutputModalContentState extends State<_OutputModalContent> {
             children: [
               Expanded(
                 child: Text(
-                  widget.item.modelName,
+                  widget.displayName,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.titleLarge?.copyWith(

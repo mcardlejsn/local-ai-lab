@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../models/benchmark_session.dart';
+import '../presentation/model_identity_presentation.dart';
 import '../services/database_service.dart';
+import '../services/model_manager_service.dart';
+
+typedef BenchmarkComparisonSessionLoader =
+    Future<Map<String, Object?>?> Function(int sessionId);
 
 /// Side-by-side comparison of two saved benchmark sessions. Models are paired
 /// by their stored model id, not their display name, so Gemini Nano still lines
@@ -13,10 +18,12 @@ class BenchmarkComparisonScreen extends StatefulWidget {
     super.key,
     required this.sessionIdA,
     required this.sessionIdB,
+    this.sessionLoader,
   });
 
   final int sessionIdA;
   final int sessionIdB;
+  final BenchmarkComparisonSessionLoader? sessionLoader;
 
   @override
   State<BenchmarkComparisonScreen> createState() =>
@@ -66,6 +73,11 @@ class _ComparisonRow {
     if (earlierName == null || laterName == null) return null;
     return earlierName == laterName ? null : earlierName;
   }
+
+  String get modelId => later?.modelId ?? earlier?.modelId ?? 'unknown';
+
+  ModelEngine get engine =>
+      later?.engine ?? earlier?.engine ?? ModelEngine.gguf;
 }
 
 class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
@@ -88,8 +100,10 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
   }
 
   Future<_ComparisonSide?> _loadSide(int sessionId) async {
-    final saved =
-        await DatabaseService.instance.getCompletedBenchmarkById(sessionId);
+    final BenchmarkComparisonSessionLoader loader =
+        widget.sessionLoader ??
+        DatabaseService.instance.getCompletedBenchmarkById;
+    final saved = await loader(sessionId);
     if (saved == null) return null;
 
     final runMaps = (saved['runs'] as List).cast<Map<String, Object?>>();
@@ -157,18 +171,14 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
     final earlierById = {
       for (final agg in earlier.aggregates) agg.modelId: agg,
     };
-    final laterById = {
-      for (final agg in later.aggregates) agg.modelId: agg,
-    };
+    final laterById = {for (final agg in later.aggregates) agg.modelId: agg};
 
     final rows = <_ComparisonRow>[];
 
     // Newer session's order first, so the most recent run reads top to bottom
     // the way it does on its own detail screen.
     for (final agg in later.aggregates) {
-      rows.add(
-        _ComparisonRow(earlier: earlierById[agg.modelId], later: agg),
-      );
+      rows.add(_ComparisonRow(earlier: earlierById[agg.modelId], later: agg));
     }
     for (final agg in earlier.aggregates) {
       if (!laterById.containsKey(agg.modelId)) {
@@ -202,9 +212,7 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
 
   Widget _buildBody() {
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: _accentBlue),
-      );
+      return const Center(child: CircularProgressIndicator(color: _accentBlue));
     }
 
     if (_errorMessage != null) {
@@ -225,6 +233,15 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
     final bool samePassage = earlier.passage.trim() == later.passage.trim();
     final bool sameInstruction =
         earlier.instruction.trim() == later.instruction.trim();
+    final Map<String, String> displayNames = resolveConciseModelNames(
+      _rows.map(
+        (_ComparisonRow row) => ModelDisplayIdentity(
+          key: row.modelId,
+          technicalName: row.displayName,
+          engine: row.engine,
+        ),
+      ),
+    );
 
     return ListView(
       padding: const EdgeInsets.all(16.0),
@@ -250,7 +267,10 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
             style: TextStyle(color: Colors.white38, fontSize: 12),
           )
         else
-          ..._rows.map(_buildModelCard),
+          ..._rows.map(
+            (_ComparisonRow row) =>
+                _buildModelCard(row, displayNames[row.modelId]!),
+          ),
         const SizedBox(height: 12),
         const Text(
           'Models are matched across sessions by their stored model id, so a '
@@ -366,7 +386,7 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
     );
   }
 
-  Widget _buildModelCard(_ComparisonRow row) {
+  Widget _buildModelCard(_ComparisonRow row, String displayName) {
     final renamedFrom = row.renamedFrom;
 
     return Container(
@@ -380,18 +400,44 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            row.displayName,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
-            ),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                displayName,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+              ModelRuntimeBadge(engine: row.engine),
+            ],
           ),
           if (renamedFrom != null) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'Recorded identity changed between sessions',
+              style: TextStyle(
+                color: Colors.white70,
+                fontWeight: FontWeight.w600,
+                fontSize: 11,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Older identity: $renamedFrom',
+              style: const TextStyle(
+                color: Colors.white38,
+                fontSize: 11,
+                height: 1.35,
+              ),
+            ),
             const SizedBox(height: 2),
             Text(
-              'Older session recorded this as $renamedFrom',
+              'Newer identity: ${row.displayName}',
               style: const TextStyle(color: Colors.white38, fontSize: 11),
             ),
           ],
@@ -441,8 +487,7 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
             higherIsBetter: true,
             earlierSuffix: _recallSuffix(row.earlier?.recallTotal),
             laterSuffix: _recallSuffix(row.later?.recallTotal),
-            deltaComparable:
-                row.earlier?.recallTotal == row.later?.recallTotal,
+            deltaComparable: row.earlier?.recallTotal == row.later?.recallTotal,
           ),
           _buildMetricRow(
             label: 'Accuracy',
@@ -476,8 +521,8 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
     // is not a +2 improvement and must not be printed as one.
     final double? delta =
         (deltaComparable && earlierValue != null && laterValue != null)
-            ? laterValue - earlierValue
-            : null;
+        ? laterValue - earlierValue
+        : null;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -495,7 +540,7 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
               earlierValue == null
                   ? '--'
                   : '${earlierValue.toStringAsFixed(fractionDigits)}'
-                      '$earlierSuffix',
+                        '$earlierSuffix',
               maxLines: 1,
               style: const TextStyle(color: Colors.white70, fontSize: 13),
             ),
@@ -524,7 +569,7 @@ class _BenchmarkComparisonScreenState extends State<BenchmarkComparisonScreen> {
             child: Text(
               delta != null
                   ? '${delta > 0 ? '+' : ''}'
-                      '${delta.toStringAsFixed(fractionDigits)}'
+                        '${delta.toStringAsFixed(fractionDigits)}'
                   : (deltaComparable ? '' : '\u2014'),
               textAlign: TextAlign.right,
               style: TextStyle(

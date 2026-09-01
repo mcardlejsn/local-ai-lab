@@ -7,6 +7,7 @@ import '../models/benchmark_session.dart';
 import '../models/gguf_candidate_assessment.dart';
 import '../models/gguf_model_update.dart';
 import '../models/model_recommendation.dart';
+import '../presentation/model_identity_presentation.dart';
 import '../services/database_service.dart';
 import '../services/gguf_discovery_cache_service.dart';
 import '../services/gguf_install_registry_service.dart';
@@ -446,6 +447,15 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
   Widget _buildInstalledSection() {
     final List<ModelInfo> models = _installedModels;
     final bool isLoading = models.isEmpty && _isInstalledInventoryLoading;
+    final Map<String, String> displayNames = resolveConciseModelNames(
+      models.map(
+        (ModelInfo model) => ModelDisplayIdentity(
+          key: model.id,
+          technicalName: model.name,
+          engine: model.engine,
+        ),
+      ),
+    );
     return ListView(
       key: const PageStorageKey<String>('installed-models-list'),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
@@ -459,7 +469,7 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
             _buildNoInstalledModels()
           else
             for (final ModelInfo model in models) ...[
-              _buildInstalledModelCard(model),
+              _buildInstalledModelCard(model, displayNames[model.id]!),
               const SizedBox(height: 12),
             ],
         ],
@@ -629,7 +639,7 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
     );
   }
 
-  Widget _buildInstalledModelCard(ModelInfo model) {
+  Widget _buildInstalledModelCard(ModelInfo model, String displayName) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme colors = theme.colorScheme;
     final Color readyColor = theme.brightness == Brightness.dark
@@ -664,7 +674,7 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(model.name, style: theme.textTheme.titleMedium),
+                      Text(displayName, style: theme.textTheme.titleMedium),
                       const SizedBox(height: 4),
                       Text(
                         _installedDescription(model),
@@ -676,7 +686,7 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                _buildEngineBadge(model.engine),
+                ModelRuntimeBadge(engine: model.engine),
               ],
             ),
             const SizedBox(height: 16),
@@ -792,6 +802,17 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
   }
 
   Widget _buildRecommendedSection() {
+    final List<RecommendedModel> models =
+        _recommendations?.models ?? const <RecommendedModel>[];
+    final Map<String, String> displayNames = resolveConciseModelNames(
+      models.map(
+        (RecommendedModel model) => ModelDisplayIdentity(
+          key: model.modelId,
+          technicalName: model.modelName,
+          engine: model.engine,
+        ),
+      ),
+    );
     return ListView(
       key: const PageStorageKey<String>('recommended-models-list'),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
@@ -812,8 +833,8 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
         else ...[
           _buildRecommendationEvidence(_recommendations!),
           const SizedBox(height: 16),
-          for (final RecommendedModel model in _recommendations!.models) ...[
-            _buildRecommendedModelCard(model),
+          for (final RecommendedModel model in models) ...[
+            _buildRecommendedModelCard(model, displayNames[model.modelId]!),
             const SizedBox(height: 12),
           ],
         ],
@@ -946,7 +967,10 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
     );
   }
 
-  Widget _buildRecommendedModelCard(RecommendedModel model) {
+  Widget _buildRecommendedModelCard(
+    RecommendedModel model,
+    String displayName,
+  ) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme colors = theme.colorScheme;
     final bool installed = _installedModels.any(
@@ -967,12 +991,12 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Text(
-                  model.modelName,
+                  displayName,
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
-                _buildEngineBadge(model.engine),
+                ModelRuntimeBadge(engine: model.engine),
               ],
             ),
             const SizedBox(height: 6),
@@ -1041,31 +1065,6 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
         ModelRecommendationMetric.generationSpeed => Icons.speed_rounded,
       };
 
-  Widget _buildEngineBadge(ModelEngine engine) {
-    final ThemeData theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        _engineLabel(engine),
-        style: theme.textTheme.labelMedium?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-
-  String _engineLabel(ModelEngine engine) => switch (engine) {
-    ModelEngine.nano => 'AICore',
-    ModelEngine.gguf => 'GGUF',
-    ModelEngine.litertlm => 'LiteRT-LM',
-    ModelEngine.mediapipe => 'Legacy',
-  };
-
   IconData _engineIcon(ModelEngine engine) => switch (engine) {
     ModelEngine.nano => Icons.auto_awesome_outlined,
     ModelEngine.gguf => Icons.memory_outlined,
@@ -1075,10 +1074,11 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
 
   String _installedDescription(ModelInfo model) => switch (model.engine) {
     ModelEngine.nano => 'System-managed · Available offline',
-    ModelEngine.gguf => '${model.formattedSize} · Local GGUF model',
+    ModelEngine.gguf => '${model.formattedSize} · Stored on this device',
     ModelEngine.litertlm =>
       '${model.formattedSize} · Sideloaded prototype · GPU backend',
-    ModelEngine.mediapipe => '${model.formattedSize} · Legacy local model',
+    ModelEngine.mediapipe =>
+      '${model.formattedSize} · MediaPipe model · No longer supported',
   };
 
   Future<void> _showModelDetails(ModelInfo model) {
@@ -1090,7 +1090,7 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildDetailRow('Engine', _engineLabel(model.engine)),
+            _buildDetailRow('Engine', modelRuntimeLabel(model.engine)),
             _buildDetailRow('Size', model.formattedSize),
             _buildDetailRow('Prompt format', model.promptFormat.label),
             _buildDetailRow(

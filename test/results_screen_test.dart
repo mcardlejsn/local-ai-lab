@@ -111,7 +111,7 @@ void main() {
         ttftSeconds: 1.6,
         tokensPerSecond: 91.4,
         engineType: 'nano',
-        modelName: 'Gemini Nano',
+        modelName: 'Gemini Nano (AICore 0.release.prod_aicore_20260723)',
         tokenCount: 146,
       ),
     );
@@ -119,6 +119,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('A newly saved output.'), findsOneWidget);
+    expect(find.text('2-Sentence Summary · Gemini Nano'), findsOneWidget);
+    expect(find.text('AICore'), findsOneWidget);
+    expect(
+      find.textContaining('AICore 0.release.prod_aicore_20260723'),
+      findsNothing,
+    );
     expect(find.text('1 saved run'), findsOneWidget);
     expect(find.byKey(const Key('results-playground-search')), findsOneWidget);
     expect(
@@ -203,6 +209,7 @@ void main() {
           'qwen2.5-0.5b-instruct-q4_k_m.gguf',
           'Llama-3.2-3B-Instruct.Q4_K_M.gguf',
         ],
+        'model_engines': <String>['nano', 'gguf', 'gguf', 'gguf', 'gguf'],
       },
       <String, Object?>{
         'id': 2,
@@ -210,6 +217,7 @@ void main() {
         'model_count': 1,
         'runs_per_model': 1,
         'model_names': <String>['Gemini Nano'],
+        'model_engines': <String>['nano'],
       },
     ];
 
@@ -238,6 +246,10 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('+3 more'), findsOneWidget);
+    expect(find.text('Gemini Nano'), findsNWidgets(2));
+    expect(find.text('Qwen2.5 1.5B Instruct'), findsOneWidget);
+    expect(find.text('AICore'), findsNWidgets(2));
+    expect(find.text('GGUF'), findsOneWidget);
     expect(find.text('Falcon-H1-0.5B-Instruct-Q4_K_M.gguf'), findsNothing);
     expect(find.widgetWithText(TextButton, 'Delete'), findsNWidgets(2));
     expect(find.byTooltip('Delete session'), findsNothing);

@@ -182,14 +182,14 @@ void main() {
   ) async {
     final BenchmarkAggregate nano = _aggregate(
       id: 'nano',
-      name: 'Gemini Nano',
+      name: 'Gemini Nano (AICore 0.release.prod_aicore_20260723)',
       engine: ModelEngine.nano,
       latencies: const <double>[0.68, 0.74, 0.82],
       rates: const <double>[84.2, 76.5, 71.0],
     );
     final BenchmarkAggregate gguf = _aggregate(
       id: 'qwen',
-      name: 'Qwen2.5 0.5B',
+      name: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
       engine: ModelEngine.gguf,
       latencies: const <double>[1.00, 1.08, 1.15],
       rates: const <double>[26.0, 25.0, 24.0],
@@ -211,12 +211,20 @@ void main() {
     );
 
     expect(find.text('Gemini Nano'), findsOneWidget);
-    expect(find.text('Qwen2.5 0.5B'), findsOneWidget);
+    expect(find.text('Qwen2.5 0.5B Instruct'), findsOneWidget);
+    expect(find.text('AICore'), findsOneWidget);
+    expect(find.text('GGUF'), findsOneWidget);
+    expect(
+      find.text('Gemini Nano (AICore 0.release.prod_aicore_20260723)'),
+      findsNothing,
+    );
     expect(find.text('RATE'), findsNWidgets(2));
     expect(find.text('LATENCY'), findsNWidgets(2));
     expect(find.text('EST. TOKENS'), findsNWidgets(2));
     expect(find.text('LENGTH MET'), findsNWidgets(2));
     expect(find.text('2/3'), findsNWidgets(2));
+    expect(find.text('runs met target'), findsNWidgets(2));
+    expect(find.text('completed runs'), findsNothing);
     expect(find.text('non-streaming'), findsOneWidget);
     expect(find.text('3 of 3 runs completed'), findsNWidgets(2));
 
@@ -225,6 +233,48 @@ void main() {
     expect(find.text('Individual runs'), findsOneWidget);
     expect(find.text('Output from the median-latency run'), findsOneWidget);
     expect(find.textContaining('Run 1 ·'), findsOneWidget);
+  });
+
+  testWidgets('long model name keeps its runtime badge beside the header', (
+    WidgetTester tester,
+  ) async {
+    final BenchmarkAggregate falcon = _aggregate(
+      id: 'falcon',
+      name: 'Falcon-H1-0.5B-Instruct-Q4_K_M.gguf',
+      engine: ModelEngine.gguf,
+      latencies: const <double>[1.42],
+      rates: const <double>[28.9],
+    );
+
+    await pumpAtLargeText(
+      tester,
+      Scaffold(
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: <Widget>[
+            BenchmarkResultsTable(
+              aggregates: <BenchmarkAggregate>[falcon],
+              showAccuracy: false,
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final Finder name = find.text('Falcon-H1 0.5B Instruct');
+    final Finder badge = find.byKey(
+      const Key('benchmark-result-runtime-falcon'),
+    );
+
+    expect(name, findsOneWidget);
+    expect(find.text('GGUF'), findsOneWidget);
+    expect(badge, findsOneWidget);
+    expect(
+      tester.getTopLeft(badge).dy,
+      closeTo(tester.getTopLeft(name).dy, 1),
+    );
+    expect(tester.getTopLeft(badge).dx, greaterThan(tester.getTopLeft(name).dx));
+    expect(tester.takeException(), isNull);
   });
 }
 

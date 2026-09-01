@@ -416,8 +416,8 @@ class DatabaseService {
 
     final ids = sessions.map((row) => row['id'] as int).toList();
     final placeholders = List.filled(ids.length, '?').join(', ');
-    final nameRows = await db.rawQuery(
-      'SELECT DISTINCT session_id, model_order, model_name '
+    final modelRows = await db.rawQuery(
+      'SELECT DISTINCT session_id, model_order, model_name, engine_type '
       'FROM benchmark_runs '
       'WHERE session_id IN ($placeholders) '
       'ORDER BY session_id ASC, model_order ASC',
@@ -425,11 +425,15 @@ class DatabaseService {
     );
 
     final namesBySession = <int, List<String>>{};
-    for (final row in nameRows) {
+    final enginesBySession = <int, List<String>>{};
+    for (final row in modelRows) {
       final sessionId = row['session_id'] as int;
       namesBySession
           .putIfAbsent(sessionId, () => <String>[])
           .add(row['model_name'] as String);
+      enginesBySession
+          .putIfAbsent(sessionId, () => <String>[])
+          .add(row['engine_type'] as String);
     }
 
     return sessions.map((row) {
@@ -438,6 +442,7 @@ class DatabaseService {
       return {
         ...session,
         'model_names': namesBySession[sessionId] ?? const <String>[],
+        'model_engines': enginesBySession[sessionId] ?? const <String>[],
       };
     }).toList();
   }

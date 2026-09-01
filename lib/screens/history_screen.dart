@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/summary_record.dart';
+import '../presentation/model_identity_presentation.dart';
 import '../services/database_service.dart';
+import '../services/model_manager_service.dart';
 
 typedef SummaryHistoryLoader = Future<List<SummaryRecord>> Function();
 
@@ -89,6 +91,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
     setState(() {
       _filteredRecords = _records
           .where((SummaryRecord record) {
+            final ModelEngine? engine = modelEngineFromStoredName(
+              record.engineType,
+            );
+            final String visibleModelName = engine == null
+                ? record.modelName ?? ''
+                : conciseModelName(record.modelName ?? '', engine);
+            final String visibleRuntimeName = engine == null
+                ? modelRuntimeLabelFromStoredName(record.engineType)
+                : modelRuntimeLabel(engine);
             final bool matchesFilter =
                 _selectedFilter == 'All' || record.taskType == _selectedFilter;
             final bool matchesQuery =
@@ -97,6 +108,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 record.originalText.toLowerCase().contains(query) ||
                 record.taskType.toLowerCase().contains(query) ||
                 (record.modelName?.toLowerCase().contains(query) ?? false) ||
+                visibleModelName.toLowerCase().contains(query) ||
+                visibleRuntimeName.toLowerCase().contains(query) ||
                 (record.engineType?.toLowerCase().contains(query) ?? false);
             return matchesFilter && matchesQuery;
           })
@@ -355,7 +368,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Widget _buildRecordCard(SummaryRecord record) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme colors = theme.colorScheme;
-    final String model = record.modelName ?? 'Unknown model';
+    final ModelEngine? engine = modelEngineFromStoredName(record.engineType);
+    final String model = _displayNameForRecord(record);
 
     return Card(
       key: PageStorageKey<String>('history_tile_${record.id}'),
@@ -384,11 +398,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
               ],
             ),
             const SizedBox(height: 6),
-            Text(
-              '${_engineLabel(record.engineType)} · Completed locally',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colors.onSurfaceVariant,
-              ),
+            Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                if (engine != null) ModelRuntimeBadge(engine: engine),
+                Text(
+                  'Completed locally',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
             if (record.sentenceCountMet != null) ...[
               const SizedBox(height: 10),
@@ -532,16 +554,29 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
-  String _engineLabel(String? engine) {
-    return switch (engine?.toLowerCase()) {
-      'nano' => 'AICore',
-      'gguf' => 'GGUF',
-      'litertlm' => 'LiteRT-LM',
-      'mediapipe' => 'Legacy',
-      final String value when value.isNotEmpty => value,
-      _ => 'Local runtime',
-    };
+  String _displayNameForRecord(SummaryRecord target) {
+    final List<ModelDisplayIdentity> identities = <ModelDisplayIdentity>[];
+    for (final SummaryRecord record in _filteredRecords) {
+      final ModelEngine? engine = modelEngineFromStoredName(record.engineType);
+      if (engine == null) continue;
+      identities.add(
+        ModelDisplayIdentity(
+          key: _recordDisplayKey(record),
+          technicalName: record.modelName ?? 'Unknown model',
+          engine: engine,
+        ),
+      );
+    }
+    final ModelEngine? targetEngine = modelEngineFromStoredName(
+      target.engineType,
+    );
+    if (targetEngine == null) return target.modelName ?? 'Unknown model';
+    return resolveConciseModelNames(identities)[_recordDisplayKey(target)] ??
+        conciseModelName(target.modelName ?? 'Unknown model', targetEngine);
   }
+
+  String _recordDisplayKey(SummaryRecord record) =>
+      record.id?.toString() ?? identityHashCode(record).toString();
 
   String _formatDate(DateTime dateTime) {
     final DateTime local = dateTime.toLocal();

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../models/benchmark_session.dart';
+import '../presentation/model_identity_presentation.dart';
 import '../services/database_service.dart';
+import '../services/model_manager_service.dart';
 import 'benchmark_comparison_screen.dart';
 import 'saved_benchmark_detail_screen.dart';
 
@@ -319,6 +321,8 @@ class _SavedBenchmarkSessionsScreenState
     final int sessionId = session['id'] as int;
     final List<String> modelNames =
         (session['model_names'] as List?)?.cast<String>() ?? <String>[];
+    final List<String> modelEngines =
+        (session['model_engines'] as List?)?.cast<String>() ?? <String>[];
     final int modelCount = session['model_count'] as int? ?? modelNames.length;
     final int runsPerModel = session['runs_per_model'] as int? ?? 0;
     final bool selected = _selectedIds.contains(sessionId);
@@ -366,16 +370,15 @@ class _SavedBenchmarkSessionsScreenState
                 ],
               ),
               const SizedBox(height: 10),
-              Text(
-                '$modelCount ${modelCount == 1 ? 'model' : 'models'} · '
-                '$runsPerModel ${runsPerModel == 1 ? 'run' : 'runs'} per model',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colors.onSurfaceVariant,
-                ),
+              _buildRuntimeSummary(
+                modelEngines,
+                modelCount,
+                runsPerModel,
+                theme,
               ),
               if (modelNames.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                ..._buildModelNameSummary(modelNames, theme),
+                ..._buildModelNameSummary(modelNames, modelEngines, theme),
               ],
               if (!_selectionMode) ...[
                 const SizedBox(height: 10),
@@ -410,12 +413,35 @@ class _SavedBenchmarkSessionsScreenState
 
   List<Widget> _buildModelNameSummary(
     List<String> modelNames,
+    List<String> modelEngines,
     ThemeData theme,
   ) {
     const int visibleLimit = 2;
-    final List<String> visibleNames = modelNames
-        .take(visibleLimit)
-        .toList(growable: false);
+    final List<ModelDisplayIdentity> identities = <ModelDisplayIdentity>[];
+    for (int index = 0; index < modelNames.length; index++) {
+      final ModelEngine? engine = index < modelEngines.length
+          ? modelEngineFromStoredName(modelEngines[index])
+          : null;
+      if (engine == null) continue;
+      identities.add(
+        ModelDisplayIdentity(
+          key: index.toString(),
+          technicalName: modelNames[index],
+          engine: engine,
+        ),
+      );
+    }
+    final Map<String, String> displayNames = resolveConciseModelNames(
+      identities,
+    );
+    final List<String> visibleNames = <String>[
+      for (
+        int index = 0;
+        index < modelNames.length && index < visibleLimit;
+        index++
+      )
+        displayNames[index.toString()] ?? modelNames[index],
+    ];
     final int hiddenCount = modelNames.length - visibleNames.length;
     final TextStyle? style = theme.textTheme.bodySmall?.copyWith(
       color: theme.colorScheme.onSurfaceVariant,
@@ -439,6 +465,36 @@ class _SavedBenchmarkSessionsScreenState
           style: style?.copyWith(fontWeight: FontWeight.w700),
         ),
     ];
+  }
+
+  Widget _buildRuntimeSummary(
+    List<String> modelEngines,
+    int modelCount,
+    int runsPerModel,
+    ThemeData theme,
+  ) {
+    final List<ModelEngine> engines = <ModelEngine>[];
+    for (final String stored in modelEngines) {
+      final ModelEngine? engine = modelEngineFromStoredName(stored);
+      if (engine != null && !engines.contains(engine)) engines.add(engine);
+    }
+    final TextStyle? style = theme.textTheme.bodyMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: <Widget>[
+        for (final ModelEngine engine in engines)
+          ModelRuntimeBadge(engine: engine),
+        Text(
+          '$modelCount ${modelCount == 1 ? 'model' : 'models'} · '
+          '$runsPerModel ${runsPerModel == 1 ? 'run' : 'runs'} per model',
+          style: style,
+        ),
+      ],
+    );
   }
 
   Widget _buildComparisonAction() {

@@ -161,6 +161,10 @@ void main() {
       ],
     );
 
+    expect(find.text('Qwen 1B Instruct'), findsOneWidget);
+    expect(find.text('GGUF'), findsOneWidget);
+    expect(find.text(current.fileName), findsNothing);
+
     expect(updateChecker.checkCalls, 0);
     await tester.tap(find.byKey(const Key('check-model-updates')));
     await tester.pumpAndSettle();

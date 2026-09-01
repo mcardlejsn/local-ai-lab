@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../models/benchmark_test_case.dart';
 import '../models/sentence_count_evaluation.dart';
 import '../models/summary_record.dart';
+import '../presentation/model_identity_presentation.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
 import '../services/litertlm_service.dart';
@@ -542,10 +543,25 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
     final available = _modelManager.summarizerModels;
     final active = _modelManager.activeModel;
     final isLoading = _modelManager.isLoading;
-    final status = _modelManager.statusMessage ?? 'Ready';
+    final String rawStatus = _modelManager.statusMessage ?? 'Ready';
     final readyColor = theme.brightness == Brightness.dark
         ? const Color(0xFF81C784)
         : const Color(0xFF2E7D32);
+    final List<ModelDisplayIdentity> displayIdentities = available
+        .map(
+          (ModelInfo model) => ModelDisplayIdentity(
+            key: model.id,
+            technicalName: model.name,
+            engine: model.engine,
+          ),
+        )
+        .toList(growable: false);
+    final Map<String, String> displayNames = resolveConciseModelNames(
+      displayIdentities,
+    );
+    final String status = active != null && !isLoading
+        ? 'Ready for on-device use'
+        : conciseModelStatus(rawStatus, displayIdentities);
 
     if (available.isEmpty && !isLoading) {
       return Card(
@@ -620,6 +636,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                     child: DropdownButton<String>(
                       value: active?.id,
                       isExpanded: true,
+                      itemHeight: null,
                       icon: const Icon(Icons.expand_more_rounded),
                       style: theme.textTheme.titleMedium?.copyWith(
                         color: scheme.onSurface,
@@ -627,12 +644,38 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                       items: available.map((model) {
                         return DropdownMenuItem<String>(
                           value: model.id,
-                          child: Text(
-                            '${model.name} · ${model.formattedSize}',
-                            overflow: TextOverflow.ellipsis,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    '${displayNames[model.id]} · '
+                                    '${model.formattedSize}',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                ModelRuntimeBadge(engine: model.engine),
+                              ],
+                            ),
                           ),
                         );
                       }).toList(),
+                      selectedItemBuilder: (BuildContext context) => available
+                          .map(
+                            (ModelInfo model) => Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                '${displayNames[model.id]} · '
+                                '${model.formattedSize}',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
                       onChanged: (_isStreaming || isLoading)
                           ? null
                           : (newId) {
@@ -649,27 +692,35 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            Row(
+            Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Icon(
-                  isLoading ? Icons.sync_rounded : Icons.circle,
-                  size: isLoading ? 16 : 10,
-                  color: active != null && !isLoading
-                      ? readyColor
-                      : scheme.primary,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    status,
-                    style: theme.textTheme.bodySmall?.copyWith(
+                if (active != null) ModelRuntimeBadge(engine: active.engine),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      isLoading ? Icons.sync_rounded : Icons.circle,
+                      size: isLoading ? 16 : 10,
                       color: active != null && !isLoading
                           ? readyColor
-                          : scheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w600,
+                          : scheme.primary,
                     ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        status,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: active != null && !isLoading
+                              ? readyColor
+                              : scheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
