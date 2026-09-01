@@ -643,7 +643,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
       BenchmarkTestCaseSource.controlled =>
         'Fixed test case for repeatable comparisons across models and sessions.',
       BenchmarkTestCaseSource.playground =>
-        'Read-only snapshot of the passage and instruction used in Playground.',
+        'Read-only snapshot of the passage and instruction used in Run.',
       BenchmarkTestCaseSource.restored =>
         'Read-only test case from the latest completed comparison.',
     };
@@ -709,7 +709,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                     key: const Key('benchmark-use-playground-test'),
                     onPressed: disabled ? null : _usePlaygroundTestCase,
                     icon: const Icon(Icons.compare_arrows_rounded),
-                    label: const Text('Use Playground test'),
+                    label: const Text('Use Run test'),
                   ),
                 ],
               ],

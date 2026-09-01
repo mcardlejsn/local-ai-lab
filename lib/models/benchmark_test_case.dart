@@ -32,7 +32,7 @@ class BenchmarkTestCase {
 
   String get sourceLabel => switch (source) {
     BenchmarkTestCaseSource.controlled => 'Controlled test',
-    BenchmarkTestCaseSource.playground => 'From Playground',
+    BenchmarkTestCaseSource.playground => 'From Run',
     BenchmarkTestCaseSource.restored => 'Latest saved benchmark',
   };
 }

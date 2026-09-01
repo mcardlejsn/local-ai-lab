@@ -435,7 +435,7 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
                 const Text(
                   'This exact artifact passed mechanical screening, but it '
                   'has not been tested on this device. After installation, '
-                  'it becomes available in Playground and Benchmark.',
+                  'it becomes available in Run and Compare.',
                   style: TextStyle(
                     color: _reviewAmber,
                     fontSize: 13,
@@ -521,7 +521,7 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
   String _candidateMessageFor(DownloadResult result) {
     switch (result.outcome) {
       case DownloadOutcome.completed:
-        return 'Installed and available in Playground and Benchmark.';
+        return 'Installed and available in Run and Compare.';
       case DownloadOutcome.cancelled:
         return 'Stopped. Partial file kept — Resume continues the download.';
       case DownloadOutcome.networkError:
@@ -632,7 +632,7 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
           Text(
             'A Candidate passed mechanical discovery screening only. '
             'Downloading installs the exact artifact for local testing. '
-            'After installation, use Playground or Benchmark to inspect its '
+            'After installation, use Run or Compare to inspect its '
             'behavior and compare its results.',
             style: TextStyle(color: _reviewAmber, fontSize: 12, height: 1.4),
           ),

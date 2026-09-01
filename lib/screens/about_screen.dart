@@ -134,8 +134,8 @@ class _AboutLocalAiLabScreenState extends State<AboutLocalAiLabScreen> {
                     ),
                     const SizedBox(height: 16),
                     const Text(
-                      'Compare on-device AI models using the same controlled '
-                      'Playground and Benchmark workflows.',
+                      'Explore and compare on-device AI models through the '
+                      'Run and Compare workflows.',
                     ),
                   ],
                 ),
@@ -176,8 +176,8 @@ class _AboutLocalAiLabScreenState extends State<AboutLocalAiLabScreen> {
                   'fallback repositories. Duplicate repositories and '
                   'equivalent model results are removed.\n\n'
                   'Candidate status does not establish output quality, safety, '
-                  'or practical performance on this phone. Use Playground and '
-                  'Benchmark to evaluate behavior.',
+                  'or practical performance on this phone. Use Run and Compare '
+                  'to evaluate behavior.',
             ),
             const SizedBox(height: 16),
             const _AboutInfoCard(

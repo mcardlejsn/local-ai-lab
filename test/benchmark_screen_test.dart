@@ -46,7 +46,7 @@ void main() {
     expect(find.byKey(const Key('benchmark-runs-per-model')), findsOneWidget);
     expect(find.byKey(const Key('benchmark-run-button')), findsOneWidget);
 
-    expect(find.text('From Playground'), findsNothing);
+    expect(find.text('From Run'), findsNothing);
     expect(find.text('Controlled test'), findsOneWidget);
     expect(find.textContaining('Length met'), findsNothing);
     expect(
@@ -92,8 +92,12 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('From Playground'), findsOneWidget);
-    expect(find.text('Playground test case ready to compare.'), findsNothing);
+    expect(find.text('From Run'), findsOneWidget);
+    expect(
+      find.textContaining('passage and instruction used in Run'),
+      findsOneWidget,
+    );
+    expect(find.text('Run test case ready to compare.'), findsNothing);
     expect(
       find.text('A Playground passage that must not drift.'),
       findsOneWidget,
@@ -108,19 +112,20 @@ void main() {
     await tester.pump();
 
     expect(find.text('Controlled test'), findsOneWidget);
-    expect(find.text('From Playground'), findsNothing);
+    expect(find.text('From Run'), findsNothing);
     expect(
       find.byKey(const Key('benchmark-use-playground-test')),
       findsOneWidget,
     );
+    expect(find.text('Use Run test'), findsOneWidget);
     expect(find.text('Controlled test ready to compare.'), findsNothing);
 
     await tester.tap(find.byKey(const Key('benchmark-use-playground-test')));
     await tester.pump();
 
-    expect(find.text('From Playground'), findsOneWidget);
+    expect(find.text('From Run'), findsOneWidget);
     expect(find.text('Controlled test'), findsNothing);
-    expect(find.text('Playground test case ready to compare.'), findsNothing);
+    expect(find.text('Run test case ready to compare.'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
