@@ -28,12 +28,22 @@ void main() {
     );
   }
 
-  testWidgets('Playground exposes the approved layout-only structure', (
+  testWidgets('Run exposes the approved layout-only structure', (
     WidgetTester tester,
   ) async {
     await pumpPlayground(tester);
 
-    expect(find.text('Playground'), findsOneWidget);
+    expect(find.text('Run'), findsOneWidget);
+    final AppBar appBar = tester.widget<AppBar>(find.byType(AppBar));
+    final Text runTitle = tester.widget<Text>(find.text('Run'));
+    final BuildContext runTitleContext = tester.element(find.text('Run'));
+    expect(appBar.toolbarHeight, 82);
+    expect(appBar.titleSpacing, 20);
+    expect(
+      runTitle.style?.fontSize,
+      Theme.of(runTitleContext).textTheme.headlineSmall?.fontSize,
+    );
+    expect(runTitle.style?.fontWeight, FontWeight.w700);
     expect(find.text('Local AI Lab · On-device'), findsOneWidget);
     expect(find.byKey(const Key('playground-model-card')), findsOneWidget);
     expect(find.byKey(const Key('playground-task-section')), findsOneWidget);

@@ -983,7 +983,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              widget.isCandidateQualification ? 'Model Benchmark' : 'Benchmark',
+              widget.isCandidateQualification ? 'Model Benchmark' : 'Compare',
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.w700,
               ),

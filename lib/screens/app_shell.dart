@@ -96,7 +96,7 @@ class _AppShellState extends State<AppShell> {
           NavigationDestination(
             icon: Icon(Icons.auto_awesome_outlined),
             selectedIcon: Icon(Icons.auto_awesome),
-            label: 'Test',
+            label: 'Run',
           ),
           NavigationDestination(
             icon: Icon(Icons.speed_outlined),

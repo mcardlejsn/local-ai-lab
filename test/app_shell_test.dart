@@ -15,7 +15,7 @@ void main() {
     );
 
     expect(find.byType(NavigationBar), findsOneWidget);
-    expect(find.text('Test'), findsOneWidget);
+    expect(find.text('Run'), findsOneWidget);
     expect(find.text('Compare'), findsOneWidget);
     expect(find.text('Models'), findsOneWidget);
     expect(find.text('Results'), findsOneWidget);

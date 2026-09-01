@@ -467,16 +467,20 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        toolbarHeight: 80,
+        toolbarHeight: 82,
+        titleSpacing: 20,
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Playground'),
-            const SizedBox(height: 2),
+            Text(
+              'Run',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             Text(
               'Local AI Lab · On-device',
-              style: theme.textTheme.bodySmall?.copyWith(
+              style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),

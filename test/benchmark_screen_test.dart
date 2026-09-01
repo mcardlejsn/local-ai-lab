@@ -38,7 +38,7 @@ void main() {
       ),
     );
 
-    expect(find.text('Benchmark'), findsOneWidget);
+    expect(find.text('Compare'), findsOneWidget);
     expect(find.text('Controlled on-device comparison'), findsOneWidget);
     expect(find.byKey(const Key('benchmark-status-banner')), findsNothing);
     expect(find.byKey(const Key('benchmark-test-case-card')), findsOneWidget);
