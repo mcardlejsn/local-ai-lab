@@ -322,16 +322,29 @@ void main() {
       expect(ModelEngine.values.byName('litertlm'), ModelEngine.litertlm);
     });
 
-    test('excludes LiteRT-LM from the prototype benchmark model set', () {
+    test('includes every active runtime in the benchmark model set', () {
       expect(isBenchmarkModel(nano), isTrue);
       expect(isBenchmarkModel(candidate), isTrue);
-      expect(isBenchmarkModel(liteRtLm), isFalse);
+      expect(isBenchmarkModel(liteRtLm), isTrue);
+      expect(
+        isBenchmarkModel(
+          ModelInfo(
+            id: 'historical-mediapipe',
+            name: 'Historical MediaPipe model',
+            path: '/models/historical.task',
+            engine: ModelEngine.mediapipe,
+            sizeBytes: 123,
+            promptFormat: PromptFormat.plain,
+          ),
+        ),
+        isFalse,
+      );
     });
 
-    test('normal suite retains every available model', () {
+    test('normal suite retains Nano, GGUF, and LiteRT-LM models', () {
       expect(
-        benchmarkModelsForTarget(<ModelInfo>[nano, candidate]),
-        <ModelInfo>[nano, candidate],
+        benchmarkModelsForTarget(<ModelInfo>[nano, candidate, liteRtLm]),
+        <ModelInfo>[nano, candidate, liteRtLm],
       );
     });
 
@@ -345,10 +358,10 @@ void main() {
       );
       expect(
         benchmarkModelsForTarget(
-          <ModelInfo>[nano, candidate],
-          selectedModelIds: <String>{candidate.id, nano.id},
+          <ModelInfo>[nano, candidate, liteRtLm],
+          selectedModelIds: <String>{candidate.id, nano.id, liteRtLm.id},
         ),
-        <ModelInfo>[nano, candidate],
+        <ModelInfo>[nano, candidate, liteRtLm],
       );
       expect(
         benchmarkModelsForTarget(
@@ -373,6 +386,13 @@ void main() {
           nano,
           candidate,
         ], targetModelId: nano.id),
+        isEmpty,
+      );
+      expect(
+        benchmarkModelsForTarget(<ModelInfo>[
+          candidate,
+          liteRtLm,
+        ], targetModelId: liteRtLm.id),
         isEmpty,
       );
     });

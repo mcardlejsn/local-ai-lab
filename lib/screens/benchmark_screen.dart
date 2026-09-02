@@ -11,6 +11,7 @@ import '../models/sentence_count_evaluation.dart';
 import '../presentation/model_identity_presentation.dart';
 import '../services/database_service.dart';
 import '../services/gemini_nano_service.dart';
+import '../services/litertlm_service.dart';
 import '../services/llama_gguf_service.dart';
 import '../services/model_manager_service.dart';
 import '../widgets/benchmark_results_table.dart';
@@ -100,6 +101,84 @@ bool canRunBenchmarkModels(
   required bool isCandidateQualification,
 }) {
   return isCandidateQualification ? models.isNotEmpty : models.length >= 2;
+}
+
+/// Executes one isolated LiteRT-LM benchmark run using the runtime's fixed GPU
+/// sampling contract.
+///
+/// Model loading is excluded from generation latency, matching the existing
+/// GGUF benchmark. Time to first token begins immediately before the fresh
+/// chat is created, so it includes chat setup and prompt ingestion. Output
+/// tokens remain the same character-based estimate used by every runtime.
+Future<BenchmarkModelResult> executeLiteRtLmBenchmark({
+  required ModelInfo model,
+  required String prompt,
+  LiteRtLmService? service,
+}) async {
+  final LiteRtLmService liteRtLmService = service ?? LiteRtLmService.instance;
+  final Stopwatch totalStopwatch = Stopwatch();
+  final Stopwatch ttftStopwatch = Stopwatch();
+
+  double? timeToFirstToken;
+  String output = '';
+  String? errorMessage;
+
+  try {
+    await liteRtLmService.loadModel(model.path);
+
+    totalStopwatch.start();
+    ttftStopwatch.start();
+    final Stream<String> stream = await liteRtLmService.generate(
+      prompt: prompt,
+      maxOutputTokens: 256,
+    );
+
+    await for (final String chunk in stream) {
+      if (chunk.isEmpty) continue;
+      if (timeToFirstToken == null) {
+        ttftStopwatch.stop();
+        timeToFirstToken =
+            ttftStopwatch.elapsedMicroseconds / Duration.microsecondsPerSecond;
+      }
+      output += chunk;
+    }
+  } catch (error) {
+    errorMessage = error.toString();
+  } finally {
+    totalStopwatch.stop();
+    ttftStopwatch.stop();
+    try {
+      await liteRtLmService.unloadModel();
+    } catch (error) {
+      errorMessage ??= error.toString();
+    }
+  }
+
+  final double totalSeconds =
+      totalStopwatch.elapsedMicroseconds / Duration.microsecondsPerSecond;
+  if (errorMessage != null) {
+    return BenchmarkModelResult(
+      modelName: model.name,
+      engine: model.engine,
+      ttftSeconds: null,
+      totalLatencySeconds: totalSeconds,
+      tokenCount: 0,
+      tokensPerSecond: 0,
+      outputText: '',
+      errorMessage: errorMessage,
+    );
+  }
+
+  final int tokenCount = estimateOutputTokens(output);
+  return BenchmarkModelResult(
+    modelName: model.name,
+    engine: model.engine,
+    ttftSeconds: timeToFirstToken,
+    totalLatencySeconds: totalSeconds,
+    tokenCount: tokenCount,
+    tokensPerSecond: totalSeconds > 0 ? tokenCount / totalSeconds : 0,
+    outputText: output,
+  );
 }
 
 class _BenchmarkScreenState extends State<BenchmarkScreen> {
@@ -619,6 +698,11 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         );
 
         return res;
+      }
+
+      // 3. LiteRT-LM (fixed native GPU sampling)
+      if (model.engine == ModelEngine.litertlm) {
+        return executeLiteRtLmBenchmark(model: model, prompt: fullPrompt);
       }
 
       throw Exception('Unsupported engine type');

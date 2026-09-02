@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:local_ai_summarizer/models/benchmark_test_case.dart';
+import 'package:local_ai_summarizer/models/litertlm_model_artifact.dart';
 import 'package:local_ai_summarizer/screens/benchmark_screen.dart';
+import 'package:local_ai_summarizer/services/litertlm_service.dart';
 import 'package:local_ai_summarizer/services/model_manager_service.dart';
 import 'package:local_ai_summarizer/theme/app_theme.dart';
 import 'package:local_ai_summarizer/widgets/benchmark_results_table.dart';
@@ -269,13 +271,162 @@ void main() {
     expect(name, findsOneWidget);
     expect(find.text('GGUF'), findsOneWidget);
     expect(badge, findsOneWidget);
+    expect(tester.getTopLeft(badge).dy, closeTo(tester.getTopLeft(name).dy, 1));
     expect(
-      tester.getTopLeft(badge).dy,
-      closeTo(tester.getTopLeft(name).dy, 1),
+      tester.getTopLeft(badge).dx,
+      greaterThan(tester.getTopLeft(name).dx),
     );
-    expect(tester.getTopLeft(badge).dx, greaterThan(tester.getTopLeft(name).dx));
     expect(tester.takeException(), isNull);
   });
+
+  group('LiteRT-LM benchmark execution', () {
+    final ModelInfo liteRtLmModel = ModelInfo(
+      id: prototypeLiteRtLmArtifact.identity,
+      name: prototypeLiteRtLmArtifact.displayName,
+      path: '/models/${prototypeLiteRtLmArtifact.filename}',
+      engine: ModelEngine.litertlm,
+      sizeBytes: prototypeLiteRtLmArtifact.sizeBytes,
+      promptFormat: PromptFormat.plain,
+    );
+
+    test(
+      'captures streaming TTFT, latency, output, and estimated tokens',
+      () async {
+        final _FakeLiteRtLmModelHandle handle = _FakeLiteRtLmModelHandle(
+          streamFactory: () async* {
+            await Future<void>.delayed(const Duration(milliseconds: 2));
+            yield 'Hello';
+            yield ' world';
+          },
+        );
+        final _FakeLiteRtLmRuntime runtime = _FakeLiteRtLmRuntime(handle);
+        final LiteRtLmService service = LiteRtLmService(runtime: runtime);
+
+        final BenchmarkModelResult result = await executeLiteRtLmBenchmark(
+          model: liteRtLmModel,
+          prompt: 'Controlled benchmark prompt',
+          service: service,
+        );
+
+        expect(result.errorMessage, isNull);
+        expect(result.engine, ModelEngine.litertlm);
+        expect(result.outputText, 'Hello world');
+        expect(result.tokenCount, estimateOutputTokens('Hello world'));
+        expect(result.ttftSeconds, isNotNull);
+        expect(result.ttftSeconds!, greaterThan(0));
+        expect(
+          result.totalLatencySeconds,
+          greaterThanOrEqualTo(result.ttftSeconds!),
+        );
+        expect(result.tokensPerSecond, greaterThan(0));
+
+        expect(runtime.initializeCount, 1);
+        expect(runtime.loadedModelPath, liteRtLmModel.path);
+        expect(
+          runtime.requestedContextTokens,
+          prototypeLiteRtLmArtifact.contextTokens,
+        );
+        expect(runtime.requestedBackend, InferenceBackend.gpu);
+        expect(handle.prompt, 'Controlled benchmark prompt');
+        expect(handle.temperature, LiteRtLmService.fixedGpuTemperature);
+        expect(handle.topK, LiteRtLmService.fixedGpuTopK);
+        expect(handle.maxOutputTokens, 256);
+        expect(handle.closeCount, 1);
+        expect(service.isLoaded, isFalse);
+      },
+    );
+
+    test(
+      'records stream errors and still releases the LiteRT-LM model',
+      () async {
+        final _FakeLiteRtLmModelHandle handle = _FakeLiteRtLmModelHandle(
+          streamFactory: () async* {
+            yield 'partial output';
+            throw StateError('simulated LiteRT-LM failure');
+          },
+        );
+        final LiteRtLmService service = LiteRtLmService(
+          runtime: _FakeLiteRtLmRuntime(handle),
+        );
+
+        final BenchmarkModelResult result = await executeLiteRtLmBenchmark(
+          model: liteRtLmModel,
+          prompt: 'Controlled benchmark prompt',
+          service: service,
+        );
+
+        expect(result.errorMessage, contains('simulated LiteRT-LM failure'));
+        expect(result.outputText, isEmpty);
+        expect(result.tokenCount, 0);
+        expect(result.ttftSeconds, isNull);
+        expect(handle.closeCount, 1);
+        expect(service.isLoaded, isFalse);
+      },
+    );
+  });
+}
+
+class _FakeLiteRtLmRuntime implements LiteRtLmRuntime {
+  _FakeLiteRtLmRuntime(this.handle);
+
+  final _FakeLiteRtLmModelHandle handle;
+  int initializeCount = 0;
+  String? loadedModelPath;
+  int? requestedContextTokens;
+  InferenceBackend? requestedBackend;
+
+  @override
+  Future<void> initialize() async {
+    initializeCount += 1;
+  }
+
+  @override
+  Future<LiteRtLmModelHandle> loadModel({
+    required String modelPath,
+    required int contextTokens,
+    required InferenceBackend preferredBackend,
+  }) async {
+    loadedModelPath = modelPath;
+    requestedContextTokens = contextTokens;
+    requestedBackend = preferredBackend;
+    return handle;
+  }
+}
+
+class _FakeLiteRtLmModelHandle implements LiteRtLmModelHandle {
+  _FakeLiteRtLmModelHandle({required this.streamFactory});
+
+  final Stream<String> Function() streamFactory;
+  String? prompt;
+  double? temperature;
+  int? topK;
+  int? maxOutputTokens;
+  int closeCount = 0;
+
+  @override
+  InferenceBackend get activeBackend => InferenceBackend.gpu;
+
+  @override
+  Future<Stream<String>> generate({
+    required String prompt,
+    required double temperature,
+    required int topK,
+    required int maxOutputTokens,
+  }) async {
+    this.prompt = prompt;
+    this.temperature = temperature;
+    this.topK = topK;
+    this.maxOutputTokens = maxOutputTokens;
+    return streamFactory();
+  }
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> close() async {
+    closeCount += 1;
+  }
 }
 
 BenchmarkAggregate _aggregate({

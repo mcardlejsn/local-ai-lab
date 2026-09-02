@@ -79,6 +79,10 @@ class LiteRtLmService {
     _loadedModelPath = modelPath;
   }
 
+  /// Starts a fresh isolated chat and streams one generation.
+  ///
+  /// Sampling remains fixed to the LiteRT-LM GPU executor's effective native
+  /// values. Run and Compare deliberately share this same contract.
   Future<Stream<String>> generate({
     required String prompt,
     int maxOutputTokens = 256,

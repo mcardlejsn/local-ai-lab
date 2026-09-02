@@ -110,9 +110,14 @@ bool isActiveModelFilePath(String filePath) {
       prototypeLiteRtLmArtifact.hasExpectedFilename(p.basename(filePath));
 }
 
-/// Keeps the LiteRT-LM prototype out of Benchmark Suite without coupling the
-/// benchmark screen to a new engine it does not yet support.
-bool isBenchmarkModel(ModelInfo model) => model.engine != ModelEngine.litertlm;
+/// Whether an actively discoverable model can run in Benchmark Suite.
+///
+/// MediaPipe remains in [ModelEngine] only so historical saved rows can still
+/// be decoded; it is not an active inference runtime.
+bool isBenchmarkModel(ModelInfo model) => switch (model.engine) {
+  ModelEngine.nano || ModelEngine.gguf || ModelEngine.litertlm => true,
+  ModelEngine.mediapipe => false,
+};
 
 Future<String> _calculateSha256(String filePath) {
   return Isolate.run(() async {
@@ -158,8 +163,7 @@ class ModelManagerService extends ChangeNotifier {
   bool _isLoading = false;
   String? _statusMessage;
 
-  /// Models available to screens that predate the LiteRT-LM prototype.
-  /// Benchmark Suite and download presentation therefore remain unchanged.
+  /// Every active model that can participate in Benchmark Suite.
   List<ModelInfo> get availableModels =>
       List.unmodifiable(_availableModels.where(isBenchmarkModel));
 
