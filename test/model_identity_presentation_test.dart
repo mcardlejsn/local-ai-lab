@@ -18,6 +18,13 @@ void main() {
       );
       expect(
         conciseModelName(
+          'OLMo 2 1B Instruct (LiteRT-LM)',
+          ModelEngine.litertlm,
+        ),
+        'OLMo 2 1B Instruct',
+      );
+      expect(
+        conciseModelName(
           'Falcon-H1-0.5B-Instruct-Q4_K_M.gguf',
           ModelEngine.gguf,
         ),

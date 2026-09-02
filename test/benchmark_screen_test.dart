@@ -327,6 +327,8 @@ void main() {
           prototypeLiteRtLmArtifact.contextTokens,
         );
         expect(runtime.requestedBackend, InferenceBackend.gpu);
+        expect(runtime.requestedRuntimeProfile, LiteRtLmRuntimeProfile.qwen3);
+        expect(runtime.requestedIsThinking, isFalse);
         expect(handle.prompt, 'Controlled benchmark prompt');
         expect(handle.temperature, LiteRtLmService.fixedGpuTemperature);
         expect(handle.topK, LiteRtLmService.fixedGpuTopK);
@@ -374,6 +376,8 @@ class _FakeLiteRtLmRuntime implements LiteRtLmRuntime {
   String? loadedModelPath;
   int? requestedContextTokens;
   InferenceBackend? requestedBackend;
+  LiteRtLmRuntimeProfile? requestedRuntimeProfile;
+  bool? requestedIsThinking;
 
   @override
   Future<void> initialize() async {
@@ -385,10 +389,14 @@ class _FakeLiteRtLmRuntime implements LiteRtLmRuntime {
     required String modelPath,
     required int contextTokens,
     required InferenceBackend preferredBackend,
+    required LiteRtLmRuntimeProfile runtimeProfile,
+    required bool isThinking,
   }) async {
     loadedModelPath = modelPath;
     requestedContextTokens = contextTokens;
     requestedBackend = preferredBackend;
+    requestedRuntimeProfile = runtimeProfile;
+    requestedIsThinking = isThinking;
     return handle;
   }
 }

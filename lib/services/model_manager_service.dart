@@ -23,8 +23,8 @@ enum ModelEngine {
 
   gguf,
 
-  /// LiteRT-LM identity remains platform-neutral; the prototype runtime
-  /// currently supplies its GPU implementation on Android.
+  /// LiteRT-LM identity remains platform-neutral; the runtime currently
+  /// supplies its GPU implementation on Android.
   litertlm,
 }
 
@@ -85,7 +85,7 @@ String buildPrompt({
 
 /// Builds the prompt delivered to an inference runtime. GGUF models receive a
 /// plain string and require their filename-selected instruction template to be
-/// applied here. Gemini Nano uses [PromptFormat.plain].
+/// applied here. Gemini Nano and LiteRT-LM use [PromptFormat.plain].
 String buildInferencePrompt({
   required PromptFormat format,
   required String instruction,
@@ -104,10 +104,10 @@ String buildInferencePrompt({
 /// not inflate the result through repeated rounding.
 int estimateOutputTokens(String output) => (output.length / 4.0).ceil();
 
-/// Whether [filePath] can be discovered by the active file-model runtime.
+/// Whether [filePath] can be discovered by an active file-model runtime.
 bool isActiveModelFilePath(String filePath) {
   return p.extension(filePath).toLowerCase() == '.gguf' ||
-      prototypeLiteRtLmArtifact.hasExpectedFilename(p.basename(filePath));
+      liteRtLmArtifactForFilename(p.basename(filePath)) != null;
 }
 
 /// Whether an actively discoverable model can run in Benchmark Suite.
@@ -121,7 +121,7 @@ bool isBenchmarkModel(ModelInfo model) => switch (model.engine) {
 
 Future<String> _calculateSha256(String filePath) {
   return Isolate.run(() async {
-    final digest = await sha256.bind(File(filePath).openRead()).first;
+    final Digest digest = await sha256.bind(File(filePath).openRead()).first;
     return digest.toString();
   });
 }
@@ -158,24 +158,25 @@ class ModelManagerService extends ChangeNotifier {
   factory ModelManagerService() => _instance;
   ModelManagerService._internal();
 
-  List<ModelInfo> _availableModels = [];
+  List<ModelInfo> _availableModels = <ModelInfo>[];
   ModelInfo? _activeModel;
   bool _isLoading = false;
   String? _statusMessage;
 
   /// Every active model that can participate in Benchmark Suite.
   List<ModelInfo> get availableModels =>
-      List.unmodifiable(_availableModels.where(isBenchmarkModel));
+      List<ModelInfo>.unmodifiable(_availableModels.where(isBenchmarkModel));
 
   /// Every active inference model exposed by the main Summarizer.
-  List<ModelInfo> get summarizerModels => List.unmodifiable(_availableModels);
+  List<ModelInfo> get summarizerModels =>
+      List<ModelInfo>.unmodifiable(_availableModels);
   ModelInfo? get activeModel => _activeModel;
   bool get isLoading => _isLoading;
   String? get statusMessage => _statusMessage;
 
   Future<List<Directory>> get _searchDirectories async {
-    final List<Directory> dirs = [];
-    final extDir = await getExternalStorageDirectory();
+    final List<Directory> dirs = <Directory>[];
+    final Directory? extDir = await getExternalStorageDirectory();
     if (extDir != null) {
       dirs.add(extDir);
     }
@@ -188,7 +189,7 @@ class ModelManagerService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final List<ModelInfo> discovered = [];
+      final List<ModelInfo> discovered = <ModelInfo>[];
 
       // 1. Check Gemini Nano (AICore NPU)
       final bool isNanoReady = await GeminiNanoService.isAvailable();
@@ -211,25 +212,31 @@ class ModelManagerService extends ChangeNotifier {
         );
       }
 
-      // 2. Scan sandbox filesystem for GGUF models and the one exact,
-      // manually sideloaded LiteRT-LM prototype artifact.
-      final directories = await _searchDirectories;
-      for (final dir in directories) {
+      // 2. Scan sandbox filesystem for GGUF models and exact, manually
+      // sideloaded artifacts from the approved LiteRT-LM catalog.
+      final List<Directory> directories = await _searchDirectories;
+      for (final Directory dir in directories) {
         if (await dir.exists()) {
           try {
-            final entities = await dir.list(recursive: false).toList();
-            for (final entity in entities) {
+            final List<FileSystemEntity> entities = await dir
+                .list(recursive: false)
+                .toList();
+            for (final FileSystemEntity entity in entities) {
               if (entity is File) {
-                final fileName = p.basename(entity.path);
+                final String fileName = p.basename(entity.path);
 
                 if (!isActiveModelFilePath(entity.path) ||
-                    discovered.any((m) => m.path == entity.path)) {
+                    discovered.any(
+                      (ModelInfo model) => model.path == entity.path,
+                    )) {
                   continue;
                 }
 
-                final stat = await entity.stat();
-                if (prototypeLiteRtLmArtifact.hasExpectedFilename(fileName)) {
-                  if (stat.size != prototypeLiteRtLmArtifact.sizeBytes) {
+                final FileStat stat = await entity.stat();
+                final LiteRtLmModelArtifact? liteRtLmArtifact =
+                    liteRtLmArtifactForFilename(fileName);
+                if (liteRtLmArtifact != null) {
+                  if (stat.size != liteRtLmArtifact.sizeBytes) {
                     debugPrint(
                       'Ignoring LiteRT-LM artifact with unexpected size: '
                       '${entity.path}',
@@ -237,8 +244,8 @@ class ModelManagerService extends ChangeNotifier {
                     continue;
                   }
 
-                  final digest = await _calculateSha256(entity.path);
-                  if (!prototypeLiteRtLmArtifact.matchesVerifiedIdentity(
+                  final String digest = await _calculateSha256(entity.path);
+                  if (!liteRtLmArtifact.matchesVerifiedIdentity(
                     candidateFilename: fileName,
                     candidateSizeBytes: stat.size,
                     candidateSha256: digest,
@@ -252,13 +259,13 @@ class ModelManagerService extends ChangeNotifier {
 
                   discovered.add(
                     ModelInfo(
-                      id: prototypeLiteRtLmArtifact.identity,
-                      name: prototypeLiteRtLmArtifact.displayName,
+                      id: liteRtLmArtifact.identity,
+                      name: liteRtLmArtifact.displayName,
                       path: entity.path,
                       engine: ModelEngine.litertlm,
                       sizeBytes: stat.size,
-                      // LiteRT-LM owns the Qwen conversation template. The
-                      // app supplies only the unchanged instruction/body.
+                      // The embedded LiteRT-LM tokenizer/template owns the
+                      // conversation format. The app supplies plain content.
                       promptFormat: PromptFormat.plain,
                     ),
                   );
@@ -286,13 +293,15 @@ class ModelManagerService extends ChangeNotifier {
 
       if (_availableModels.isNotEmpty) {
         if (_activeModel == null ||
-            !_availableModels.any((m) => m.id == _activeModel!.id)) {
+            !_availableModels.any(
+              (ModelInfo model) => model.id == _activeModel!.id,
+            )) {
           await loadModel(_availableModels.first);
           return;
         } else {
-          // Sync existing model reference and clear loading status message
+          // Sync existing model reference and clear loading status message.
           _activeModel = _availableModels.firstWhere(
-            (m) => m.id == _activeModel!.id,
+            (ModelInfo model) => model.id == _activeModel!.id,
           );
           _statusMessage = switch (_activeModel!.engine) {
             ModelEngine.nano => 'Gemini Nano Ready (AICore NPU)',
@@ -320,7 +329,7 @@ class ModelManagerService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Release any previously loaded runtime to prevent dual-model OOM crashes
+      // Release any previously loaded runtime to prevent dual-model OOM crashes.
       await unloadAllEngines();
 
       if (model.engine == ModelEngine.nano) {
@@ -355,7 +364,7 @@ class ModelManagerService extends ChangeNotifier {
 
   Future<void> unloadAllEngines() async {
     // Free file-backed runtimes. Gemini Nano is managed by AICore.
-    await Future.wait([
+    await Future.wait(<Future<void>>[
       LiteRtLmService.instance.unloadModel(),
       LlamaGgufService.unloadModel(),
     ]);

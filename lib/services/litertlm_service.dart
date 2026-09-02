@@ -1,5 +1,6 @@
 import 'package:flutter_gemma/flutter_gemma.dart';
 import 'package:flutter_gemma_litertlm/flutter_gemma_litertlm.dart';
+import 'package:path/path.dart' as p;
 
 import '../models/litertlm_model_artifact.dart';
 
@@ -15,6 +16,8 @@ abstract interface class LiteRtLmRuntime {
     required String modelPath,
     required int contextTokens,
     required InferenceBackend preferredBackend,
+    required LiteRtLmRuntimeProfile runtimeProfile,
+    required bool isThinking,
   });
 }
 
@@ -30,6 +33,14 @@ abstract interface class LiteRtLmModelHandle {
 
   Future<void> stop();
   Future<void> close();
+}
+
+/// Maps the app-level artifact profile to flutter_gemma's runtime model type.
+ModelType liteRtLmFlutterModelType(LiteRtLmRuntimeProfile profile) {
+  return switch (profile) {
+    LiteRtLmRuntimeProfile.general => ModelType.general,
+    LiteRtLmRuntimeProfile.qwen3 => ModelType.qwen3,
+  };
 }
 
 class LiteRtLmService {
@@ -49,20 +60,35 @@ class LiteRtLmService {
   final LiteRtLmRuntime _runtime;
   LiteRtLmModelHandle? _handle;
   String? _loadedModelPath;
+  LiteRtLmModelArtifact? _loadedArtifact;
 
   bool get isLoaded => _handle != null;
   String? get loadedModelPath => _loadedModelPath;
+  LiteRtLmModelArtifact? get loadedArtifact => _loadedArtifact;
 
   Future<void> loadModel(String modelPath) async {
+    final LiteRtLmModelArtifact? artifact = liteRtLmArtifactForFilename(
+      p.basename(modelPath),
+    );
+    if (artifact == null) {
+      throw ArgumentError.value(
+        modelPath,
+        'modelPath',
+        'Unknown or unapproved LiteRT-LM artifact',
+      );
+    }
+
     if (_loadedModelPath == modelPath && _handle != null) return;
 
     await unloadModel();
     await _runtime.initialize();
 
-    final handle = await _runtime.loadModel(
+    final LiteRtLmModelHandle handle = await _runtime.loadModel(
       modelPath: modelPath,
-      contextTokens: prototypeLiteRtLmArtifact.contextTokens,
+      contextTokens: artifact.contextTokens,
       preferredBackend: InferenceBackend.gpu,
+      runtimeProfile: artifact.runtimeProfile,
+      isThinking: artifact.isThinking,
     );
 
     if (handle.activeBackend != InferenceBackend.gpu) {
@@ -71,12 +97,13 @@ class LiteRtLmService {
       } catch (_) {}
       throw StateError(
         'LiteRT-LM GPU initialization failed. '
-        'CPU fallback was refused for this prototype.',
+        'CPU fallback was refused for this model.',
       );
     }
 
     _handle = handle;
     _loadedModelPath = modelPath;
+    _loadedArtifact = artifact;
   }
 
   /// Starts a fresh isolated chat and streams one generation.
@@ -87,7 +114,7 @@ class LiteRtLmService {
     required String prompt,
     int maxOutputTokens = 256,
   }) {
-    final handle = _handle;
+    final LiteRtLmModelHandle? handle = _handle;
     if (handle == null) {
       throw StateError('No LiteRT-LM model loaded in memory.');
     }
@@ -104,9 +131,10 @@ class LiteRtLmService {
   }
 
   Future<void> unloadModel() async {
-    final handle = _handle;
+    final LiteRtLmModelHandle? handle = _handle;
     _handle = null;
     _loadedModelPath = null;
+    _loadedArtifact = null;
     if (handle != null) await handle.close();
   }
 }
@@ -116,7 +144,7 @@ class FlutterGemmaLiteRtLmRuntime implements LiteRtLmRuntime {
 
   @override
   Future<void> initialize() async {
-    final current = _initialization;
+    final Future<void>? current = _initialization;
     if (current != null) return current;
 
     final initialization = FlutterGemma.initialize(
@@ -136,17 +164,24 @@ class FlutterGemmaLiteRtLmRuntime implements LiteRtLmRuntime {
     required String modelPath,
     required int contextTokens,
     required InferenceBackend preferredBackend,
+    required LiteRtLmRuntimeProfile runtimeProfile,
+    required bool isThinking,
   }) async {
+    final ModelType modelType = liteRtLmFlutterModelType(runtimeProfile);
     await FlutterGemma.installModel(
-      modelType: ModelType.qwen3,
+      modelType: modelType,
       fileType: ModelFileType.litertlm,
     ).fromFile(modelPath).install();
 
-    final model = await FlutterGemma.getActiveModel(
+    final InferenceModel model = await FlutterGemma.getActiveModel(
       maxTokens: contextTokens,
       preferredBackend: _preferredBackend(preferredBackend),
     );
-    return FlutterGemmaLiteRtLmModelHandle(model);
+    return FlutterGemmaLiteRtLmModelHandle(
+      model,
+      modelType: modelType,
+      isThinking: isThinking,
+    );
   }
 
   PreferredBackend _preferredBackend(InferenceBackend backend) {
@@ -160,9 +195,15 @@ class FlutterGemmaLiteRtLmRuntime implements LiteRtLmRuntime {
 }
 
 class FlutterGemmaLiteRtLmModelHandle implements LiteRtLmModelHandle {
-  FlutterGemmaLiteRtLmModelHandle(this._model);
+  FlutterGemmaLiteRtLmModelHandle(
+    this._model, {
+    required this._modelType,
+    required this._isThinking,
+  });
 
   final InferenceModel _model;
+  final ModelType _modelType;
+  final bool _isThinking;
   InferenceChat? _chat;
 
   @override
@@ -180,16 +221,16 @@ class FlutterGemmaLiteRtLmModelHandle implements LiteRtLmModelHandle {
     required int topK,
     required int maxOutputTokens,
   }) async {
-    final previous = _chat;
+    final InferenceChat? previous = _chat;
     _chat = null;
     if (previous != null) await previous.close();
 
-    final chat = await _model.createChat(
+    final InferenceChat chat = await _model.createChat(
       temperature: temperature,
       randomSeed: LiteRtLmService.fixedGpuSeed,
       topK: topK,
-      isThinking: false,
-      modelType: ModelType.qwen3,
+      isThinking: _isThinking,
+      modelType: _modelType,
       maxOutputTokens: maxOutputTokens,
     );
     _chat = chat;
@@ -207,7 +248,7 @@ class FlutterGemmaLiteRtLmModelHandle implements LiteRtLmModelHandle {
 
   @override
   Future<void> close() async {
-    final chat = _chat;
+    final InferenceChat? chat = _chat;
     _chat = null;
     if (chat != null) {
       try {

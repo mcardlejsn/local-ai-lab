@@ -104,11 +104,11 @@ void main() {
   });
 
   group('inference prompt formatting', () {
-    const instruction = 'Summarize this:';
-    const rawText = 'A short passage.';
+    const String instruction = 'Summarize this:';
+    const String rawText = 'A short passage.';
 
     test('SmolLM2 includes its official default system message', () {
-      final prompt = buildPrompt(
+      final String prompt = buildPrompt(
         format: PromptFormat.smollm2,
         instruction: instruction,
         rawText: rawText,
@@ -125,7 +125,7 @@ void main() {
     });
 
     test('SmolLM3 uses a stable non-thinking prompt', () {
-      final prompt = buildPrompt(
+      final String prompt = buildPrompt(
         format: PromptFormat.smollm3,
         instruction: instruction,
         rawText: rawText,
@@ -144,7 +144,7 @@ void main() {
     });
 
     test('Qwen3 uses the official hard non-thinking generation prompt', () {
-      final prompt = buildPrompt(
+      final String prompt = buildPrompt(
         format: PromptFormat.qwen3,
         instruction: instruction,
         rawText: rawText,
@@ -160,7 +160,7 @@ void main() {
     });
 
     test('Phi-3 uses its official user-only instruction prompt', () {
-      final prompt = buildPrompt(
+      final String prompt = buildPrompt(
         format: PromptFormat.phi3,
         instruction: instruction,
         rawText: rawText,
@@ -176,7 +176,7 @@ void main() {
     });
 
     test('Phi-4 uses its official user-only instruction prompt', () {
-      final prompt = buildPrompt(
+      final String prompt = buildPrompt(
         format: PromptFormat.phi4,
         instruction: instruction,
         rawText: rawText,
@@ -192,7 +192,7 @@ void main() {
     });
 
     test('Falcon-H1 0.5B uses its official user-only ChatML prompt', () {
-      final prompt = buildPrompt(
+      final String prompt = buildPrompt(
         format: PromptFormat.falconH1,
         instruction: instruction,
         rawText: rawText,
@@ -208,7 +208,7 @@ void main() {
     });
 
     test('generic ChatML does not inherit the SmolLM2 system message', () {
-      final prompt = buildPrompt(
+      final String prompt = buildPrompt(
         format: PromptFormat.chatml,
         instruction: instruction,
         rawText: rawText,
@@ -219,7 +219,7 @@ void main() {
     });
 
     test('GGUF Gemma retains its resolved Gemma instruction template', () {
-      final prompt = buildInferencePrompt(
+      final String prompt = buildInferencePrompt(
         format: PromptFormat.gemma,
         instruction: instruction,
         rawText: rawText,
@@ -232,7 +232,7 @@ void main() {
     });
 
     test('GGUF retains its resolved instruction template', () {
-      final prompt = buildInferencePrompt(
+      final String prompt = buildInferencePrompt(
         format: PromptFormat.llama3,
         instruction: instruction,
         rawText: rawText,
@@ -243,7 +243,7 @@ void main() {
     });
 
     test('LiteRT-LM receives the unchanged plain instruction and passage', () {
-      final prompt = buildInferencePrompt(
+      final String prompt = buildInferencePrompt(
         format: PromptFormat.plain,
         instruction: instruction,
         rawText: rawText,
@@ -261,17 +261,23 @@ void main() {
     });
 
     test('does not depend on streaming chunk boundaries', () {
-      const chunks = ['1', '2', '3', '4', '5'];
+      const List<String> chunks = <String>['1', '2', '3', '4', '5'];
       expect(estimateOutputTokens(chunks.join()), 2);
     });
   });
 
   group('active model file discovery', () {
-    test('accepts GGUF and only the exact LiteRT-LM prototype filename', () {
+    test('accepts GGUF and every exact approved LiteRT-LM filename', () {
       expect(isActiveModelFilePath('/models/model.gguf'), isTrue);
       expect(isActiveModelFilePath('/models/MODEL.GGUF'), isTrue);
       expect(
         isActiveModelFilePath('/models/${prototypeLiteRtLmArtifact.filename}'),
+        isTrue,
+      );
+      expect(
+        isActiveModelFilePath(
+          '/models/${olmo2OneBInstructLiteRtLmArtifact.filename}',
+        ),
         isTrue,
       );
       expect(isActiveModelFilePath('/models/other-model.litertlm'), isFalse);
@@ -309,12 +315,20 @@ void main() {
       sizeBytes: 123,
       promptFormat: PromptFormat.chatml,
     );
-    final ModelInfo liteRtLm = ModelInfo(
+    final ModelInfo qwenLiteRtLm = ModelInfo(
       id: prototypeLiteRtLmArtifact.identity,
       name: prototypeLiteRtLmArtifact.displayName,
       path: '/models/${prototypeLiteRtLmArtifact.filename}',
       engine: ModelEngine.litertlm,
       sizeBytes: prototypeLiteRtLmArtifact.sizeBytes,
+      promptFormat: PromptFormat.plain,
+    );
+    final ModelInfo olmoLiteRtLm = ModelInfo(
+      id: olmo2OneBInstructLiteRtLmArtifact.identity,
+      name: olmo2OneBInstructLiteRtLmArtifact.displayName,
+      path: '/models/${olmo2OneBInstructLiteRtLmArtifact.filename}',
+      engine: ModelEngine.litertlm,
+      sizeBytes: olmo2OneBInstructLiteRtLmArtifact.sizeBytes,
       promptFormat: PromptFormat.plain,
     );
 
@@ -325,7 +339,8 @@ void main() {
     test('includes every active runtime in the benchmark model set', () {
       expect(isBenchmarkModel(nano), isTrue);
       expect(isBenchmarkModel(candidate), isTrue);
-      expect(isBenchmarkModel(liteRtLm), isTrue);
+      expect(isBenchmarkModel(qwenLiteRtLm), isTrue);
+      expect(isBenchmarkModel(olmoLiteRtLm), isTrue);
       expect(
         isBenchmarkModel(
           ModelInfo(
@@ -341,10 +356,15 @@ void main() {
       );
     });
 
-    test('normal suite retains Nano, GGUF, and LiteRT-LM models', () {
+    test('normal suite retains multiple LiteRT-LM models', () {
       expect(
-        benchmarkModelsForTarget(<ModelInfo>[nano, candidate, liteRtLm]),
-        <ModelInfo>[nano, candidate, liteRtLm],
+        benchmarkModelsForTarget(<ModelInfo>[
+          nano,
+          candidate,
+          qwenLiteRtLm,
+          olmoLiteRtLm,
+        ]),
+        <ModelInfo>[nano, candidate, qwenLiteRtLm, olmoLiteRtLm],
       );
     });
 
@@ -358,10 +378,15 @@ void main() {
       );
       expect(
         benchmarkModelsForTarget(
-          <ModelInfo>[nano, candidate, liteRtLm],
-          selectedModelIds: <String>{candidate.id, nano.id, liteRtLm.id},
+          <ModelInfo>[nano, candidate, qwenLiteRtLm, olmoLiteRtLm],
+          selectedModelIds: <String>{
+            olmoLiteRtLm.id,
+            candidate.id,
+            nano.id,
+            qwenLiteRtLm.id,
+          },
         ),
-        <ModelInfo>[nano, candidate, liteRtLm],
+        <ModelInfo>[nano, candidate, qwenLiteRtLm, olmoLiteRtLm],
       );
       expect(
         benchmarkModelsForTarget(
@@ -382,43 +407,55 @@ void main() {
         <ModelInfo>[candidate],
       );
       expect(
-        benchmarkModelsForTarget(<ModelInfo>[
-          nano,
-          candidate,
-        ], targetModelId: nano.id),
+        benchmarkModelsForTarget(
+          <ModelInfo>[nano, candidate],
+          targetModelId: nano.id,
+        ),
         isEmpty,
       );
       expect(
-        benchmarkModelsForTarget(<ModelInfo>[
-          candidate,
-          liteRtLm,
-        ], targetModelId: liteRtLm.id),
+        benchmarkModelsForTarget(
+          <ModelInfo>[candidate, qwenLiteRtLm, olmoLiteRtLm],
+          targetModelId: qwenLiteRtLm.id,
+        ),
+        isEmpty,
+      );
+      expect(
+        benchmarkModelsForTarget(
+          <ModelInfo>[candidate, qwenLiteRtLm, olmoLiteRtLm],
+          targetModelId: olmoLiteRtLm.id,
+        ),
         isEmpty,
       );
     });
 
     test('main suite requires two models but Candidate requires one', () {
       expect(
-        canRunBenchmarkModels(<ModelInfo>[
-          nano,
-        ], isCandidateQualification: false),
+        canRunBenchmarkModels(
+          <ModelInfo>[nano],
+          isCandidateQualification: false,
+        ),
         isFalse,
       );
       expect(
-        canRunBenchmarkModels(<ModelInfo>[
-          nano,
-          candidate,
-        ], isCandidateQualification: false),
+        canRunBenchmarkModels(
+          <ModelInfo>[nano, candidate],
+          isCandidateQualification: false,
+        ),
         isTrue,
       );
       expect(
-        canRunBenchmarkModels(<ModelInfo>[
-          candidate,
-        ], isCandidateQualification: true),
+        canRunBenchmarkModels(
+          <ModelInfo>[candidate],
+          isCandidateQualification: true,
+        ),
         isTrue,
       );
       expect(
-        canRunBenchmarkModels(<ModelInfo>[], isCandidateQualification: true),
+        canRunBenchmarkModels(
+          <ModelInfo>[],
+          isCandidateQualification: true,
+        ),
         isFalse,
       );
     });
