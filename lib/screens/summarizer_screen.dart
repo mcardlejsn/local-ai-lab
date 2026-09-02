@@ -1121,7 +1121,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                     TextButton.icon(
                       key: const Key('playground-use-in-benchmark'),
                       icon: const Icon(Icons.compare_arrows_rounded),
-                      label: const Text('Use in Benchmark'),
+                      label: const Text('Use in Compare'),
                       onPressed: _useInBenchmark,
                     ),
                 ],

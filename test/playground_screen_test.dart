@@ -63,7 +63,7 @@ void main() {
     );
 
     expect(find.text('Length requirement met'), findsNothing);
-    expect(find.text('Use in Benchmark'), findsNothing);
+    expect(find.text('Use in Compare'), findsNothing);
   });
 
   testWidgets(
