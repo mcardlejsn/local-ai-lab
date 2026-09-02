@@ -39,6 +39,7 @@ class LlamaGgufService {
     required String prompt,
     double temperature = 0.20,
     int topK = 40,
+    double topP = 0.90,
     int maxTokens = 256,
   }) {
     if (_controller == null) {
@@ -49,6 +50,7 @@ class LlamaGgufService {
       prompt: prompt,
       temperature: temperature,
       topK: topK,
+      topP: topP,
       maxTokens: maxTokens,
     );
   }

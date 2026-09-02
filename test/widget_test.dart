@@ -292,6 +292,12 @@ void main() {
       expect(supportsAdjustableSamplingControls(ModelEngine.gguf), isTrue);
       expect(supportsAdjustableSamplingControls(ModelEngine.litertlm), isFalse);
     });
+
+    test('offers Top-P only for GGUF', () {
+      expect(supportsTopPSamplingControl(ModelEngine.nano), isFalse);
+      expect(supportsTopPSamplingControl(ModelEngine.gguf), isTrue);
+      expect(supportsTopPSamplingControl(ModelEngine.litertlm), isFalse);
+    });
   });
 
   group('benchmark model targeting', () {
@@ -407,55 +413,52 @@ void main() {
         <ModelInfo>[candidate],
       );
       expect(
-        benchmarkModelsForTarget(
-          <ModelInfo>[nano, candidate],
-          targetModelId: nano.id,
-        ),
+        benchmarkModelsForTarget(<ModelInfo>[
+          nano,
+          candidate,
+        ], targetModelId: nano.id),
         isEmpty,
       );
       expect(
-        benchmarkModelsForTarget(
-          <ModelInfo>[candidate, qwenLiteRtLm, olmoLiteRtLm],
-          targetModelId: qwenLiteRtLm.id,
-        ),
+        benchmarkModelsForTarget(<ModelInfo>[
+          candidate,
+          qwenLiteRtLm,
+          olmoLiteRtLm,
+        ], targetModelId: qwenLiteRtLm.id),
         isEmpty,
       );
       expect(
-        benchmarkModelsForTarget(
-          <ModelInfo>[candidate, qwenLiteRtLm, olmoLiteRtLm],
-          targetModelId: olmoLiteRtLm.id,
-        ),
+        benchmarkModelsForTarget(<ModelInfo>[
+          candidate,
+          qwenLiteRtLm,
+          olmoLiteRtLm,
+        ], targetModelId: olmoLiteRtLm.id),
         isEmpty,
       );
     });
 
     test('main suite requires two models but Candidate requires one', () {
       expect(
-        canRunBenchmarkModels(
-          <ModelInfo>[nano],
-          isCandidateQualification: false,
-        ),
+        canRunBenchmarkModels(<ModelInfo>[
+          nano,
+        ], isCandidateQualification: false),
         isFalse,
       );
       expect(
-        canRunBenchmarkModels(
-          <ModelInfo>[nano, candidate],
-          isCandidateQualification: false,
-        ),
+        canRunBenchmarkModels(<ModelInfo>[
+          nano,
+          candidate,
+        ], isCandidateQualification: false),
         isTrue,
       );
       expect(
-        canRunBenchmarkModels(
-          <ModelInfo>[candidate],
-          isCandidateQualification: true,
-        ),
+        canRunBenchmarkModels(<ModelInfo>[
+          candidate,
+        ], isCandidateQualification: true),
         isTrue,
       );
       expect(
-        canRunBenchmarkModels(
-          <ModelInfo>[],
-          isCandidateQualification: true,
-        ),
+        canRunBenchmarkModels(<ModelInfo>[], isCandidateQualification: true),
         isFalse,
       );
     });

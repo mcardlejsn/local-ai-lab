@@ -17,6 +17,10 @@ bool supportsAdjustableSamplingControls(ModelEngine? engine) {
   return engine != ModelEngine.litertlm;
 }
 
+bool supportsTopPSamplingControl(ModelEngine? engine) {
+  return engine == ModelEngine.gguf;
+}
+
 class SummarizerScreen extends StatefulWidget {
   const SummarizerScreen({
     super.key,
@@ -63,6 +67,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
   // Hyperparameters
   double _temperature = 0.20;
   int _topK = 40;
+  double _topP = 0.90;
   int _maxTokens = 256;
 
   // Selected Preset Task
@@ -280,6 +285,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
           prompt: fullPrompt,
           temperature: _temperature,
           topK: _topK,
+          topP: _topP,
           maxTokens: _maxTokens,
         );
         _listenToGenerationStream(stream, engineLabel: 'GGUF');
@@ -848,12 +854,23 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
   Widget _buildControlsCard() {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final ModelEngine? engine = _modelManager.activeModel?.engine;
     final bool samplingControlsAvailable = supportsAdjustableSamplingControls(
-      _modelManager.activeModel?.engine,
+      engine,
     );
-    final String controlsSummary = samplingControlsAvailable
-        ? 'T ${_temperature.toStringAsFixed(2)} · K $_topK · Max $_maxTokens'
-        : 'T fixed · K fixed · Max $_maxTokens';
+    final bool topPSamplingAvailable = supportsTopPSamplingControl(engine);
+    final String controlsSummary;
+    if (!samplingControlsAvailable) {
+      controlsSummary = 'T fixed · K fixed · Max $_maxTokens';
+    } else if (topPSamplingAvailable) {
+      controlsSummary =
+          'T ${_temperature.toStringAsFixed(2)} · K $_topK · '
+          'P ${_topP.toStringAsFixed(2)} · Max $_maxTokens';
+    } else {
+      controlsSummary =
+          'T ${_temperature.toStringAsFixed(2)} · K $_topK · '
+          'Max $_maxTokens';
+    }
 
     return Card(
       key: const Key('playground-runtime-controls'),
@@ -921,6 +938,24 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                     : (v) => setState(() => _topK = v.round()),
               ),
             ),
+            if (topPSamplingAvailable) ...[
+              _buildControlLabel('Top-P Sampling', _topP.toStringAsFixed(2)),
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  activeTrackColor: scheme.primary,
+                  thumbColor: scheme.primary,
+                ),
+                child: Slider(
+                  value: _topP,
+                  min: 0.0,
+                  max: 1.0,
+                  divisions: 20,
+                  onChanged: _isStreaming
+                      ? null
+                      : (v) => setState(() => _topP = v),
+                ),
+              ),
+            ],
             if (!samplingControlsAvailable) ...[
               const SizedBox(height: 2),
               const Text(

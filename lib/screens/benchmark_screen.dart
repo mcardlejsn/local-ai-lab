@@ -649,6 +649,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
           prompt: fullPrompt,
           temperature: 0.2,
           topK: 40,
+          topP: 0.9,
           maxTokens: 256,
         );
 
