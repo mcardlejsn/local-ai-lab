@@ -16,7 +16,7 @@ The available paths differ in more than speed:
 | Path | Model choice | Runtime | Control |
 | --- | --- | --- | --- |
 | Gemini Nano | none — system-provided | AICore, managed by Google | temperature, top-K, max output tokens |
-| GGUF | any compatible quantized model | llama.cpp | threads, context, sampling, max output tokens |
+| GGUF | any compatible quantized model | llama.cpp | threads, context, temperature, top-K, top-P, max output tokens |
 
 Managed and open — with the trade-offs that come with each.
 
