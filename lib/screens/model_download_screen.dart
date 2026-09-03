@@ -878,9 +878,10 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Recommendations come from the most recent completed Benchmark '
+              'Recommendations come from the most recent completed Compare '
               'that compared at least two models. They update after a newer '
-              'qualifying Benchmark and never combine metrics into one score.',
+              'qualifying Compare session and never combine metrics into one '
+              'score.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
                 height: 1.4,
@@ -905,7 +906,7 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
             Text('No recommendations yet', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
-              'Run a Benchmark with at least two installed models. Recall and '
+              'Run Compare with at least two installed models. Recall and '
               'performance are compared for every successful test; structured '
               'length compliance is also compared when applicable.',
               style: theme.textTheme.bodyMedium?.copyWith(
@@ -1228,7 +1229,7 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
         title: const Text('Remove model file?'),
         content: Text(
           '${model.name} (${model.formattedSize}) will be deleted from your '
-          'device. Saved summaries and benchmark sessions are not affected.',
+          'device. Saved Runs and Compare sessions are not affected.',
         ),
         actions: [
           TextButton(

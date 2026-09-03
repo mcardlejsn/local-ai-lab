@@ -42,7 +42,7 @@ void main() {
     );
 
     expect(find.text('Results'), findsOneWidget);
-    expect(find.text('Saved runs and benchmarks'), findsOneWidget);
+    expect(find.text('Saved runs and comparisons'), findsOneWidget);
     expect(find.text('Runs'), findsOneWidget);
     expect(find.text('Playground runs'), findsNothing);
     expect(
@@ -51,7 +51,7 @@ void main() {
     );
     expect(tester.takeException(), isNull);
 
-    await tester.tap(find.text('Benchmarks'));
+    await tester.tap(find.text('Comparisons'));
     await tester.pump();
     expect(
       find.byKey(const Key('benchmark-archive-test-content')),

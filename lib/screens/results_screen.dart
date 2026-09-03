@@ -41,7 +41,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
               ),
             ),
             Text(
-              'Saved runs and benchmarks',
+              'Saved runs and comparisons',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -74,7 +74,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                     ),
                     ButtonSegment(
                       value: _ResultsSection.benchmarks,
-                      label: Text('Benchmarks'),
+                      label: Text('Comparisons'),
                     ),
                   ],
                   selected: {_section},

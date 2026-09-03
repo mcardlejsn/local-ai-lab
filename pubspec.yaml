@@ -1,5 +1,5 @@
 name: local_ai_summarizer
-description: "Offline On-Device AI Text Summarizer"
+description: "Android lab for running and comparing on-device language models"
 publish_to: 'none'
 version: 1.0.0+1
 

@@ -152,9 +152,10 @@ class _AboutLocalAiLabScreenState extends State<AboutLocalAiLabScreen> {
               icon: Icons.lock_outline_rounded,
               title: 'Privacy',
               body:
-                  'Your passages, prompts, generated output, benchmark data, '
-                  'and saved results remain on this device. Local AI Lab does '
-                  'not use accounts, analytics, or cloud inference.',
+                  'Your passages, prompts, generated output, comparison data, '
+                  'and saved results are stored locally. Local AI Lab does not '
+                  'transmit them or use accounts, analytics, cloud inference, '
+                  'or Android backup.',
             ),
             const SizedBox(height: 16),
             const _AboutInfoCard(
@@ -230,9 +231,9 @@ class _AboutLocalAiLabScreenState extends State<AboutLocalAiLabScreen> {
             const SizedBox(height: 16),
             const _AboutInfoCard(
               icon: Icons.analytics_outlined,
-              title: 'How Benchmark results are calculated',
+              title: 'How Compare results are calculated',
               body:
-                  'Benchmark can run each selected model 1, 3, or 5 times. '
+                  'Compare can run each selected model 1, 3, or 5 times. '
                   'Each run is executed independently and its individual '
                   'metrics and output remain available for inspection.\n\n'
                   'When more than one run succeeds, Local AI Lab summarizes '
@@ -256,17 +257,18 @@ class _AboutLocalAiLabScreenState extends State<AboutLocalAiLabScreen> {
               icon: Icons.recommend_outlined,
               title: 'Recommended models',
               body:
-                  'Recommended is based on the most recent saved Benchmark '
+                  'Recommended is based on the most recent saved Compare '
                   'with successful results from at least two models. Models are '
                   'compared only against the other models tested in that '
-                  'Benchmark.\n\n'
+                  'Compare session.\n\n'
                   'Recommended highlights the model or models with the strongest '
                   'measured results for recall, length compliance when available, '
-                  'latency, time to first token (TTFT), and generation speed. '
+                  'latency, time to first token (TTFT) where measurable, and '
+                  'estimated end-to-end rate. '
                   'Ties are preserved. There is no combined overall score or '
-                  'comparison across multiple Benchmark sessions.\n\n'
+                  'comparison across multiple Compare sessions.\n\n'
                   'Recommendations are specific to the device, task, models, and '
-                  'Benchmark comparison tested. They are not a universal ranking '
+                  'Compare session tested. They are not a universal ranking '
                   'or a guarantee of future performance.',
             ),
             const SizedBox(height: 16),
@@ -281,10 +283,12 @@ class _AboutLocalAiLabScreenState extends State<AboutLocalAiLabScreen> {
                   'is a download boundary, not a runtime-memory guarantee. '
                   'Gemini Nano availability depends on device-specific AICore '
                   'support.\n\n'
-                  'Benchmark and Recommended results are device-specific. The '
+                  'Compare and Recommended results are device-specific. The '
                   'same model can behave differently on other hardware or '
                   'software, so results from this device do not establish a '
-                  'universal ranking or guarantee future performance.\n\n'
+                  'universal ranking or guarantee future performance. Generated '
+                  'output can omit, alter, or invent details and requires direct '
+                  'human review.\n\n'
                   'Local AI Lab is currently Android-only. Other devices and '
                   'future platform versions require separate implementation '
                   'and testing.',
@@ -366,7 +370,8 @@ class _DeviceRuntimeScreenState extends State<DeviceRuntimeScreen> {
                   body:
                       '$aiCoreStatus\n'
                       'Base model: $baseModel\n'
-                      'AICore service: $aiCoreVersion',
+                      'AICore service: $aiCoreVersion\n'
+                      'ML Kit Prompt API: 1.0.0-beta4',
                   statusColor: diagnostics.geminiNanoAvailable
                       ? Theme.of(context).colorScheme.primary
                       : Theme.of(context).colorScheme.error,
@@ -377,7 +382,17 @@ class _DeviceRuntimeScreenState extends State<DeviceRuntimeScreen> {
                   title: 'GGUF · llama.cpp',
                   body:
                       'Bundled with Local AI Lab. Installed compatible GGUF '
-                      'models run locally through this runtime.',
+                      'models run locally through llama_flutter_android 0.2.6.',
+                ),
+                const SizedBox(height: 16),
+                const _AboutInfoCard(
+                  icon: Icons.memory_rounded,
+                  title: 'LiteRT-LM · GPU',
+                  body:
+                      'Bundled through flutter_gemma_litertlm 1.5.3, which '
+                      'contains LiteRT-LM 0.16.0. Approved LiteRT-LM artifacts '
+                      'run locally on the GPU backend with the runtime’s fixed '
+                      'effective sampling.',
                 ),
               ],
             );

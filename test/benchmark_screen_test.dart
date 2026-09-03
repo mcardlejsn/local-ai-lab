@@ -469,7 +469,7 @@ BenchmarkAggregate _aggregate({
       BenchmarkModelResult(
         modelName: name,
         engine: engine,
-        ttftSeconds: engine == ModelEngine.nano ? latencies[index] : 0.31,
+        ttftSeconds: engine == ModelEngine.nano ? null : 0.31,
         totalLatencySeconds: latencies[index],
         tokenCount: 57,
         tokensPerSecond: rates[index],

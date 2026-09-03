@@ -231,7 +231,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
       try {
         await _restoreLatestBenchmark();
       } catch (e) {
-        debugPrint('Could not restore the latest benchmark: $e');
+        debugPrint('Could not restore the latest comparison: $e');
       }
     }
 
@@ -511,7 +511,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Benchmark completed, but the session could not be saved: '
+              'Compare completed, but the session could not be saved: '
               '$saveError',
             ),
           ),
@@ -577,7 +577,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
     final expectedRunCount = _aggregates.length * runsPerModel;
     if (runRows.length != expectedRunCount) {
       throw StateError(
-        'Incomplete benchmark: expected $expectedRunCount run records, '
+        'Incomplete comparison: expected $expectedRunCount run records, '
         'but found ${runRows.length}.',
       );
     }
@@ -626,7 +626,9 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
         final res = BenchmarkModelResult(
           modelName: model.name,
           engine: model.engine,
-          ttftSeconds: totalSec,
+          // The Prompt API returns only a completed response, so first-token
+          // arrival cannot be observed separately from total latency.
+          ttftSeconds: null,
           totalLatencySeconds: totalSec,
           tokenCount: estTokens,
           tokensPerSecond: speed,
@@ -912,7 +914,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
               Padding(
                 padding: const EdgeInsets.all(12),
                 child: Text(
-                  'No benchmark-compatible models are installed.',
+                  'No models compatible with Compare are installed.',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
@@ -1002,7 +1004,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
   }
 
   String _runButtonLabel(List<ModelInfo> models) {
-    if (_isRestoring) return 'Restoring last benchmark…';
+    if (_isRestoring) return 'Restoring last comparison…';
     if (_isRunning) {
       return 'Model ${_currentRunningIndex + 1}/${models.length} '
           '• Run $_currentRunNumber/$_runsPerModel';
@@ -1138,7 +1140,7 @@ class _BenchmarkScreenState extends State<BenchmarkScreen> {
                                 Text(
                                   _hasRestoredSession
                                       ? 'Medians from the saved session'
-                                      : 'Live benchmark progress',
+                                      : 'Live comparison progress',
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     color: theme.colorScheme.onSurfaceVariant,
                                   ),

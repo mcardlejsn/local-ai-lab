@@ -51,6 +51,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Measured strengths'), findsOneWidget);
     expect(find.byKey(const Key('no-model-recommendations')), findsOneWidget);
+    expect(
+      find.textContaining('Run Compare with at least two'),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -110,7 +114,7 @@ void main() {
     expect(find.text('Fast model'), findsOneWidget);
     expect(find.text('Lowest latency'), findsOneWidget);
     expect(find.text('Lowest TTFT'), findsOneWidget);
-    expect(find.text('Highest generation speed'), findsOneWidget);
+    expect(find.text('Highest estimated rate'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

@@ -11,14 +11,12 @@ enum ModelRecommendationMetric {
 
 extension ModelRecommendationMetricLabel on ModelRecommendationMetric {
   String get label => switch (this) {
-        ModelRecommendationMetric.recall => 'Best Recall',
-        ModelRecommendationMetric.lengthCompliance =>
-          'Best length compliance',
-        ModelRecommendationMetric.latency => 'Lowest latency',
-        ModelRecommendationMetric.ttft => 'Lowest TTFT',
-        ModelRecommendationMetric.generationSpeed =>
-          'Highest generation speed',
-      };
+    ModelRecommendationMetric.recall => 'Best Recall',
+    ModelRecommendationMetric.lengthCompliance => 'Best length compliance',
+    ModelRecommendationMetric.latency => 'Lowest latency',
+    ModelRecommendationMetric.ttft => 'Lowest TTFT',
+    ModelRecommendationMetric.generationSpeed => 'Highest estimated rate',
+  };
 }
 
 class ModelRecommendationStrength {
@@ -91,20 +89,19 @@ ModelRecommendationSnapshot? buildModelRecommendationSnapshot(
 
   final Map<String, List<ModelRecommendationStrength>> strengths =
       <String, List<ModelRecommendationStrength>>{
-    for (final BenchmarkAggregate aggregate in successful)
-      aggregate.modelId: <ModelRecommendationStrength>[],
-  };
+        for (final BenchmarkAggregate aggregate in successful)
+          aggregate.modelId: <ModelRecommendationStrength>[],
+      };
 
   _addHighestWinners(
     successful,
     valueOf: (BenchmarkAggregate aggregate) => aggregate.medianRecallFound,
-    strengthFor: (BenchmarkAggregate aggregate) =>
-        ModelRecommendationStrength(
+    strengthFor: (BenchmarkAggregate aggregate) => ModelRecommendationStrength(
       metric: ModelRecommendationMetric.recall,
       valueLabel: aggregate.recallTotal == null
           ? _formatNumber(aggregate.medianRecallFound!)
           : '${_formatNumber(aggregate.medianRecallFound!)}/'
-              '${aggregate.recallTotal}',
+                '${aggregate.recallTotal}',
     ),
     strengths: strengths,
   );
@@ -116,10 +113,10 @@ ModelRecommendationSnapshot? buildModelRecommendationSnapshot(
       if (evaluated == 0) return null;
       return aggregate.sentenceCountMetRunCount / evaluated;
     },
-    strengthFor: (BenchmarkAggregate aggregate) =>
-        ModelRecommendationStrength(
+    strengthFor: (BenchmarkAggregate aggregate) => ModelRecommendationStrength(
       metric: ModelRecommendationMetric.lengthCompliance,
-      valueLabel: '${aggregate.sentenceCountMetRunCount}/'
+      valueLabel:
+          '${aggregate.sentenceCountMetRunCount}/'
           '${aggregate.sentenceCountRuns.length} runs met',
     ),
     strengths: strengths,
@@ -128,8 +125,7 @@ ModelRecommendationSnapshot? buildModelRecommendationSnapshot(
   _addLowestWinners(
     successful,
     valueOf: (BenchmarkAggregate aggregate) => aggregate.medianLatencySeconds,
-    strengthFor: (BenchmarkAggregate aggregate) =>
-        ModelRecommendationStrength(
+    strengthFor: (BenchmarkAggregate aggregate) => ModelRecommendationStrength(
       metric: ModelRecommendationMetric.latency,
       valueLabel: '${aggregate.medianLatencySeconds!.toStringAsFixed(2)}s',
     ),
@@ -139,8 +135,7 @@ ModelRecommendationSnapshot? buildModelRecommendationSnapshot(
   _addLowestWinners(
     successful,
     valueOf: (BenchmarkAggregate aggregate) => aggregate.medianTtftSeconds,
-    strengthFor: (BenchmarkAggregate aggregate) =>
-        ModelRecommendationStrength(
+    strengthFor: (BenchmarkAggregate aggregate) => ModelRecommendationStrength(
       metric: ModelRecommendationMetric.ttft,
       valueLabel: '${aggregate.medianTtftSeconds!.toStringAsFixed(2)}s',
     ),
@@ -150,8 +145,7 @@ ModelRecommendationSnapshot? buildModelRecommendationSnapshot(
   _addHighestWinners(
     successful,
     valueOf: (BenchmarkAggregate aggregate) => aggregate.medianTokensPerSecond,
-    strengthFor: (BenchmarkAggregate aggregate) =>
-        ModelRecommendationStrength(
+    strengthFor: (BenchmarkAggregate aggregate) => ModelRecommendationStrength(
       metric: ModelRecommendationMetric.generationSpeed,
       valueLabel:
           '${aggregate.medianTokensPerSecond!.toStringAsFixed(1)} est. tok/s',
@@ -160,8 +154,10 @@ ModelRecommendationSnapshot? buildModelRecommendationSnapshot(
   );
 
   final List<RecommendedModel> models = successful
-      .where((BenchmarkAggregate aggregate) =>
-          strengths[aggregate.modelId]!.isNotEmpty)
+      .where(
+        (BenchmarkAggregate aggregate) =>
+            strengths[aggregate.modelId]!.isNotEmpty,
+      )
       .map(
         (BenchmarkAggregate aggregate) => RecommendedModel(
           modelId: aggregate.modelId,
@@ -182,7 +178,8 @@ ModelRecommendationSnapshot? buildModelRecommendationSnapshot(
 
   return ModelRecommendationSnapshot(
     sessionId: session['id'] as int,
-    completedAt: (completedAt ?? DateTime.fromMillisecondsSinceEpoch(0)).toUtc(),
+    completedAt: (completedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+        .toUtc(),
     taskLabel: taskType ?? 'Controlled extraction',
     runsPerModel: session['runs_per_model'] as int,
     comparedModelCount: successful.length,
@@ -194,7 +191,7 @@ void _addHighestWinners(
   List<BenchmarkAggregate> aggregates, {
   required double? Function(BenchmarkAggregate aggregate) valueOf,
   required ModelRecommendationStrength Function(BenchmarkAggregate aggregate)
-      strengthFor,
+  strengthFor,
   required Map<String, List<ModelRecommendationStrength>> strengths,
 }) {
   _addWinners(
@@ -210,7 +207,7 @@ void _addLowestWinners(
   List<BenchmarkAggregate> aggregates, {
   required double? Function(BenchmarkAggregate aggregate) valueOf,
   required ModelRecommendationStrength Function(BenchmarkAggregate aggregate)
-      strengthFor,
+  strengthFor,
   required Map<String, List<ModelRecommendationStrength>> strengths,
 }) {
   _addWinners(
@@ -226,7 +223,7 @@ void _addWinners(
   List<BenchmarkAggregate> aggregates, {
   required double? Function(BenchmarkAggregate aggregate) valueOf,
   required ModelRecommendationStrength Function(BenchmarkAggregate aggregate)
-      strengthFor,
+  strengthFor,
   required Map<String, List<ModelRecommendationStrength>> strengths,
   required bool Function(double candidate, double current) prefer,
 }) {

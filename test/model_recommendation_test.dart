@@ -5,32 +5,32 @@ void main() {
   test('separates Recall and length from performance recommendations', () {
     final ModelRecommendationSnapshot? snapshot =
         buildModelRecommendationSnapshot(
-      _session(
-        taskType: '2-Sentence Summary',
-        runs: <Map<String, Object?>>[
-          ..._runs(
-            modelOrder: 0,
-            modelId: 'quality',
-            modelName: 'Quality model',
-            latency: 2,
-            ttft: 0.4,
-            tokenCount: 20,
-            recall: 9,
-            actualSentences: const <int>[2, 2, 2],
+          _session(
+            taskType: '2-Sentence Summary',
+            runs: <Map<String, Object?>>[
+              ..._runs(
+                modelOrder: 0,
+                modelId: 'quality',
+                modelName: 'Quality model',
+                latency: 2,
+                ttft: 0.4,
+                tokenCount: 20,
+                recall: 9,
+                actualSentences: const <int>[2, 2, 2],
+              ),
+              ..._runs(
+                modelOrder: 1,
+                modelId: 'fast',
+                modelName: 'Fast model',
+                latency: 1,
+                ttft: 0.2,
+                tokenCount: 30,
+                recall: 8,
+                actualSentences: const <int>[2, 3, 2],
+              ),
+            ],
           ),
-          ..._runs(
-            modelOrder: 1,
-            modelId: 'fast',
-            modelName: 'Fast model',
-            latency: 1,
-            ttft: 0.2,
-            tokenCount: 30,
-            recall: 8,
-            actualSentences: const <int>[2, 3, 2],
-          ),
-        ],
-      ),
-    );
+        );
 
     expect(snapshot, isNotNull);
     expect(snapshot!.taskLabel, '2-Sentence Summary');
@@ -67,38 +67,40 @@ void main() {
   test('recognizes ties without creating an overall score', () {
     final ModelRecommendationSnapshot snapshot =
         buildModelRecommendationSnapshot(
-      _session(
-        runs: <Map<String, Object?>>[
-          ..._runs(
-            modelOrder: 0,
-            modelId: 'a',
-            modelName: 'Model A',
-            latency: 1,
-            ttft: 0.2,
-            tokenCount: 20,
-            recall: 7,
+          _session(
+            runs: <Map<String, Object?>>[
+              ..._runs(
+                modelOrder: 0,
+                modelId: 'a',
+                modelName: 'Model A',
+                latency: 1,
+                ttft: 0.2,
+                tokenCount: 20,
+                recall: 7,
+              ),
+              ..._runs(
+                modelOrder: 1,
+                modelId: 'b',
+                modelName: 'Model B',
+                latency: 1,
+                ttft: 0.2,
+                tokenCount: 20,
+                recall: 7,
+              ),
+            ],
           ),
-          ..._runs(
-            modelOrder: 1,
-            modelId: 'b',
-            modelName: 'Model B',
-            latency: 1,
-            ttft: 0.2,
-            tokenCount: 20,
-            recall: 7,
-          ),
-        ],
-      ),
-    )!;
+        )!;
 
     expect(snapshot.models, hasLength(2));
     for (final RecommendedModel model in snapshot.models) {
       expect(
         model.strengths.map((strength) => strength.metric),
-        containsAll(ModelRecommendationMetric.values.where(
-          (ModelRecommendationMetric metric) =>
-              metric != ModelRecommendationMetric.lengthCompliance,
-        )),
+        containsAll(
+          ModelRecommendationMetric.values.where(
+            (ModelRecommendationMetric metric) =>
+                metric != ModelRecommendationMetric.lengthCompliance,
+          ),
+        ),
       );
     }
   });
@@ -130,6 +132,50 @@ void main() {
 
     expect(buildModelRecommendationSnapshot(session), isNull);
   });
+
+  test('ignores legacy Nano latency values stored as TTFT', () {
+    final ModelRecommendationSnapshot snapshot =
+        buildModelRecommendationSnapshot(
+          _session(
+            runs: <Map<String, Object?>>[
+              ..._runs(
+                modelOrder: 0,
+                modelId: 'nano',
+                modelName: 'Gemini Nano',
+                engineType: 'nano',
+                latency: 0.7,
+                ttft: 0.7,
+                tokenCount: 40,
+                recall: 8,
+              ),
+              ..._runs(
+                modelOrder: 1,
+                modelId: 'gguf',
+                modelName: 'GGUF model',
+                latency: 1.2,
+                ttft: 0.3,
+                tokenCount: 40,
+                recall: 8,
+              ),
+            ],
+          ),
+        )!;
+
+    final RecommendedModel nano = snapshot.models.singleWhere(
+      (RecommendedModel model) => model.modelId == 'nano',
+    );
+    expect(
+      nano.strengths.map((strength) => strength.metric),
+      isNot(contains(ModelRecommendationMetric.ttft)),
+    );
+    final RecommendedModel gguf = snapshot.models.singleWhere(
+      (RecommendedModel model) => model.modelId == 'gguf',
+    );
+    expect(
+      gguf.strengths.map((strength) => strength.metric),
+      contains(ModelRecommendationMetric.ttft),
+    );
+  });
 }
 
 Map<String, Object?> _session({
@@ -153,6 +199,7 @@ List<Map<String, Object?>> _runs({
   required double? ttft,
   required int tokenCount,
   required int? recall,
+  String engineType = 'gguf',
   List<int>? actualSentences,
   String? error,
 }) {
@@ -164,8 +211,8 @@ List<Map<String, Object?>> _runs({
       'model_id': modelId,
       'model_name': modelName,
       'model_path': '/models/$modelId.gguf',
-      'engine_type': 'gguf',
-      'prompt_format': 'chatml',
+      'engine_type': engineType,
+      'prompt_format': engineType == 'nano' ? 'plain' : 'chatml',
       'ttft_seconds': ttft,
       'latency_seconds': latency,
       'token_count': tokenCount,

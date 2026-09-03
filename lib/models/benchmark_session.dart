@@ -160,12 +160,14 @@ class BenchmarkAggregate {
   double? get medianTokensPerSecond =>
       _median(successfulRuns.map((r) => r.tokensPerSecond).toList());
 
-  double? get medianTtftSeconds => _median(
-    successfulRuns
-        .where((r) => r.ttftSeconds != null)
-        .map((r) => r.ttftSeconds!)
-        .toList(),
-  );
+  double? get medianTtftSeconds => engine == ModelEngine.nano
+      ? null
+      : _median(
+          successfulRuns
+              .where((r) => r.ttftSeconds != null)
+              .map((r) => r.ttftSeconds!)
+              .toList(),
+        );
 
   double? get medianLatencySeconds =>
       _median(successfulRuns.map((r) => r.totalLatencySeconds).toList());
@@ -269,7 +271,11 @@ List<BenchmarkAggregate> buildAggregatesFromSavedRuns(
       BenchmarkModelResult(
         modelName: runMap['model_name'] as String,
         engine: aggregate.engine,
-        ttftSeconds: (runMap['ttft_seconds'] as num?)?.toDouble(),
+        // Older Nano rows stored total latency as TTFT. Nano is non-streaming,
+        // so suppress that legacy value without rewriting saved data.
+        ttftSeconds: aggregate.engine == ModelEngine.nano
+            ? null
+            : (runMap['ttft_seconds'] as num?)?.toDouble(),
         totalLatencySeconds: latencySeconds,
         tokenCount: tokenCount,
         tokensPerSecond: latencySeconds > 0 ? tokenCount / latencySeconds : 0,

@@ -170,9 +170,7 @@ class _SavedBenchmarkSessionsScreenState
     if (widget.embedded) return content;
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          _selectionMode ? 'Select 2 sessions' : 'Saved benchmark sessions',
-        ),
+        title: Text(_selectionMode ? 'Select 2 sessions' : 'Saved comparisons'),
         actions: [
           if (_sessions.length >= 2)
             IconButton(
@@ -198,7 +196,7 @@ class _SavedBenchmarkSessionsScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            _selectionMode ? 'Select 2 sessions' : 'Saved benchmark sessions',
+            _selectionMode ? 'Select 2 sessions' : 'Saved comparisons',
             style: theme.textTheme.titleLarge,
           ),
           const SizedBox(height: 2),
@@ -278,12 +276,12 @@ class _SavedBenchmarkSessionsScreenState
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'No saved benchmark sessions yet.',
+                      'No saved comparisons yet.',
                       style: theme.textTheme.titleMedium,
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Completed benchmark sessions will be saved here '
+                      'Completed Compare sessions will be saved here '
                       'automatically.',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodyMedium?.copyWith(

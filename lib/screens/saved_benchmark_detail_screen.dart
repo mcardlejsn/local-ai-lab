@@ -9,10 +9,7 @@ import '../widgets/benchmark_results_table.dart';
 /// inference or alters a recorded result; the only writable field is the manual
 /// accuracy score attached to a run.
 class SavedBenchmarkDetailScreen extends StatefulWidget {
-  const SavedBenchmarkDetailScreen({
-    super.key,
-    required this.sessionId,
-  });
+  const SavedBenchmarkDetailScreen({super.key, required this.sessionId});
 
   final int sessionId;
 
@@ -44,8 +41,9 @@ class _SavedBenchmarkDetailScreenState
 
   Future<void> _loadSession() async {
     try {
-      final saved = await DatabaseService.instance
-          .getCompletedBenchmarkById(widget.sessionId);
+      final saved = await DatabaseService.instance.getCompletedBenchmarkById(
+        widget.sessionId,
+      );
 
       if (!mounted) return;
 
@@ -63,8 +61,9 @@ class _SavedBenchmarkDetailScreenState
         _passage = saved['passage'] as String;
         _instruction = saved['instruction'] as String;
         _runsPerModel = saved['runs_per_model'] as int;
-        _completedAt =
-            DateTime.parse(saved['completed_at'] as String).toLocal();
+        _completedAt = DateTime.parse(
+          saved['completed_at'] as String,
+        ).toLocal();
         _aggregates = buildAggregatesFromSavedRuns(runMaps);
         _isLoading = false;
         _errorMessage = null;
@@ -97,9 +96,9 @@ class _SavedBenchmarkDetailScreenState
       await _loadSession();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not save that score: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not save that score: $e')));
     }
   }
 
@@ -112,7 +111,7 @@ class _SavedBenchmarkDetailScreenState
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
         title: const Text(
-          'Saved Benchmark',
+          'Saved Compare',
           style: TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.w600,
@@ -126,9 +125,7 @@ class _SavedBenchmarkDetailScreenState
 
   Widget _buildBody() {
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: _accentBlue),
-      );
+      return const Center(child: CircularProgressIndicator(color: _accentBlue));
     }
 
     if (_errorMessage != null) {
@@ -158,11 +155,7 @@ class _SavedBenchmarkDetailScreenState
           ),
           child: Row(
             children: [
-              const Icon(
-                Icons.schedule_rounded,
-                color: _accentBlue,
-                size: 22,
-              ),
+              const Icon(Icons.schedule_rounded, color: _accentBlue, size: 22),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -195,9 +188,12 @@ class _SavedBenchmarkDetailScreenState
         ),
         const SizedBox(height: 16),
         const Text(
-          'Benchmark Instruction:',
+          'Compare Instruction:',
           style: TextStyle(
-              color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+          ),
         ),
         const SizedBox(height: 6),
         _buildReadOnlyBlock(_instruction),
@@ -205,7 +201,10 @@ class _SavedBenchmarkDetailScreenState
         const Text(
           'Passage:',
           style: TextStyle(
-              color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+          ),
         ),
         const SizedBox(height: 6),
         _buildReadOnlyBlock(_passage),
@@ -213,7 +212,10 @@ class _SavedBenchmarkDetailScreenState
         const Text(
           'Comparative Results:',
           style: TextStyle(
-              color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 15,
+          ),
         ),
         const SizedBox(height: 8),
         if (_aggregates.isEmpty)

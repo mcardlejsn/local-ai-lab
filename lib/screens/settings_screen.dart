@@ -179,7 +179,7 @@ class SettingsScreen extends StatelessWidget {
                       key: const Key('device-runtime-information'),
                       icon: Icons.monitor_heart_outlined,
                       title: 'Device and runtime information',
-                      subtitle: 'AICore and llama.cpp status',
+                      subtitle: 'AICore, llama.cpp, and LiteRT-LM status',
                       onTap: () => Navigator.of(context).push<void>(
                         MaterialPageRoute<void>(
                           builder: (_) => const DeviceRuntimeScreen(),

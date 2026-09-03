@@ -38,7 +38,7 @@ void main() {
     expect(find.text('Version 1.2.3 (45)'), findsOneWidget);
     expect(find.text('Privacy'), findsOneWidget);
     expect(find.text('Network use'), findsOneWidget);
-    expect(find.textContaining('does not use accounts'), findsOneWidget);
+    expect(find.textContaining('does not transmit them'), findsOneWidget);
     expect(find.textContaining('explicitly discover'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -103,7 +103,7 @@ void main() {
     );
     expect(
       find.textContaining(
-        'Benchmark and Recommended results are device-specific',
+        'Compare and Recommended results are device-specific',
       ),
       findsOneWidget,
     );
@@ -117,7 +117,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('About explains Benchmark aggregation and Recommended semantics', (
+  testWidgets('About explains Compare aggregation and Recommended semantics', (
     WidgetTester tester,
   ) async {
     await pumpScreen(
@@ -129,7 +129,7 @@ void main() {
     );
 
     await tester.scrollUntilVisible(
-      find.text('How Benchmark results are calculated'),
+      find.text('How Compare results are calculated'),
       400,
     );
     expect(find.textContaining('1, 3, or 5 times'), findsOneWidget);
@@ -143,7 +143,7 @@ void main() {
     );
 
     await tester.scrollUntilVisible(find.text('Recommended models'), 400);
-    expect(find.textContaining('most recent saved Benchmark'), findsOneWidget);
+    expect(find.textContaining('most recent saved Compare'), findsOneWidget);
     expect(find.textContaining('at least two models'), findsOneWidget);
     expect(
       find.textContaining('only against the other models tested'),
@@ -157,18 +157,18 @@ void main() {
     );
     expect(
       find.textContaining(
-        'latency, time to first token (TTFT), and generation speed',
+        'latency, time to first token (TTFT) where measurable',
       ),
       findsOneWidget,
     );
     expect(find.textContaining('Ties are preserved'), findsOneWidget);
     expect(find.textContaining('no combined overall score'), findsOneWidget);
     expect(
-      find.textContaining('comparison across multiple Benchmark sessions'),
+      find.textContaining('comparison across multiple Compare sessions'),
       findsOneWidget,
     );
     expect(
-      find.textContaining('device, task, models, and Benchmark comparison'),
+      find.textContaining('device, task, models, and Compare session'),
       findsOneWidget,
     );
     expect(
@@ -178,7 +178,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('diagnostics reports AICore and bundled llama.cpp status', (
+  testWidgets('diagnostics separates all runtime and library identities', (
     WidgetTester tester,
   ) async {
     await pumpScreen(
@@ -199,12 +199,15 @@ void main() {
       find.text(
         'Gemini Nano available\n'
         'Base model: nano-v4\n'
-        'AICore service: 1.2.3 (456)',
+        'AICore service: 1.2.3 (456)\n'
+        'ML Kit Prompt API: 1.0.0-beta4',
       ),
       findsOneWidget,
     );
     expect(find.text('GGUF · llama.cpp'), findsOneWidget);
-    expect(find.textContaining('Bundled with Local AI Lab'), findsOneWidget);
+    expect(find.textContaining('llama_flutter_android 0.2.6'), findsOneWidget);
+    expect(find.text('LiteRT-LM · GPU'), findsOneWidget);
+    expect(find.textContaining('LiteRT-LM 0.16.0'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -226,7 +229,8 @@ void main() {
       find.text(
         'Gemini Nano available\n'
         'Base model: unavailable\n'
-        'AICore service: 1.2.3 (456)',
+        'AICore service: 1.2.3 (456)\n'
+        'ML Kit Prompt API: 1.0.0-beta4',
       ),
       findsOneWidget,
     );
