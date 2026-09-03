@@ -197,7 +197,7 @@ Map<String, String> resolveConciseModelNames(
           ? _formatPublisherHint(sourceHints[index]!)
           : enginesDistinguish
           ? modelRuntimeLabel(item.engine)
-          : _technicalCollisionSuffix(item.technicalName);
+          : _technicalCollisionSuffix(item.technicalName, item.engine);
       resolved[item.key] = '${baseNames[item.key]} — $suffix';
     }
   }
@@ -250,7 +250,22 @@ String _formatPublisherHint(String hint) {
       .join(' ');
 }
 
-String _technicalCollisionSuffix(String technicalName) {
+String _technicalCollisionSuffix(String technicalName, ModelEngine engine) {
+  if (engine == ModelEngine.nano) {
+    final RegExpMatch? baseModelMatch = RegExp(
+      r'base model:\s*([^;)]+)',
+      caseSensitive: false,
+    ).firstMatch(technicalName);
+    final String? baseModelName = baseModelMatch?.group(1)?.trim();
+    if (baseModelName == null || baseModelName.isEmpty) {
+      return 'base model unreported';
+    }
+    if (baseModelName.toLowerCase() == 'unavailable') {
+      return 'base model unavailable';
+    }
+    return baseModelName;
+  }
+
   final String filename = technicalName.split(RegExp(r'[\\/]')).last;
   return filename.replaceFirst(RegExp(r'\.gguf$', caseSensitive: false), '');
 }

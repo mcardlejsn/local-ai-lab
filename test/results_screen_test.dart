@@ -69,6 +69,10 @@ void main() {
     final ValueNotifier<int> summaryChanges = ValueNotifier<int>(0);
     addTearDown(summaryChanges.dispose);
     final List<SummaryRecord> records = <SummaryRecord>[];
+    const String currentNanoIdentity =
+        'Gemini Nano (base model: nano-v4-full; '
+        'AICore service: 0.release.prod_aicore_20260723.00_RC11.964081323 '
+        '(494417))';
 
     await tester.pumpWidget(
       MaterialApp(
@@ -111,7 +115,7 @@ void main() {
         ttftSeconds: 1.6,
         tokensPerSecond: 91.4,
         engineType: 'nano',
-        modelName: 'Gemini Nano (AICore 0.release.prod_aicore_20260723)',
+        modelName: currentNanoIdentity,
         tokenCount: 146,
       ),
     );
@@ -122,13 +126,49 @@ void main() {
     expect(find.text('2-Sentence Summary · Gemini Nano'), findsOneWidget);
     expect(find.text('AICore'), findsOneWidget);
     expect(
-      find.textContaining('AICore 0.release.prod_aicore_20260723'),
+      find.textContaining('AICore service: 0.release.prod_aicore_20260723'),
       findsNothing,
     );
     expect(find.text('1 saved run'), findsOneWidget);
     expect(find.byKey(const Key('results-playground-search')), findsOneWidget);
     expect(
       find.byKey(const Key('results-playground-task-filter')),
+      findsOneWidget,
+    );
+    expect(find.text('1.60s'), findsOneWidget);
+    expect(find.text('--'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, 'View run'));
+    await tester.pumpAndSettle();
+    expect(find.text('Model identity'), findsOneWidget);
+    expect(find.text(currentNanoIdentity), findsOneWidget);
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pumpAndSettle();
+
+    records.add(
+      SummaryRecord(
+        id: 2,
+        originalText: 'An older original passage.',
+        generatedSummary: 'An older saved output.',
+        taskType: 'Key Events',
+        createdAt: DateTime(2026, 8, 31, 7, 15),
+        latencySeconds: 1.8,
+        ttftSeconds: 1.8,
+        tokensPerSecond: 80.0,
+        engineType: 'nano',
+        modelName: 'Gemini Nano (AICore 0.release.prod_aicore_20260723)',
+        tokenCount: 120,
+      ),
+    );
+    summaryChanges.value++;
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('2-Sentence Summary · Gemini Nano — nano-v4-full'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Key Events · Gemini Nano — base model unreported'),
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);

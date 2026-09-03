@@ -8,6 +8,14 @@ import '../services/model_manager_service.dart';
 typedef BenchmarkRunScoreCallback =
     Future<void> Function(BenchmarkModelResult run, int? score, String? note);
 
+const String benchmarkScoreExplanation =
+    '0 = fabricated or unusable · 3 = usable with omissions · '
+    '5 = faithful and complete';
+const List<List<int>> benchmarkScoreRows = <List<int>>[
+  <int>[0, 1, 2],
+  <int>[3, 4, 5],
+];
+
 class BenchmarkResultsTable extends StatelessWidget {
   const BenchmarkResultsTable({
     super.key,
@@ -685,6 +693,25 @@ class _ScoreDialogState extends State<_ScoreDialog> {
     super.dispose();
   }
 
+  Widget _buildScoreRow(List<int> values) {
+    return Row(
+      children: <Widget>[
+        for (int index = 0; index < values.length; index++) ...<Widget>[
+          if (index > 0) const SizedBox(width: 6),
+          Expanded(
+            child: Center(
+              child: ChoiceChip(
+                label: Text('${values[index]}'),
+                selected: _score == values[index],
+                onSelected: (_) => setState(() => _score = values[index]),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -703,22 +730,14 @@ class _ScoreDialogState extends State<_ScoreDialog> {
               ),
             ),
             const SizedBox(height: 12),
-            Text(
-              '5 = faithful and complete · 3 = usable with omissions · '
-              '0 = fabricated or unusable',
-              style: theme.textTheme.bodySmall,
-            ),
+            Text(benchmarkScoreExplanation, style: theme.textTheme.bodySmall),
             const SizedBox(height: 10),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: List<Widget>.generate(6, (int value) {
-                return ChoiceChip(
-                  label: Text('$value'),
-                  selected: _score == value,
-                  onSelected: (_) => setState(() => _score = value),
-                );
-              }),
+            Column(
+              children: <Widget>[
+                _buildScoreRow(benchmarkScoreRows[0]),
+                const SizedBox(height: 6),
+                _buildScoreRow(benchmarkScoreRows[1]),
+              ],
             ),
             const SizedBox(height: 12),
             TextField(

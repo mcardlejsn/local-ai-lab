@@ -6,6 +6,21 @@ import 'package:local_ai_summarizer/services/model_manager_service.dart';
 import 'package:local_ai_summarizer/theme/app_theme.dart';
 
 void main() {
+  test('Run output keeps attributed Nano identity compact', () {
+    final ModelInfo nano = ModelInfo(
+      id: 'system_gemini_nano',
+      name:
+          'Gemini Nano (base model: nano-v4-full; '
+          'AICore service: 0.release.prod_aicore_20260723)',
+      path: 'system://aicore/nano',
+      engine: ModelEngine.nano,
+      sizeBytes: 0,
+      promptFormat: PromptFormat.plain,
+    );
+
+    expect(runOutputModelLabel(nano), 'Gemini Nano');
+  });
+
   Future<void> pumpPlayground(WidgetTester tester) async {
     await tester.binding.setSurfaceSize(const Size(430, 1800));
     addTearDown(() => tester.binding.setSurfaceSize(null));

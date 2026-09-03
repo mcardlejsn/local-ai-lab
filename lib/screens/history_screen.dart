@@ -182,6 +182,21 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         color: theme.colorScheme.primary,
                       ),
                     ),
+                    if (record.modelName?.trim().isNotEmpty == true) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        'Model identity',
+                        style: theme.textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 6),
+                      SelectableText(
+                        record.modelName!.trim(),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
                     if (record.sentenceCountMet != null) ...[
                       const SizedBox(height: 12),
                       _buildSentenceCountBadge(record),
@@ -442,7 +457,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   ),
                   _buildMetric(
                     'TTFT',
-                    record.ttftSeconds == null
+                    engine == ModelEngine.nano || record.ttftSeconds == null
                         ? '--'
                         : '${record.ttftSeconds!.toStringAsFixed(2)}s',
                   ),

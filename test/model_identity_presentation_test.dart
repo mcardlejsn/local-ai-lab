@@ -7,7 +7,8 @@ void main() {
     test('normalizes the approved active model identities', () {
       expect(
         conciseModelName(
-          'Gemini Nano (AICore 0.release.prod_aicore_20260723)',
+          'Gemini Nano (base model: nano-v4; '
+          'AICore service: 0.release.prod_aicore_20260723)',
           ModelEngine.nano,
         ),
         'Gemini Nano',
@@ -44,6 +45,16 @@ void main() {
       );
     });
 
+    test('keeps historical Nano identities readable', () {
+      expect(
+        conciseModelName(
+          'Gemini Nano (AICore 0.release.prod_aicore_20260723)',
+          ModelEngine.nano,
+        ),
+        'Gemini Nano',
+      );
+    });
+
     test('keeps unfamiliar identity text instead of guessing a family', () {
       expect(
         conciseModelName(
@@ -51,6 +62,27 @@ void main() {
           ModelEngine.gguf,
         ),
         'unknown model 1B Instruct',
+      );
+    });
+  });
+
+  group('Nano technical identity', () {
+    test('labels the base model separately from the AICore service', () {
+      expect(
+        nanoTechnicalModelName(
+          baseModelName: 'nano-v4',
+          aiCoreVersion: '0.release.prod_aicore_20260723',
+        ),
+        'Gemini Nano (base model: nano-v4; '
+        'AICore service: 0.release.prod_aicore_20260723)',
+      );
+    });
+
+    test('does not infer missing attribution values', () {
+      expect(
+        nanoTechnicalModelName(),
+        'Gemini Nano (base model: unavailable; '
+        'AICore service: unavailable)',
       );
     });
   });
@@ -91,6 +123,40 @@ void main() {
     expect(names['b'], 'Qwen2.5 0.5B Instruct — Unsloth');
     expect(names['c'], 'Falcon-H1 0.5B Instruct');
   });
+
+  test(
+    'Nano collisions use base-model attribution instead of service builds',
+    () {
+      final Map<String, String> names =
+          resolveConciseModelNames(const <ModelDisplayIdentity>[
+            ModelDisplayIdentity(
+              key: 'current',
+              technicalName:
+                  'Gemini Nano (base model: nano-v4-full; '
+                  'AICore service: 0.release.prod_aicore_20260723)',
+              engine: ModelEngine.nano,
+            ),
+            ModelDisplayIdentity(
+              key: 'unavailable',
+              technicalName:
+                  'Gemini Nano (base model: unavailable; '
+                  'AICore service: 0.release.prod_aicore_20260723)',
+              engine: ModelEngine.nano,
+            ),
+            ModelDisplayIdentity(
+              key: 'historical',
+              technicalName:
+                  'Gemini Nano '
+                  '(AICore 0.release.prod_aicore_20260723)',
+              engine: ModelEngine.nano,
+            ),
+          ]);
+
+      expect(names['current'], 'Gemini Nano — nano-v4-full');
+      expect(names['unavailable'], 'Gemini Nano — base model unavailable');
+      expect(names['historical'], 'Gemini Nano — base model unreported');
+    },
+  );
 
   test('loading status uses the pending model concise name', () {
     final String status = conciseModelStatus(

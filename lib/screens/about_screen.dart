@@ -25,11 +25,13 @@ class RuntimeDiagnostics {
   const RuntimeDiagnostics({
     required this.platformDescription,
     required this.geminiNanoAvailable,
+    this.nanoBaseModelName,
     this.aiCoreVersion,
   });
 
   final String platformDescription;
   final bool geminiNanoAvailable;
+  final String? nanoBaseModelName;
   final String? aiCoreVersion;
 }
 
@@ -43,10 +45,14 @@ Future<AppPackageDetails> loadAppPackageDetails() async {
 
 Future<RuntimeDiagnostics> loadRuntimeDiagnostics() async {
   final bool nanoAvailable = await GeminiNanoService.isAvailable();
+  final String? nanoBaseModelName = nanoAvailable
+      ? await GeminiNanoService.getBaseModelName()
+      : null;
   final String? aiCoreVersion = await GeminiNanoService.getAiCoreVersion();
   return RuntimeDiagnostics(
     platformDescription: Platform.operatingSystemVersion,
     geminiNanoAvailable: nanoAvailable,
+    nanoBaseModelName: nanoBaseModelName,
     aiCoreVersion: aiCoreVersion,
   );
 }
@@ -336,7 +342,14 @@ class _DeviceRuntimeScreenState extends State<DeviceRuntimeScreen> {
             final String aiCoreStatus = diagnostics.geminiNanoAvailable
                 ? 'Gemini Nano available'
                 : 'Gemini Nano unavailable';
-            final String? version = diagnostics.aiCoreVersion;
+            final String baseModel =
+                diagnostics.nanoBaseModelName?.trim().isNotEmpty == true
+                ? diagnostics.nanoBaseModelName!.trim()
+                : 'unavailable';
+            final String aiCoreVersion =
+                diagnostics.aiCoreVersion?.trim().isNotEmpty == true
+                ? diagnostics.aiCoreVersion!.trim()
+                : 'unavailable';
 
             return ListView(
               padding: const EdgeInsets.all(16),
@@ -350,9 +363,10 @@ class _DeviceRuntimeScreenState extends State<DeviceRuntimeScreen> {
                 _AboutInfoCard(
                   icon: Icons.auto_awesome_outlined,
                   title: 'Gemini Nano · AICore',
-                  body: version == null
-                      ? aiCoreStatus
-                      : '$aiCoreStatus\nAICore $version',
+                  body:
+                      '$aiCoreStatus\n'
+                      'Base model: $baseModel\n'
+                      'AICore service: $aiCoreVersion',
                   statusColor: diagnostics.geminiNanoAvailable
                       ? Theme.of(context).colorScheme.primary
                       : Theme.of(context).colorScheme.error,

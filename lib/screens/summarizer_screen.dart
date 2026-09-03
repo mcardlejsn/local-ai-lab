@@ -21,6 +21,12 @@ bool supportsTopPSamplingControl(ModelEngine? engine) {
   return engine == ModelEngine.gguf;
 }
 
+/// Compact model label used by the Run output card. Technical identity remains
+/// unchanged in ModelInfo and is still stored with saved results.
+String runOutputModelLabel(ModelInfo model) {
+  return conciseModelName(model.name, model.engine);
+}
+
 class SummarizerScreen extends StatefulWidget {
   const SummarizerScreen({
     super.key,
@@ -256,7 +262,9 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
           setState(() {
             _isStreaming = false;
             _generatedOutput = resultText;
-            _timeToFirstTokenSeconds = totalSec;
+            // Nano returns one completed response through the current
+            // non-streaming API, so a separate TTFT cannot be observed.
+            _timeToFirstTokenSeconds = null;
             _totalLatencySeconds = totalSec;
             _estimatedTokenCount = estTokens;
             _tokensPerSecond = totalSec > 0 ? (estTokens / totalSec) : 0;
@@ -1078,7 +1086,7 @@ class _SummarizerScreenState extends State<SummarizerScreen> {
                 if (activeModel != null)
                   Flexible(
                     child: Text(
-                      activeModel.name,
+                      runOutputModelLabel(activeModel),
                       style: theme.textTheme.labelMedium?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),

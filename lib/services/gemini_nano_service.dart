@@ -1,8 +1,9 @@
 import 'package:flutter/services.dart';
 
 class GeminiNanoService {
-  static const MethodChannel _channel =
-      MethodChannel('com.mycarejournals.local_ai_summarizer/nano');
+  static const MethodChannel _channel = MethodChannel(
+    'com.mycarejournals.local_ai_summarizer/nano',
+  );
 
   static Future<bool> isAvailable() async {
     try {
@@ -23,6 +24,16 @@ class GeminiNanoService {
     }
   }
 
+  /// Base-model name reported by the ML Kit GenAI Prompt API for the Gemini
+  /// Nano generator on this device. Null when AICore does not report one.
+  static Future<String?> getBaseModelName() async {
+    try {
+      return await _channel.invokeMethod<String>('getNanoBaseModelName');
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<String> generateText({
     required String prompt,
     double temperature = 0.20,
@@ -30,15 +41,13 @@ class GeminiNanoService {
     int maxTokens = 256,
   }) async {
     try {
-      final String? result = await _channel.invokeMethod<String>(
-        'generateNanoText',
-        {
-          'prompt': prompt,
-          'temperature': temperature,
-          'topK': topK,
-          'maxTokens': maxTokens,
-        },
-      );
+      final String? result = await _channel
+          .invokeMethod<String>('generateNanoText', {
+            'prompt': prompt,
+            'temperature': temperature,
+            'topK': topK,
+            'maxTokens': maxTokens,
+          });
       return result ?? '';
     } on PlatformException catch (e) {
       throw Exception(e.message ?? 'Nano inference failed');

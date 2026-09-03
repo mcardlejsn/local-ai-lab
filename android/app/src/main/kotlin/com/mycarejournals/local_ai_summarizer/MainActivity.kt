@@ -37,8 +37,8 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "getAiCoreVersion" -> {
-                    // Records which AICore build served the request, so results from
-                    // different devices or dates can be compared meaningfully.
+                    // This is the serving system component's package version,
+                    // not the identity or revision of the Gemini Nano model.
                     try {
                         val info = packageManager.getPackageInfo(AICORE_PACKAGE, 0)
                         val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -51,6 +51,19 @@ class MainActivity : FlutterActivity() {
                         result.success("$versionName ($versionCode)")
                     } catch (e: Exception) {
                         result.success(null)
+                    }
+                }
+                "getNanoBaseModelName" -> {
+                    coroutineScope.launch {
+                        try {
+                            val client = Generation.getClient()
+                            val baseModelName = withContext(Dispatchers.IO) {
+                                client.getBaseModelName()
+                            }
+                            result.success(baseModelName)
+                        } catch (e: Exception) {
+                            result.success(null)
+                        }
                     }
                 }
                 "generateNanoText" -> {

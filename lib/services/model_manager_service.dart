@@ -104,6 +104,23 @@ String buildInferencePrompt({
 /// not inflate the result through repeated rounding.
 int estimateOutputTokens(String output) => (output.length / 4.0).ceil();
 
+/// Builds the technical Nano identity stored with new Run and Compare results.
+///
+/// The Prompt API's base-model name and the AICore package version describe
+/// different things, so both values remain explicitly labeled. Missing values
+/// stay missing rather than being inferred from the device or service build.
+String nanoTechnicalModelName({String? baseModelName, String? aiCoreVersion}) {
+  final String? normalizedBaseModelName =
+      baseModelName?.trim().isNotEmpty == true ? baseModelName!.trim() : null;
+  final String? normalizedAiCoreVersion =
+      aiCoreVersion?.trim().isNotEmpty == true ? aiCoreVersion!.trim() : null;
+
+  return 'Gemini Nano ('
+      'base model: ${normalizedBaseModelName ?? 'unavailable'}; '
+      'AICore service: ${normalizedAiCoreVersion ?? 'unavailable'}'
+      ')';
+}
+
 /// Whether [filePath] can be discovered by an active file-model runtime.
 bool isActiveModelFilePath(String filePath) {
   return p.extension(filePath).toLowerCase() == '.gguf' ||
@@ -194,16 +211,20 @@ class ModelManagerService extends ChangeNotifier {
       // 1. Check Gemini Nano (AICore NPU)
       final bool isNanoReady = await GeminiNanoService.isAvailable();
       if (isNanoReady) {
-        // Capture which AICore build is serving Nano, so results recorded on
-        // different devices or dates can be attributed to a specific version.
+        // Capture the model identity reported by the Prompt API separately
+        // from the AICore service package version. ModelInfo.name is already
+        // stored verbatim with new Run and Compare results.
+        final String? nanoBaseModelName =
+            await GeminiNanoService.getBaseModelName();
         final String? aiCoreVersion =
             await GeminiNanoService.getAiCoreVersion();
         discovered.add(
           ModelInfo(
             id: 'system_gemini_nano',
-            name: aiCoreVersion == null
-                ? 'Gemini Nano (AICore NPU)'
-                : 'Gemini Nano (AICore $aiCoreVersion)',
+            name: nanoTechnicalModelName(
+              baseModelName: nanoBaseModelName,
+              aiCoreVersion: aiCoreVersion,
+            ),
             path: 'system://aicore/nano',
             engine: ModelEngine.nano,
             sizeBytes: 0,

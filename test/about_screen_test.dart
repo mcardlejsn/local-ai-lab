@@ -187,6 +187,7 @@ void main() {
         diagnosticsLoader: () async => const RuntimeDiagnostics(
           platformDescription: 'Android 17 test device',
           geminiNanoAvailable: true,
+          nanoBaseModelName: 'nano-v4',
           aiCoreVersion: '1.2.3 (456)',
         ),
       ),
@@ -195,11 +196,40 @@ void main() {
     expect(find.text('Android 17 test device'), findsOneWidget);
     expect(find.text('Gemini Nano · AICore'), findsOneWidget);
     expect(
-      find.text('Gemini Nano available\nAICore 1.2.3 (456)'),
+      find.text(
+        'Gemini Nano available\n'
+        'Base model: nano-v4\n'
+        'AICore service: 1.2.3 (456)',
+      ),
       findsOneWidget,
     );
     expect(find.text('GGUF · llama.cpp'), findsOneWidget);
     expect(find.textContaining('Bundled with Local AI Lab'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('diagnostics does not infer an unreported Nano base model', (
+    WidgetTester tester,
+  ) async {
+    await pumpScreen(
+      tester,
+      DeviceRuntimeScreen(
+        diagnosticsLoader: () async => const RuntimeDiagnostics(
+          platformDescription: 'Android test device',
+          geminiNanoAvailable: true,
+          aiCoreVersion: '1.2.3 (456)',
+        ),
+      ),
+    );
+
+    expect(
+      find.text(
+        'Gemini Nano available\n'
+        'Base model: unavailable\n'
+        'AICore service: 1.2.3 (456)',
+      ),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 }

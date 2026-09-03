@@ -9,6 +9,18 @@ import 'package:local_ai_summarizer/theme/app_theme.dart';
 import 'package:local_ai_summarizer/widgets/benchmark_results_table.dart';
 
 void main() {
+  test('manual accuracy explanation follows the displayed score order', () {
+    expect(benchmarkScoreRows, <List<int>>[
+      <int>[0, 1, 2],
+      <int>[3, 4, 5],
+    ]);
+    expect(
+      benchmarkScoreExplanation,
+      '0 = fabricated or unusable · 3 = usable with omissions · '
+      '5 = faithful and complete',
+    );
+  });
+
   Future<void> pumpAtLargeText(WidgetTester tester, Widget home) async {
     await tester.binding.setSurfaceSize(const Size(430, 1800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
