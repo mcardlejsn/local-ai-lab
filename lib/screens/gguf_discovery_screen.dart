@@ -30,6 +30,7 @@ class GgufDiscoveryScreen extends StatefulWidget {
     this.installRegistry,
     this.onModelInstalled,
     this.externalUriLauncher,
+    this.leadingContent,
   });
 
   /// Omits the standalone scaffold and app bar when the discovery experience
@@ -54,6 +55,10 @@ class GgufDiscoveryScreen extends StatefulWidget {
 
   /// Injectable so widget tests never open an external application.
   final ExternalUriLauncher? externalUriLauncher;
+
+  /// Optional content shown before the GGUF-specific discovery experience
+  /// when this screen is embedded in the broader Candidates section.
+  final Widget? leadingContent;
 
   @override
   State<GgufDiscoveryScreen> createState() => _GgufDiscoveryScreenState();
@@ -551,6 +556,10 @@ class _GgufDiscoveryScreenState extends State<GgufDiscoveryScreen> {
         key: const PageStorageKey<String>('gguf-discovery-list'),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         children: [
+          if (widget.leadingContent != null) ...[
+            widget.leadingContent!,
+            const SizedBox(height: 14),
+          ],
           _buildIntroduction(),
           const SizedBox(height: 14),
           _buildDiscoverButton(),

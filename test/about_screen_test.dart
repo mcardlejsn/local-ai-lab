@@ -60,6 +60,14 @@ void main() {
       findsOneWidget,
     );
     expect(
+      find.textContaining('Curated LiteRT-LM lists exact'),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('pinned to an immutable revision'),
+      findsOneWidget,
+    );
+    expect(
       find.textContaining('one complete, unsharded Q4_K_M artifact'),
       findsOneWidget,
     );
@@ -73,6 +81,10 @@ void main() {
       400,
     );
     expect(find.textContaining('Q4_K_M is a balanced'), findsOneWidget);
+    expect(
+      find.textContaining('LiteRT-LM artifacts are packaged model files'),
+      findsOneWidget,
+    );
     expect(find.textContaining('Single and unsharded'), findsOneWidget);
     expect(
       find.textContaining('SHA-256 is a digital fingerprint'),

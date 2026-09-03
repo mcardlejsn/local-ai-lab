@@ -13,6 +13,7 @@ import '../services/gguf_discovery_cache_service.dart';
 import '../services/gguf_install_registry_service.dart';
 import '../services/gguf_model_update_service.dart';
 import '../services/model_manager_service.dart';
+import '../widgets/litertlm_candidates_section.dart';
 import 'gguf_discovery_screen.dart';
 import 'settings_screen.dart';
 
@@ -438,6 +439,14 @@ class _ModelDownloadScreenState extends State<ModelDownloadScreen> {
     if (builder != null) return builder(context);
     return GgufDiscoveryScreen(
       embedded: true,
+      leadingContent: LiteRtLmCandidatesSection(
+        installedArtifactIds: _installedModels
+            .where((ModelInfo model) => model.engine == ModelEngine.litertlm)
+            .map((ModelInfo model) => model.id)
+            .toSet(),
+        installedInventoryLoading: _isInstalledInventoryLoading,
+        onModelInstalled: widget.modelManager.scanModels,
+      ),
       discoveryCache: _discoveryCache,
       installRegistry: _installRegistry,
       onModelInstalled: widget.modelManager.scanModels,

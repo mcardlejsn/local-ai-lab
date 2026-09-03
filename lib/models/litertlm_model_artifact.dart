@@ -10,7 +10,9 @@ class LiteRtLmModelArtifact {
     required this.sizeBytes,
     required this.sha256,
     required this.license,
+    required this.licenseUrl,
     required this.displayName,
+    required this.artifactContextTokens,
     required this.contextTokens,
     required this.runtimeProfile,
     required this.isThinking,
@@ -22,7 +24,13 @@ class LiteRtLmModelArtifact {
   final int sizeBytes;
   final String sha256;
   final String license;
+  final String licenseUrl;
   final String displayName;
+
+  /// Maximum context recorded by the published artifact.
+  final int artifactContextTokens;
+
+  /// Context budget Local AI Lab supplies to the pinned runtime.
   final int contextTokens;
   final LiteRtLmRuntimeProfile runtimeProfile;
   final bool isThinking;
@@ -32,6 +40,8 @@ class LiteRtLmModelArtifact {
 
   String get downloadUrl =>
       'https://huggingface.co/$repository/resolve/$revision/$filename';
+
+  String get sourceUrl => 'https://huggingface.co/$repository';
 
   bool hasExpectedFilename(String candidate) => candidate == filename;
 
@@ -53,7 +63,9 @@ const LiteRtLmModelArtifact prototypeLiteRtLmArtifact = LiteRtLmModelArtifact(
   sizeBytes: 497664000,
   sha256: 'b1baab462f6be49d70eada79d715c2c52cd9ece0cad00bddf6a2c097d23498e9',
   license: 'Apache-2.0',
+  licenseUrl: 'https://www.apache.org/licenses/LICENSE-2.0',
   displayName: 'Qwen3 0.6B (LiteRT-LM)',
+  artifactContextTokens: 4096,
   // Preserve the already-qualified runtime budget used by the prototype.
   contextTokens: 2048,
   runtimeProfile: LiteRtLmRuntimeProfile.qwen3,
@@ -69,7 +81,9 @@ const LiteRtLmModelArtifact olmo2OneBInstructLiteRtLmArtifact =
       sha256:
           '8d2457b54397731c5f451babb6bebfb9877545b4b070ac76914aab348fd954b0',
       license: 'Apache-2.0',
+      licenseUrl: 'https://www.apache.org/licenses/LICENSE-2.0',
       displayName: 'OLMo 2 1B Instruct (LiteRT-LM)',
+      artifactContextTokens: 4096,
       contextTokens: 4096,
       runtimeProfile: LiteRtLmRuntimeProfile.general,
       isThinking: false,

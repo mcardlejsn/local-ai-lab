@@ -24,6 +24,11 @@ void main() {
         'b1baab462f6be49d70eada79d715c2c52cd9ece0cad00bddf6a2c097d23498e9',
       );
       expect(prototypeLiteRtLmArtifact.license, 'Apache-2.0');
+      expect(
+        prototypeLiteRtLmArtifact.licenseUrl,
+        'https://www.apache.org/licenses/LICENSE-2.0',
+      );
+      expect(prototypeLiteRtLmArtifact.artifactContextTokens, 4096);
       expect(prototypeLiteRtLmArtifact.contextTokens, 2048);
       expect(
         prototypeLiteRtLmArtifact.runtimeProfile,
@@ -57,6 +62,7 @@ void main() {
         '8d2457b54397731c5f451babb6bebfb9877545b4b070ac76914aab348fd954b0',
       );
       expect(olmo2OneBInstructLiteRtLmArtifact.license, 'Apache-2.0');
+      expect(olmo2OneBInstructLiteRtLmArtifact.artifactContextTokens, 4096);
       expect(olmo2OneBInstructLiteRtLmArtifact.contextTokens, 4096);
       expect(
         olmo2OneBInstructLiteRtLmArtifact.runtimeProfile,
@@ -81,6 +87,20 @@ void main() {
         ),
         isNull,
       );
+    });
+
+    test('keeps every curated artifact within the phone catalog boundary', () {
+      for (final LiteRtLmModelArtifact artifact in approvedLiteRtLmArtifacts) {
+        expect(artifact.sizeBytes, lessThanOrEqualTo(3000000000));
+        expect(artifact.repository, isNotEmpty);
+        expect(artifact.revision, hasLength(40));
+        expect(artifact.sha256, hasLength(64));
+        expect(artifact.license, isNotEmpty);
+        expect(artifact.licenseUrl, startsWith('https://'));
+        expect(artifact.artifactContextTokens, greaterThan(0));
+        expect(artifact.contextTokens, greaterThan(0));
+        expect(artifact.isThinking, isFalse);
+      }
     });
 
     test('requires exact filename, byte size, and SHA-256', () {

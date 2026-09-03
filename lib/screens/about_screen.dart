@@ -156,16 +156,24 @@ class _AboutLocalAiLabScreenState extends State<AboutLocalAiLabScreen> {
               title: 'Network use',
               body:
                   'Network-related actions occur only when you explicitly '
-                  'discover or download a GGUF model, or open external model '
-                  'and license information. Gemini Nano and installed GGUF '
-                  'model inference run on-device.',
+                  'discover a GGUF model, download a GGUF or LiteRT-LM model, '
+                  'or open external model and license information. Gemini '
+                  'Nano and installed GGUF and LiteRT-LM model inference run '
+                  'on-device.',
             ),
             const SizedBox(height: 16),
             const _AboutInfoCard(
               icon: Icons.fact_check_outlined,
               title: 'Discovery Candidates',
               body:
-                  'Candidates are ordinary supported instruction or chat GGUF '
+                  'The Candidates section contains two paths. Curated '
+                  'LiteRT-LM lists exact artifacts already audited and '
+                  'qualified with the app’s pinned runtime. Each is public '
+                  'and ungated, instruction or chat suitable, a single file '
+                  'no larger than 3 GB, pinned to an immutable revision, and '
+                  'recorded with its exact size, SHA-256 hash, license, '
+                  'context, runtime profile, and thinking behavior.\n\n'
+                  'GGUF Candidates are ordinary supported instruction or chat '
                   'models that meet Local AI Lab’s mechanical download and '
                   'compatibility requirements: public and ungated; one '
                   'complete, unsharded Q4_K_M artifact no larger than 3 GB; a '
@@ -176,8 +184,10 @@ class _AboutLocalAiLabScreenState extends State<AboutLocalAiLabScreen> {
                   'fallback repositories. Duplicate repositories and '
                   'equivalent model results are removed.\n\n'
                   'Candidate status does not establish output quality, safety, '
-                  'or practical performance on this phone. Use Run and Compare '
-                  'to evaluate behavior.',
+                  'or practical performance on this phone. LiteRT-LM runtime '
+                  'qualification confirms compatibility and clean operation, '
+                  'not that a model is best. Use Run and Compare to evaluate '
+                  'behavior.',
             ),
             const SizedBox(height: 16),
             const _AboutInfoCard(
@@ -186,6 +196,9 @@ class _AboutLocalAiLabScreenState extends State<AboutLocalAiLabScreen> {
               body:
                   'GGUF is the model-file format used by Local AI Lab’s bundled '
                   'llama.cpp runtime.\n\n'
+                  'LiteRT-LM artifacts are packaged model files used by '
+                  'Google’s LiteRT-LM runtime. Local AI Lab accepts only exact '
+                  'cataloged files and currently uses the GPU backend.\n\n'
                   'Q4_K_M is a balanced 4-bit quantization. Q4 means most model '
                   'weights use roughly four bits, reducing file size and '
                   'memory use. K identifies llama.cpp’s grouped quantization '
