@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — Local AI Lab</title>
+<meta name="description" content="Privacy policy for Local AI Lab. Passages, prompts, generated output, and results stay on your device.">
+<meta name="theme-color" content="#111820">
+<link rel="canonical" href="https://mcardlejsn.github.io/local-ai-lab/privacy.html">
+<style>
+  :root{--background:#F9F9FF;--surface:#FFFFFF;--ink:#1A1B20;--ink-soft:#5D5E67;--rule:#E1E2EC;--blue:#4F6BED;--blue-dark:#3049B8;--blue-soft:#E0E5FF;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+  *,*::before,*::after{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--background);color:var(--ink);font-family:var(--sans);font-size:1.0625rem;line-height:1.65;-webkit-font-smoothing:antialiased}
+  .masthead{background:var(--surface);border-top:4px solid var(--blue);border-bottom:1px solid var(--rule)}
+  .masthead .inner{padding-top:2.75rem;padding-bottom:2.75rem}
+  .inner{max-width:46rem;margin:0 auto;padding:0 clamp(1.25rem,5vw,2.5rem)}
+  h1{font-weight:650;font-size:clamp(2rem,5vw,2.8rem);line-height:1.12;letter-spacing:-.025em;margin:0 0 .6rem;color:var(--ink)}
+  .updated{margin:0;color:var(--ink-soft);font-size:.9375rem}
+  main{padding-top:2.75rem;padding-bottom:5rem}
+  h2{font-weight:650;font-size:1.35rem;line-height:1.3;margin:2.5rem 0 .65rem;padding-top:1.6rem;border-top:1px solid var(--rule)}
+  main>.inner>h2:first-child{border-top:none;padding-top:0;margin-top:0}
+  p{margin:0 0 1.1rem}
+  .intro{font-size:1.1875rem;color:var(--ink-soft);background:var(--blue-soft);border-radius:16px;padding:1.25rem}
+  a{color:var(--blue-dark);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+  a:hover{color:var(--blue)}
+  a:focus-visible{outline:3px solid var(--blue);outline-offset:3px;border-radius:3px}
+</style>
+</head>
+<body>
+<header class="masthead"><div class="inner"><h1>Privacy Policy for Local AI Lab</h1><p class="updated">Last updated: September 4, 2026</p></div></header>
+<main><div class="inner">
+  <p class="intro">Local AI Lab is an Android tool for running and comparing text summarization across on-device language models. Inference occurs locally on your device.</p>
+  <h2>Data Collection</h2><p>Local AI Lab does not collect personal data. There are no user accounts, advertisements, analytics, or tracking. The developer cannot see the passages, prompts, generated output, results, or review scores you create in the app.</p>
+  <h2>On-Device Processing</h2><p>Passages and instructions are processed on your device by an installed local model. Local AI Lab does not send your text or generated output to the developer or to a cloud inference service.</p><p>Gemini Nano requests are processed on-device through Android AICore and the ML Kit GenAI Prompt API. Compatible GGUF and LiteRT-LM models run through local inference runtimes included with the app.</p>
+  <h2>Local Storage</h2><p>Saved Runs and Compare sessions—including passages, instructions, generated output, model and device information, performance measurements, recall measurements, and manual review scores—are stored locally on your device. Downloaded model files and partial downloads are also stored in app-managed storage.</p><p>Android system backup is disabled for Local AI Lab. App data and model files are not automatically copied through Android backup by this app.</p>
+  <h2>Network Use</h2><p>Local AI Lab uses the network only after you choose an action that requires it. The app can search public model information, download model files, verify model metadata, and open external model, repository, or license links.</p><p>Model discovery and downloads may connect to Hugging Face or to the host identified for a selected model. Those services receive ordinary connection information, such as your IP address, and their own privacy policies apply. Local AI Lab does not include that connection information in data sent to the developer.</p><p>Some Android system components, including AICore, may independently obtain model files, configurations, or updates as part of Android’s system-managed operation. Local AI Lab does not control those system downloads.</p>
+  <h2>Imported and Downloaded Models</h2><p>You may use compatible model files from third parties. Model publishers and hosting services have their own licenses, terms, and privacy practices. A model’s appearance in Candidates or its successful use in Local AI Lab is not an endorsement of its quality, safety, or output.</p>
+  <h2>Generated Output</h2><p>Generated summaries and extracted information can omit, alter, or invent details. Outputs and measurements should be reviewed by a person against the original passage. Local AI Lab does not provide medical, legal, financial, or other professional advice.</p>
+  <h2>External Links</h2><p>Local AI Lab contains optional links to external websites for model, repository, and license information. If you follow one, you leave the app and that website’s privacy policy applies.</p>
+  <h2>Deleting Your Information</h2><p>You can delete saved Runs, Compare sessions, and downloaded models within the app. Uninstalling Local AI Lab removes its app-managed data and model files. Original model files that you stored elsewhere on your device are not removed and must be deleted separately.</p>
+  <h2>Children’s Privacy</h2><p>Local AI Lab is a technical tool and is not directed at children. It does not knowingly collect information from anyone.</p>
+  <h2>Changes to This Policy</h2><p>If this policy changes, the update will be posted here with a revised date.</p>
+  <h2>Contact</h2><p>Questions about this policy can be submitted through the <a href="https://github.com/mcardlejsn/local-ai-lab/issues">Local AI Lab issue tracker</a>.</p>
+</div></main>
+</body>
+</html>
